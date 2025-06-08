@@ -19,7 +19,7 @@ export PYTHONUNBUFFERED=1
 
 run_server() {
   # shellcheck source=/dev/null
-  source "$VENV_DIR/bin/activate"
+  source "../.venv/bin/activate"
   streamlit run app.py \
        --server.address "$STREAMLIT_ADDR" \
        --server.port "$STREAMLIT_PORT" \
