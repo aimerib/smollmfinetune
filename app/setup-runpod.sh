@@ -1,180 +1,201 @@
-#!/bin/bash
+#!/usr/bin/env bash
+#
+# Character-AI Training Studio - RunPod bootstrap
+# -----------------------------------------------
+# This script prepares a brand-new RunPod GPU instance (or resumes one)
+# so you can reconnect via tmux and run long jobs safely.
+#
+# Usage:
+#   chmod +x runpod_bootstrap.sh
+#   ./runpod_bootstrap.sh        # first time / resume
+#
+#   ./runpod_bootstrap.sh --no-attach   # skip auto-attach to tmux
+#
+# • All config knobs can be overridden through the environment.
+# • Designed to be re-entrant: you may run it multiple times without harm.
 
-# Character AI Training Studio - RunPod Setup Script
-# This script automates the complete setup process on RunPod instances
+set -Eeuo pipefail
 
-set -e  # Exit on any error
+### ------------------------------------------------------------------ ###
+### 1. Configuration (override from CLI or env)                        ###
+### ------------------------------------------------------------------ ###
+export DEBIAN_FRONTEND=${DEBIAN_FRONTEND:-noninteractive}
 
-echo "🎭 Character AI Training Studio - RunPod Setup"
-echo "=============================================="
-echo "🚀 Setting up your AI training environment..."
-echo ""
+# tmux
+TMUX_SESSION=${TMUX_SESSION:-character-ai-studio}
 
-# Colors for better output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+# repo
+GIT_REPO_URL=${GIT_REPO_URL:-https://github.com/aimerib/smollmfinetune.git}
+GIT_REPO_DIR=${GIT_REPO_DIR:-smollmfinetune}
 
-# Function to print colored output
-print_status() {
-    echo -e "${BLUE}[INFO]${NC} $1"
-}
+# python & venv
+PYTHON_VERSION=${PYTHON_VERSION:-3.11}
+VENV_DIR=${VENV_DIR:-.venv}
 
-print_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
-}
-
-print_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
-}
-
-print_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-# Update system packages
-print_status "Updating system packages..."
-apt-get update -qq > /dev/null 2>&1
-print_success "System packages updated"
-
-# Install essential tools
-print_status "Installing vim and tmux..."
-apt-get install -y vim tmux curl git > /dev/null 2>&1
-print_success "Essential tools installed"
-
-# Check if we're already in tmux
-if [ -z "$TMUX" ]; then
-    print_status "Starting tmux session..."
-    # Create a new tmux session and run the rest of the script inside it
-    tmux new-session -d -s "character-ai-studio" -c "$HOME" "$0 --inside-tmux"
-    
-    print_success "Created tmux session 'character-ai-studio'"
-    echo ""
-    echo "🎯 Setup is continuing in tmux session 'character-ai-studio'"
-    echo "📋 To attach to the session: tmux attach -t character-ai-studio"
-    echo "📋 To list sessions: tmux ls"
-    echo "📋 To detach from session: Ctrl+B, then D"
-    echo ""
-    
-    # Wait a moment and then attach to the session
-    sleep 2
-    exec tmux attach -t "character-ai-studio"
-else
-    print_success "Already inside tmux session"
-fi
-
-# If we get here, we're inside tmux
-if [[ "$1" == "--inside-tmux" ]]; then
-    print_status "Continuing setup inside tmux..."
-    echo ""
-fi
-
-# Navigate to workspace
-cd /workspace || cd "$HOME"
-WORKSPACE=$(pwd)
-print_status "Working in: $WORKSPACE"
-
-# Clone the repository
-print_status "Cloning smollmfinetune repository..."
-if [ -d "smollmfinetune" ]; then
-    print_warning "Repository already exists, pulling latest changes..."
-    cd smollmfinetune
-    git pull origin main
-else
-    git clone https://github.com/aimerib/smollmfinetune.git
-    cd smollmfinetune
-fi
-print_success "Repository ready"
-
-# Install uv (fast Python package manager)
-print_status "Installing uv package manager..."
-if ! command -v uv &> /dev/null; then
-    curl -LsSf https://astral.sh/uv/install.sh | sh > /dev/null 2>&1
-    export PATH="$HOME/.cargo/bin:$PATH"
-    print_success "uv installed successfully"
-else
-    print_success "uv already installed"
-fi
-
-# Create virtual environment
-print_status "Creating Python virtual environment..."
-uv venv --python 3.11 > /dev/null 2>&1
-print_success "Virtual environment created"
-
-# Activate virtual environment
-print_status "Activating virtual environment..."
-source .venv/bin/activate
-print_success "Virtual environment activated"
-
-# Install dependencies
-print_status "Installing Python dependencies (this may take a few minutes)..."
-cd app
-uv pip install -r requirements-runpod.txt > /dev/null 2>&1
-print_success "Dependencies installed"
-
-# Set up environment variables for RunPod
-print_status "Configuring environment variables for optimal memory usage..."
-export INFERENCE_ENGINE=vllm
-export VLLM_MODEL=PocketDoc/Dans-PersonalityEngine-V1.3.0-24b
-export VLLM_GPU_MEMORY_UTILIZATION=0.90
-export VLLM_MAX_MODEL_LEN=2048
-export CUDA_VISIBLE_DEVICES=0
+# inference defaults
+export INFERENCE_ENGINE=${INFERENCE_ENGINE:-vllm}
+export VLLM_MODEL=${VLLM_MODEL:-PocketDoc/Dans-PersonalityEngine-V1.3.0-24b}
+export VLLM_GPU_MEMORY_UTILIZATION=${VLLM_GPU_MEMORY_UTILIZATION:-0.90}
+export VLLM_MAX_MODEL_LEN=${VLLM_MAX_MODEL_LEN:-2048}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0}
 export PYTHONUNBUFFERED=1
-print_success "Environment configured for PersonalityEngine-24B"
 
-# Create output directories
-print_status "Creating output directories..."
-mkdir -p training_output/adapters training_output/prompts
-print_success "Output directories ready"
+# streamlit
+STREAMLIT_PORT=${STREAMLIT_PORT:-8888}
+STREAMLIT_ADDRESS=${STREAMLIT_ADDRESS:-0.0.0.0}
 
-# Get GPU information
-print_status "Checking GPU availability..."
-if command -v nvidia-smi &> /dev/null; then
-    GPU_INFO=$(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)
-    print_success "GPU detected: $GPU_INFO"
-else
-    print_warning "nvidia-smi not found - GPU detection skipped"
-fi
+# colours
+NC=$(printf '\033[0m')
+INFO()    { printf "\033[0;34m[INFO]\033[0m    %s\n" "$*"; }
+SUCCESS() { printf "\033[0;32m[SUCCESS]\033[0m %s\n" "$*"; }
+WARN()    { printf "\033[1;33m[WARN]\033[0m   %s\n" "$*"; }
+ERROR()   { printf "\033[0;31m[ERROR]\033[0m  %s\n" "$*"; }
 
-# Final setup summary
-echo ""
-echo "🎉 Setup Complete!"
-echo "=================="
-echo ""
-echo "📊 Environment Summary:"
-echo "  • Repository: $(pwd)"
-echo "  • Python: $(python --version)"
-echo "  • Virtual Environment: Activated (.venv)"
-echo "  • Inference Engine: vLLM with PersonalityEngine-24B"
-echo "  • Tmux Session: character-ai-studio"
-echo ""
-echo "🚀 Starting Character AI Training Studio..."
-echo "  • Access URL: http://0.0.0.0:8888"
-echo "  • Local access: http://localhost:8888"
-echo ""
-echo "📋 Useful Commands:"
-echo "  • Detach from tmux: Ctrl+B, then D"
-echo "  • Reattach to tmux: tmux attach -t character-ai-studio"
-echo "  • View logs: Check the terminal output below"
-echo ""
+### ------------------------------------------------------------------ ###
+### 2. Helpers                                                         ###
+### ------------------------------------------------------------------ ###
+die() { ERROR "$*"; exit 1; }
 
-# Start Streamlit
-print_status "Launching Streamlit application..."
-streamlit run app.py \
-    --server.address 0.0.0.0 \
-    --server.port 8888 \
+trap 'die "Uncaught error on line $LINENO."' ERR
+
+need_cmd() {
+  command -v "$1" &>/dev/null || die "Required command '$1' not found."
+}
+
+apt_install() {
+  # Install only if the package is missing.
+  local pkgs=("$@")
+  local missing=()
+  for p in "${pkgs[@]}"; do
+    dpkg -s "$p" &>/dev/null || missing+=("$p")
+  done
+  if ((${#missing[@]})); then
+    INFO "Installing: ${missing[*]} ..."
+    apt-get update -qq
+    apt-get install -y "${missing[@]}"
+    SUCCESS "Packages installed."
+  else
+    SUCCESS "All packages already present."
+  fi
+}
+
+### ------------------------------------------------------------------ ###
+### 3. tmux bootstrap                                                  ###
+### ------------------------------------------------------------------ ###
+ensure_tmux() {
+  need_cmd tmux
+  # Already inside tmux? just return.
+  [[ -n "${TMUX:-}" ]] && return
+
+  # First run: create / attach session then re-exec inside it.
+  if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+    INFO "Creating tmux session '$TMUX_SESSION' ..."
+    tmux new-session -d -s "$TMUX_SESSION" -c "$PWD" \
+         "bash $0 --inside-tmux $*"
+  fi
+
+  INFO "Attaching to tmux session '$TMUX_SESSION' ..."
+  sleep 1
+  exec tmux attach -t "$TMUX_SESSION"
+}
+
+### ------------------------------------------------------------------ ###
+### 4. Core setup (runs **inside** tmux)                               ###
+### ------------------------------------------------------------------ ###
+setup_repo() {
+  INFO "Fetching project repository ..."
+  if [[ -d $GIT_REPO_DIR/.git ]]; then
+    git -C "$GIT_REPO_DIR" pull --ff-only
+  else
+    git clone --depth=1 "$GIT_REPO_URL" "$GIT_REPO_DIR"
+  fi
+  SUCCESS "Repository ready: $GIT_REPO_DIR"
+}
+
+setup_uv() {
+  if ! command -v uv &>/dev/null; then
+    INFO "Installing uv package manager ..."
+    curl -sSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+    SUCCESS "uv installed."
+  fi
+}
+
+setup_venv() {
+  cd "$GIT_REPO_DIR"
+  if [[ ! -d $VENV_DIR ]]; then
+    INFO "Creating Python $PYTHON_VERSION virtualenv ($VENV_DIR) ..."
+    uv venv --python "$PYTHON_VERSION"
+  fi
+  # shellcheck source=/dev/null
+  source "$VENV_DIR/bin/activate"
+  SUCCESS "Virtualenv activated."
+
+  INFO "Installing Python dependencies ..."
+  uv pip install -r app/requirements-runpod.txt
+  SUCCESS "Dependencies installed."
+}
+
+gpu_info() {
+  if command -v nvidia-smi &>/dev/null; then
+    INFO "GPU: $(nvidia-smi --query-gpu=name,memory.total --format=csv,noheader,nounits | head -1)"
+  else
+    WARN "nvidia-smi not present (GPU info skipped)."
+  fi
+}
+
+start_streamlit() {
+  INFO "Launching Streamlit ..."
+  cd "$GIT_REPO_DIR/app"
+  streamlit run app.py \
+    --server.address "$STREAMLIT_ADDRESS" \
+    --server.port "$STREAMLIT_PORT" \
     --server.enableCORS false \
     --server.enableXsrfProtection false \
     --server.headless true \
     --browser.gatherUsageStats false
+}
 
-# If we reach here, Streamlit has stopped
-print_warning "Streamlit application stopped"
-echo ""
-echo "🔄 To restart the application:"
-echo "   tmux attach -t character-ai-studio"
-echo "   cd /workspace/smollmfinetune/app"
-echo "   source .venv/bin/activate"
-echo "   streamlit run app.py --server.address 0.0.0.0 --server.port 8888 --server.enableCORS false --server.enableXsrfProtection false" 
+### ------------------------------------------------------------------ ###
+### 5. Main entry-point                                                ###
+### ------------------------------------------------------------------ ###
+main() {
+  local opt_no_attach=0 opt_inside_tmux=0
+  while [[ $# -gt 0 ]]; do
+    case $1 in
+      --inside-tmux) opt_inside_tmux=1 ;;
+      --no-attach)   opt_no_attach=1   ;;
+      *) die "Unknown option: $1" ;;
+    esac
+    shift
+  done
+
+  # Install system tools (only missing ones).
+  apt_install vim tmux curl git build-essential
+
+  # If not yet in tmux, fork into one.
+  ((opt_inside_tmux)) || ensure_tmux "$@"
+
+  # ---------------- inside tmux from here ---------------- #
+  setup_repo
+  setup_uv
+  setup_venv
+  mkdir -p training_output/{adapters,prompts}
+  gpu_info
+
+  cat <<EOF
+
+══════════════════════════════════════════════════════════════
+🎉  Environment ready
+    • Repo:        $PWD
+    • Python:      $(python --version 2>&1)
+    • Inference:   $INFERENCE_ENGINE → $VLLM_MODEL
+    • tmux:        $TMUX_SESSION
+    • Streamlit:   http://$STREAMLIT_ADDRESS:$STREAMLIT_PORT
+══════════════════════════════════════════════════════════════
+EOF
+
+  ((opt_no_attach)) || start_streamlit
+}
+
+main "$@"
