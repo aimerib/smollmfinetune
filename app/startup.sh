@@ -6,8 +6,8 @@ set -Eeuo pipefail
 
 TMUX_SESSION=${TMUX_SESSION:-character-ai-studio}
 VENV_DIR=${VENV_DIR:-../.venv}           # relative to app/
-STREAMLIT_PORT=${STREAMLIT_PORT:-8888}
-STREAMLIT_ADDR=${STREAMLIT_ADDR:-0.0.0.0}
+export STREAMLIT_PORT=${STREAMLIT_PORT:-8888}
+export STREAMLIT_ADDR=${STREAMLIT_ADDR:-0.0.0.0}
 
 # Default model env vars – override freely
 export INFERENCE_ENGINE=${INFERENCE_ENGINE:-vllm}

@@ -182,19 +182,15 @@ class DatasetManager:
     
     def _make_card_block(self, card: Dict[str, str]) -> str:
         """Create character card block for system prompt"""
-        lines = ["### <CHAR_CARD>"]
+        lines = ["You are a character in a story. Bellow are the details of the character. Behave as the character would.", "### <CHAR_CARD>"]
         lines.append(f"Name: {card.get('name', 'Unknown')}")
         
-        for field in ['species', 'age', 'gender']:
-            if field in card:
-                lines.append(f"{field.capitalize()}: {card[field]}")
-        
-        for field in ["description", "scenario", "personality", "first_person"]:
+        for field in ["description", "scenario", "personality", "first_mes", "mes_example"]:
             if field in card:
                 pretty = card[field].replace("\n", " ")
                 lines.append(f"{field.capitalize()}: {pretty}")
         
-        lines.append("<|endofcard|>")
+        # lines.append("<|endofcard|>")
         return "\n".join(lines)
     
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,

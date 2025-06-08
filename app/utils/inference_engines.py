@@ -174,13 +174,6 @@ class VLLMEngine(InferenceEngine):
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
                 trust_remote_code=True,
-                # Force bfloat16 for memory efficiency
-                dtype="bfloat16",
-                kv_cache_dtype="fp8",
-                calculate_kv_scales=True,
-                # Disable some features to save memory
-                # Enable KV cache compression
-                # enable_prefix_caching=True,
             )
             
             VLLMEngine._model_loaded = True
@@ -208,7 +201,7 @@ class VLLMEngine(InferenceEngine):
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=["\n\n", "<|endoftext|>", "User:", "###"]  # Better stop tokens
+                stop=["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>"]  # Better stop tokens
             )
             
             # Generate using the singleton model instance
@@ -243,7 +236,7 @@ class VLLMEngine(InferenceEngine):
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=["\n\n", "<|endoftext|>", "User:", "###"]
+                stop=["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>"]
             )
             
             # Generate all prompts in a single batch
