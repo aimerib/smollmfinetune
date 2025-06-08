@@ -10,6 +10,13 @@ import plotly.express as px
 import pandas as pd
 import json
 import time
+import torch
+# Prevent Streamlit from trying to treat ``torch.classes`` like a normal
+# Python package – this triggers a RuntimeError during Streamlit's module
+# scan on some versions.  Overriding ``__path__`` with an empty list neuters
+# the problematic attribute and keeps PyTorch fully functional.
+torch.classes.__path__ = []
+
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
