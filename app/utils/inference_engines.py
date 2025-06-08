@@ -176,11 +176,11 @@ class VLLMEngine(InferenceEngine):
                 trust_remote_code=True,
                 # Force bfloat16 for memory efficiency
                 dtype="bfloat16",
+                kv_cache_dtype="fp8",
+                calculate_kv_scales=True,
                 # Disable some features to save memory
-                enforce_eager=True,
                 # Enable KV cache compression
-                enable_prefix_caching=True,
-                quantization="awq",
+                # enable_prefix_caching=True,
             )
             
             VLLMEngine._model_loaded = True
