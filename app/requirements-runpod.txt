@@ -1,27 +1,27 @@
 # Requirements for RunPod GPU deployment
-streamlit>=1.28.0
-transformers>=4.35.0
-torch>=2.0.0
-datasets>=2.14.0
-peft>=0.6.0
-accelerate>=0.26.0
-orjson>=3.9.0
-tqdm>=4.66.0
-matplotlib>=3.7.0
-plotly>=5.17.0
-pandas>=2.1.0
-numpy>=1.24.0
-Pillow>=10.0.0
-streamlit-option-menu>=0.3.6
-streamlit-extras>=0.3.0
+streamlit
+transformers
+torch
+datasets
+peft
+accelerate
+orjson
+tqdm
+matplotlib
+plotly
+pandas
+numpy
+Pillow
+streamlit-option-menu
+streamlit-extras
 watchdog
 
 # High-performance inference engine for GPU
-vllm>=0.2.0
+vllm
 
 # Fallback inference engine
-llama-cpp-python>=0.2.0
+llama-cpp-python
 
 # GPU optimizations
-flash-attn>=2.3.0; platform_machine == "x86_64"
-xformers>=0.0.22 
+flash-attn
+xformers
