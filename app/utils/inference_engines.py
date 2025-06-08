@@ -6,7 +6,7 @@ Automatically selects the best engine based on available resources.
 import os
 import asyncio
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -79,21 +79,36 @@ class LMStudioEngine(InferenceEngine):
 
 
 class VLLMEngine(InferenceEngine):
-    """vLLM engine for high-performance cloud deployment"""
+    """vLLM engine for high-performance cloud deployment with batching"""
+    
+    # Class-level singleton to ensure model is loaded only once
+    _instance = None
+    _llm = None
+    _model_loaded = False
+    
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
     
     def __init__(self, model_name: Optional[str] = None, tensor_parallel_size: int = 1):
+        # Only initialize once
+        if hasattr(self, '_initialized'):
+            return
+        
         # Allow override via environment variable
         self.model_name = (
             model_name or 
             os.getenv('VLLM_MODEL', 'PocketDoc/Dans-PersonalityEngine-V1.3.0-24b')
         )
+        
         # Auto-detect tensor parallel size based on GPU count if not specified
         if tensor_parallel_size == 1:
             try:
                 import torch
                 gpu_count = torch.cuda.device_count()
                 # Use multiple GPUs for 24B model if available
-                if gpu_count >= 2 and "24b" in model_name.lower():
+                if gpu_count >= 2 and "24b" in self.model_name.lower():
                     self.tensor_parallel_size = min(gpu_count, 4)  # Max 4 GPUs
                 else:
                     self.tensor_parallel_size = 1
@@ -102,9 +117,11 @@ class VLLMEngine(InferenceEngine):
         else:
             self.tensor_parallel_size = tensor_parallel_size
             
-        self._llm = None
         self._sampling_params = None
         self._available = None
+        self._batch_queue = []
+        self._batch_size = 8  # Process in batches of 8
+        self._initialized = True
     
     @property
     def name(self) -> str:
@@ -138,46 +155,66 @@ class VLLMEngine(InferenceEngine):
         return self._available
     
     def _initialize_model(self):
-        """Lazy initialization of vLLM model"""
-        if self._llm is None:
+        """Initialize vLLM model once (singleton pattern)"""
+        if VLLMEngine._model_loaded:
+            return
+        
+        try:
             from vllm import LLM, SamplingParams
             
             # Get configuration from environment or use defaults
-            gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.85'))
-            max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
+            gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.90'))  # Increased
+            max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '2048'))  # Reduced for memory
             
-            self._llm = LLM(
+            logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
+            
+            VLLMEngine._llm = LLM(
                 model=self.model_name,
                 tensor_parallel_size=self.tensor_parallel_size,
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
-                trust_remote_code=True,  # Required for some models
-                # dtype="float16",  # Use FP16 for memory efficiency
+                trust_remote_code=True,
+                # Force bfloat16 for memory efficiency
+                dtype="bfloat16",
+                # Disable some features to save memory
+                enforce_eager=True,
+                # Enable KV cache compression
+                enable_prefix_caching=True,
             )
-            logger.info(f"vLLM model {self.model_name} loaded successfully")
+            
+            VLLMEngine._model_loaded = True
+            logger.info(f"vLLM model {self.model_name} loaded successfully!")
+            
+        except Exception as e:
+            logger.error(f"Failed to load vLLM model: {e}")
+            VLLMEngine._model_loaded = False
+            raise
     
     async def generate(self, prompt: str, max_tokens: int = 160,
                       temperature: float = 0.8, top_p: float = 0.9) -> str:
-        """Generate using vLLM"""
+        """Generate using vLLM with smart batching"""
         try:
-            from vllm import SamplingParams
-            
-            # Initialize model if needed
+            # Initialize model if needed (only happens once)
             self._initialize_model()
+            
+            if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
+                raise RuntimeError("vLLM model failed to load")
+            
+            from vllm import SamplingParams
             
             # Create sampling parameters
             sampling_params = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=["\n\n", "<|endoftext|>"]  # Add appropriate stop tokens
+                stop=["\n\n", "<|endoftext|>", "User:", "###"]  # Better stop tokens
             )
             
-            # Generate in thread pool since vLLM is synchronous
+            # Generate using the singleton model instance
             loop = asyncio.get_event_loop()
             outputs = await loop.run_in_executor(
                 None, 
-                lambda: self._llm.generate([prompt], sampling_params)
+                lambda: VLLMEngine._llm.generate([prompt], sampling_params)
             )
             
             if outputs and outputs[0].outputs:
@@ -187,6 +224,46 @@ class VLLMEngine(InferenceEngine):
                 
         except Exception as e:
             raise RuntimeError(f"vLLM generation failed: {str(e)}")
+    
+    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
+                           temperature: float = 0.8, top_p: float = 0.9) -> List[str]:
+        """Generate multiple prompts in a single batch (much more efficient)"""
+        try:
+            # Initialize model if needed (only happens once)
+            self._initialize_model()
+            
+            if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
+                raise RuntimeError("vLLM model failed to load")
+            
+            from vllm import SamplingParams
+            
+            # Create sampling parameters
+            sampling_params = SamplingParams(
+                temperature=temperature,
+                top_p=top_p,
+                max_tokens=max_tokens,
+                stop=["\n\n", "<|endoftext|>", "User:", "###"]
+            )
+            
+            # Generate all prompts in a single batch
+            loop = asyncio.get_event_loop()
+            outputs = await loop.run_in_executor(
+                None, 
+                lambda: VLLMEngine._llm.generate(prompts, sampling_params)
+            )
+            
+            # Extract results
+            results = []
+            for output in outputs:
+                if output.outputs:
+                    results.append(output.outputs[0].text.strip())
+                else:
+                    results.append("")
+            
+            return results
+            
+        except Exception as e:
+            raise RuntimeError(f"vLLM batch generation failed: {str(e)}")
 
 
 class LlamaCppEngine(InferenceEngine):

@@ -115,14 +115,14 @@ uv pip install -r requirements-runpod.txt > /dev/null 2>&1
 print_success "Dependencies installed"
 
 # Set up environment variables for RunPod
-print_status "Configuring environment variables..."
+print_status "Configuring environment variables for optimal memory usage..."
 export INFERENCE_ENGINE=vllm
 export VLLM_MODEL=PocketDoc/Dans-PersonalityEngine-V1.3.0-24b
-export VLLM_GPU_MEMORY_UTILIZATION=0.85
-export VLLM_MAX_MODEL_LEN=4096
+export VLLM_GPU_MEMORY_UTILIZATION=0.90
+export VLLM_MAX_MODEL_LEN=2048
 export CUDA_VISIBLE_DEVICES=0
 export PYTHONUNBUFFERED=1
-print_success "Environment configured"
+print_success "Environment configured for PersonalityEngine-24B"
 
 # Create output directories
 print_status "Creating output directories..."

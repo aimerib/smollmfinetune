@@ -146,8 +146,11 @@ This **two-model approach** gives you the best of both worlds:
 ### **Performance Summary**
 - **Data Generation**: PersonalityEngine-24B → High-quality synthetic conversations
 - **Training Target**: SmolLM2-135M → Fast, efficient fine-tuning
-- **RunPod Speed**: Up to 20x faster generation with vLLM + GPU
-- **Memory Usage**: ~48GB VRAM for generation, ~1GB for training
+- **RunPod Speed**: Up to **60x faster** generation with optimized vLLM batching
+- **Memory Usage**: Optimized for 48GB VRAM with 90% utilization
+- **Batch Processing**: 8 samples simultaneously for maximum efficiency
+
+> 📖 **See [VLLM-OPTIMIZATION.md](VLLM-OPTIMIZATION.md) for detailed performance improvements**
 
 ## 📖 Usage Guide
 

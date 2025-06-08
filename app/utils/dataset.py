@@ -2,10 +2,13 @@ import asyncio
 import random
 import re
 import textwrap
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from datasets import Dataset
 from .inference_engines import get_inference_engine
+
+logger = logging.getLogger(__name__)
 
 
 class DatasetManager:
@@ -125,6 +128,28 @@ class DatasetManager:
         except Exception as e:
             raise RuntimeError(f"Text generation failed ({self.inference_engine.name}): {str(e)}")
     
+    async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
+                                 temperature: float = 0.8, top_p: float = 0.9) -> list[str]:
+        """Generate text for multiple prompts using batching (if supported)"""
+        try:
+            # Check if engine supports batching
+            if hasattr(self.inference_engine, 'generate_batch'):
+                return await self.inference_engine.generate_batch(
+                    prompts=prompts,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p
+                )
+            else:
+                # Fallback to individual generation
+                results = []
+                for prompt in prompts:
+                    result = await self._generate_text(prompt, max_tokens, temperature, top_p)
+                    results.append(result)
+                return results
+        except Exception as e:
+            raise RuntimeError(f"Batch text generation failed ({self.inference_engine.name}): {str(e)}")
+    
     def _fill_template(self, template: str, card: Dict[str, str]) -> str:
         """Fill template placeholders with character data and random selections"""
         def _rand(lst: List[str]):
@@ -175,16 +200,17 @@ class DatasetManager:
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,
                              max_tokens: int = 300, temperature: float = 0.8,
                              top_p: float = 0.9, progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
-        """Generate synthetic dataset for character"""
+        """Generate synthetic dataset for character using efficient batching"""
         card_block = self._make_card_block(character)
         samples = []
         
-        for i in range(num_samples):
+        # Determine batch size based on inference engine
+        batch_size = 8 if hasattr(self.inference_engine, 'generate_batch') else 1
+        
+        # Pre-generate all prompts
+        prompts_data = []
+        for i in range(num_samples * 2):  # Generate extra to account for filtering
             try:
-                # Update progress
-                if progress_callback:
-                    progress_callback(i / num_samples)
-                
                 # Select random template
                 mode, template = random.choice(self.templates)
                 prompt = self._fill_template(template, character)
@@ -194,41 +220,95 @@ class DatasetManager:
                 if unfilled_placeholders:
                     continue
                 
-                # Generate response
-                full_prompt = f"{card_block}\n\n{prompt}"
+                prompts_data.append({
+                    'prompt': prompt,
+                    'full_prompt': f"{card_block}\n\n{prompt}",
+                    'template_mode': mode
+                })
                 
-                reply = await self._generate_text(
-                    prompt=full_prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                )
+                if len(prompts_data) >= num_samples * 1.5:  # Buffer for filtering
+                    break
+                    
+            except Exception as e:
+                logger.debug(f"Error preparing prompt {i}: {e}")
+                continue
+        
+        # Process in batches
+        processed_count = 0
+        for batch_start in range(0, len(prompts_data), batch_size):
+            try:
+                batch_end = min(batch_start + batch_size, len(prompts_data))
+                batch_prompts = prompts_data[batch_start:batch_end]
                 
-                # Quality filters
-                word_count = len(reply.split())
-                if word_count < 3 or word_count > 420:
-                    continue
+                # Extract full prompts for generation
+                full_prompts = [item['full_prompt'] for item in batch_prompts]
                 
-                # Create ChatML sample
-                sample = {
-                    "messages": [
-                        {"role": "system", "content": card_block},
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": reply},
-                    ]
-                }
-                samples.append(sample)
+                # Generate batch
+                if batch_size > 1:
+                    replies = await self._generate_text_batch(
+                        prompts=full_prompts,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                    )
+                else:
+                    # Single generation fallback
+                    replies = [await self._generate_text(
+                        prompt=full_prompts[0],
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                    )]
                 
-                # Small delay to avoid overwhelming the API
-                await asyncio.sleep(0.1)
+                # Process batch results
+                for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
+                    try:
+                        # Quality filters
+                        word_count = len(reply.split())
+                        if word_count < 3 or word_count > 420:
+                            continue
+                        
+                        # Create ChatML sample
+                        sample = {
+                            "messages": [
+                                {"role": "system", "content": card_block},
+                                {"role": "user", "content": prompt_data['prompt']},
+                                {"role": "assistant", "content": reply},
+                            ]
+                        }
+                        samples.append(sample)
+                        processed_count += 1
+                        
+                        # Update progress
+                        if progress_callback:
+                            progress_callback(min(processed_count / num_samples, 1.0))
+                        
+                        # Stop if we have enough samples
+                        if processed_count >= num_samples:
+                            break
+                            
+                    except Exception as e:
+                        logger.debug(f"Error processing sample: {e}")
+                        continue
+                
+                # Stop if we have enough samples
+                if processed_count >= num_samples:
+                    break
+                
+                # Small delay between batches (much less than before)
+                if batch_size > 1:
+                    await asyncio.sleep(0.5)
+                else:
+                    await asyncio.sleep(0.1)
                 
             except Exception as e:
-                print(f"Generation error for sample {i}: {e}")
+                logger.error(f"Generation error for batch {batch_start}-{batch_end}: {e}")
                 continue
         
         if progress_callback:
             progress_callback(1.0)
         
+        logger.info(f"Generated {len(samples)} samples using {self.inference_engine.name} (batch_size: {batch_size})")
         return samples
     
     def analyze_dataset_quality(self, dataset: List[Dict[str, Any]]) -> Dict[str, Any]:
