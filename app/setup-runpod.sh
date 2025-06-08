@@ -84,18 +84,25 @@ apt_install() {
 ### ------------------------------------------------------------------ ###
 ensure_tmux() {
   need_cmd tmux
-  # Already inside tmux? just return.
-  [[ -n "${TMUX:-}" ]] && return
+  [[ -n "${TMUX:-}" ]] && return      # already inside
 
-  # First run: create / attach session then re-exec inside it.
+  local SCRIPT_PATH; SCRIPT_PATH=$(readlink -f "$0")
+
   if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     INFO "Creating tmux session '$TMUX_SESSION' ..."
     tmux new-session -d -s "$TMUX_SESSION" -c "$PWD" \
-         "bash $0 --inside-tmux $*"
+      "bash \"$SCRIPT_PATH\" --inside-tmux \"$@\" \
+       |& tee \"$HOME/${TMUX_SESSION}.log\" ; \
+       echo; echo '[tmux] bootstrap complete – type exit to close'; bash"
   fi
 
+  # wait (max 5 s) for the session to materialise
+  for i in {1..10}; do
+    tmux has-session -t "$TMUX_SESSION" 2>/dev/null && break
+    sleep 0.5
+  done || die "tmux session vanished – check ${TMUX_SESSION}.log"
+
   INFO "Attaching to tmux session '$TMUX_SESSION' ..."
-  sleep 1
   exec tmux attach -t "$TMUX_SESSION"
 }
 
