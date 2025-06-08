@@ -28,7 +28,7 @@ ENV PYTHONUNBUFFERED=1
 # vLLM configuration for PersonalityEngine model (optimized for memory)
 ENV VLLM_MODEL=PocketDoc/Dans-PersonalityEngine-V1.3.0-24b
 ENV VLLM_GPU_MEMORY_UTILIZATION=0.90
-ENV VLLM_MAX_MODEL_LEN=2048
+ENV VLLM_MAX_MODEL_LEN=4096
 
 # Expose Streamlit port
 EXPOSE 8888

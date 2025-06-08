@@ -52,7 +52,7 @@ VLLM_MAX_MODEL_LEN=4096
 
 # New settings (optimized)
 VLLM_GPU_MEMORY_UTILIZATION=0.90
-VLLM_MAX_MODEL_LEN=2048
+VLLM_MAX_MODEL_LEN=4096
 ```
 
 - ✅ **Higher utilization**: 90% vs 85% GPU memory
@@ -112,7 +112,7 @@ export VLLM_MODEL=PocketDoc/Dans-PersonalityEngine-V1.3.0-24b
 
 # Memory optimization
 export VLLM_GPU_MEMORY_UTILIZATION=0.90
-export VLLM_MAX_MODEL_LEN=2048
+export VLLM_MAX_MODEL_LEN=4096
 ```
 
 ### **Batch Size Tuning**

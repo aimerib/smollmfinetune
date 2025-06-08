@@ -321,7 +321,7 @@ class LlamaCppEngine(InferenceEngine):
             
             self._llm = Llama(
                 model_path=self.model_path,
-                n_ctx=2048,  # Context length
+                n_ctx=4096,  # Context length
                 n_threads=None,  # Use all available threads
                 verbose=False
             )
