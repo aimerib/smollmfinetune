@@ -152,7 +152,7 @@ class VLLMEngine(InferenceEngine):
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
                 trust_remote_code=True,  # Required for some models
-                dtype="float16",  # Use FP16 for memory efficiency
+                # dtype="float16",  # Use FP16 for memory efficiency
             )
             logger.info(f"vLLM model {self.model_name} loaded successfully")
     
