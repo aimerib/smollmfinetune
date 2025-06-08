@@ -28,7 +28,7 @@ apt_install() {
 }
 ###############################################################################
 
-apt_install vim tmux curl git build-essential python3 python3-venv
+apt_install vim tmux curl git build-essential
 
 mkdir -p "$WORKDIR"
 cd "$WORKDIR"
