@@ -1,10 +1,15 @@
+import os
+# Disable Streamlit's autoreload file-watcher early to avoid PyTorch inspection
+# errors. Must be set before importing Streamlit so that Streamlit reads the
+# configuration on startup.
+os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
+
 import streamlit as st
 from streamlit_option_menu import option_menu
 import plotly.express as px
 import pandas as pd
 import json
 import time
-import os
 import sys
 from pathlib import Path
 from typing import Dict, Any, List, Optional
