@@ -14,6 +14,16 @@
 # • All config knobs can be overridden through the environment.
 # • Designed to be re-entrant: you may run it multiple times without harm.
 
+if [[ -n "${BASH_SOURCE[0]}" && -f "${BASH_SOURCE[0]}" ]]; then
+    SELF=$(readlink -f "${BASH_SOURCE[0]}")
+else
+    SELF=$(mktemp --tmpdir runpod_bootstrap.XXXX.sh)
+    cat >"$SELF" <&0          # write the current script from STDIN
+    chmod +x "$SELF"
+    exec "$SELF" "$@"         # restart so $0 is now the real path
+fi
+
+
 set -Eeuo pipefail
 
 ### ------------------------------------------------------------------ ###
@@ -86,8 +96,7 @@ ensure_tmux() {
   need_cmd tmux
   [[ -n "${TMUX:-}" ]] && return      # already inside
 
-  local SCRIPT_PATH; SCRIPT_PATH=$(readlink -f "$0")
-
+  local SCRIPT_PATH=$SELF      # already guaranteed to be a real file
   if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
     INFO "Creating tmux session '$TMUX_SESSION' ..."
     tmux new-session -d -s "$TMUX_SESSION" -c "$PWD" \
