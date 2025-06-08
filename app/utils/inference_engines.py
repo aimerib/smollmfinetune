@@ -180,6 +180,7 @@ class VLLMEngine(InferenceEngine):
                 enforce_eager=True,
                 # Enable KV cache compression
                 enable_prefix_caching=True,
+                quantization="awq",
             )
             
             VLLMEngine._model_loaded = True
