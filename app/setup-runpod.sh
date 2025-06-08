@@ -49,6 +49,11 @@ if ! command -v uv &>/dev/null; then
   pip install uv
 fi
 
+if ! command -v uv &>/dev/null; then
+  error "uv not found"
+  exit 1
+fi
+
 if [[ ! -d $VENV_DIR ]]; then
   info "Creating Python $PYTHON_VERSION virtualenv…"
   uv venv --python "$PYTHON_VERSION"
