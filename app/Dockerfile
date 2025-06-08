@@ -31,10 +31,10 @@ ENV VLLM_GPU_MEMORY_UTILIZATION=0.85
 ENV VLLM_MAX_MODEL_LEN=4096
 
 # Expose Streamlit port
-EXPOSE 8501
+EXPOSE 8888
 
 # Health check
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+HEALTHCHECK CMD curl --fail http://localhost:8888/_stcore/health
 
 # Run Streamlit app
-CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8501", "--server.enableCORS", "false", "--server.enableXsrfProtection", "false"] 
+CMD ["streamlit", "run", "app.py", "--server.address", "0.0.0.0", "--server.port", "8888", "--server.enableCORS", "false", "--server.enableXsrfProtection", "false"] 

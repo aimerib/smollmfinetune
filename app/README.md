@@ -59,6 +59,15 @@ A beautiful, intuitive Streamlit application for training custom character AI mo
 
 ### Cloud Deployment (RunPod)
 
+#### **🚀 Quick Setup (Recommended)**
+```bash
+curl -sSL https://raw.githubusercontent.com/aimerib/smollmfinetune/main/app/setup-runpod.sh | bash
+```
+
+This single command handles everything: system setup, dependencies, tmux session, and app launch.
+See [RUNPOD-SETUP.md](RUNPOD-SETUP.md) for detailed instructions.
+
+#### **🐳 Docker Deployment (Alternative)**
 1. **Build Docker image**
    ```bash
    docker build -t character-ai-studio .
@@ -67,7 +76,7 @@ A beautiful, intuitive Streamlit application for training custom character AI mo
 2. **Deploy to RunPod**
    - Upload the Docker image to your registry
    - Create a new RunPod instance with the image
-   - Expose port 8501
+   - Expose port 8888
    - The app will automatically use vLLM for high-performance inference
    - Access via the provided URL
 

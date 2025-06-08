@@ -23,5 +23,4 @@ vllm
 llama-cpp-python
 
 # GPU optimizations
-flash-attn
 xformers
