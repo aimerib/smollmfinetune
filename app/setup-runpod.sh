@@ -46,8 +46,7 @@ cd "$REPO_DIR"
 
 if ! command -v uv &>/dev/null; then
   info "Installing uv…"
-  curl -sSf https://astral.sh/uv/install.sh | sh
-  export PATH="$HOME/.cargo/bin:$PATH"
+  pip install uv
 fi
 
 if [[ ! -d $VENV_DIR ]]; then
