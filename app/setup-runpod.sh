@@ -20,6 +20,7 @@ else
     SELF=$(mktemp --tmpdir runpod_bootstrap.XXXX.sh)
     cat >"$SELF" <&0          # write the current script from STDIN
     chmod +x "$SELF"
+    export SELF
     exec "$SELF" "$@"         # restart so $0 is now the real path
 fi
 
