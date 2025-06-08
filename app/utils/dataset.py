@@ -358,7 +358,7 @@ class DatasetManager:
             'quality_score': quality_score
         }
     
-    def prepare_for_training(self, dataset: List[Dict[str, Any]], tokenizer, max_length: int = 2048) -> Dataset:
+    def prepare_for_training(self, dataset: List[Dict[str, Any]], tokenizer, max_length: int = 4096) -> Dataset:
         """Prepare dataset for training by tokenizing"""
         def process_example(example):
             """Process a single example for training"""

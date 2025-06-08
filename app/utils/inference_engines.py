@@ -164,7 +164,7 @@ class VLLMEngine(InferenceEngine):
             
             # Get configuration from environment or use defaults
             gpu_memory_util = float(os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.90'))  # Increased
-            max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '2048'))  # Reduced for memory
+            max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))  # Reduced for memory
             
             logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
             
@@ -173,6 +173,7 @@ class VLLMEngine(InferenceEngine):
                 tensor_parallel_size=self.tensor_parallel_size,
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
+                enforce_eager=True,
                 trust_remote_code=True,
             )
             
