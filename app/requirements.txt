@@ -1,0 +1,24 @@
+streamlit>=1.28.0
+transformers>=4.35.0
+torch>=2.0.0
+datasets>=2.14.0
+peft>=0.6.0
+accelerate>=0.26.0
+orjson>=3.9.0
+tqdm>=4.66.0
+lmstudio>=0.2.0
+matplotlib>=3.7.0
+plotly>=5.17.0
+pandas>=2.1.0
+numpy>=1.24.0
+Pillow>=10.0.0
+streamlit-option-menu>=0.3.6
+streamlit-extras>=0.3.0
+watchdog
+
+# Optional inference engines (install based on deployment target)
+# For high-performance GPU deployment:
+vllm>=0.2.0; sys_platform != "darwin"
+
+# For CPU deployment or as fallback:
+llama-cpp-python>=0.2.0

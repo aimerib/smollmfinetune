@@ -1,0 +1,12 @@
+transformers
+torch
+ipykernel
+datasets
+peft
+accelerate>=0.26.0
+orjson
+tqdm
+lmstudio
+matplotlib
+jupyter
+ipywidgets
