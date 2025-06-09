@@ -464,8 +464,8 @@ class DatasetManager:
         # Clean formatting: single newlines, no extra whitespace
         return "\n".join(lines).strip()
     
-    async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,
-                             max_tokens: int = 300, temperature: float = 0.8,
+    async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 80,
+                             max_tokens: Optional[int] = None, temperature: float = 0.8,
                              top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                              append_to_existing: bool = True) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
@@ -504,9 +504,21 @@ class DatasetManager:
 
         baseline_prompts: list[str] = [q for q in self.default_user_prompts if q not in seen_user_prompts]
 
-        # Determine batch size based on inference engine
-        batch_size = 50 if hasattr(self.inference_engine, 'generate_batch') else 1
-        
+        # Length buckets following 2024-2025 best-practice distribution
+        # (40% short 1-200 tok, 45% medium 200-500 tok, 15% long 500-800 tok)
+        length_buckets = [
+            ("short", 0.40, 200),
+            ("medium", 0.45, 500),
+            ("long", 0.15, 800),
+        ]
+
+        def _sample_max_tokens() -> int:
+            names, probs, toks = zip(*[(n, p, t) for n, p, t in length_buckets])
+            bucket_name = random.choices(names, weights=probs, k=1)[0]
+            # Map name -> token limit
+            token_map = {n: t for n, _, t in length_buckets}
+            return token_map[bucket_name]
+
         # ------------------------------------------------------------------
         # Build the prompt metadata list (baseline first, then random samples)
         # ------------------------------------------------------------------
@@ -522,7 +534,8 @@ class DatasetManager:
                 'prompt': bp,
                 'full_prompt': danschat_prompt,
                 'template_mode': 'baseline',
-                'char_name': char_name_for_prompts
+                'char_name': char_name_for_prompts,
+                'max_tokens': _sample_max_tokens(),
             })
 
         # Pre-generate prompts for the remaining samples we still need
@@ -564,7 +577,8 @@ class DatasetManager:
                     'prompt': prompt,
                     'full_prompt': danschat_prompt,
                     'template_mode': mode,
-                    'char_name': char_name
+                    'char_name': char_name,
+                    'max_tokens': _sample_max_tokens(),
                 })
                 generated_random += 1
 
@@ -572,77 +586,46 @@ class DatasetManager:
                 logger.debug(f"Error preparing prompt {i}: {e}")
                 continue
         
-        # Process in batches
+        # Group prompts by desired max_tokens so that batched generation obeys
+        # length distribution without sacrificing speed
+        prompts_grouped: Dict[int, List[Dict[str, Any]]] = {}
+        for item in prompts_data:
+            prompts_grouped.setdefault(item['max_tokens'], []).append(item)
+
+        # Determine base batch size once (may still be 1 if batching unsupported)
+        base_batch_size = 50 if hasattr(self.inference_engine, 'generate_batch') else 1
+
         processed_count = 0
-        logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared, batch_size={batch_size}")
+        logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared, batch_size={base_batch_size}")
         
-        for batch_start in range(0, len(prompts_data), batch_size):
-            try:
-                batch_end = min(batch_start + batch_size, len(prompts_data))
-                batch_prompts = prompts_data[batch_start:batch_end]
-                
-                # Extract full prompts for generation
+        for bucket_max_tokens, bucket_prompts in prompts_grouped.items():
+            logger.info(f"📊 Processing {len(bucket_prompts)} prompts with max_tokens={bucket_max_tokens}")
+            batch_size = base_batch_size
+            char_name = character.get('name', 'Assistant')  # Ensure available for logging/validation
+            for batch_start in range(0, len(bucket_prompts), batch_size):
+                batch_end = min(batch_start + batch_size, len(bucket_prompts))
+                batch_prompts = bucket_prompts[batch_start:batch_end]
                 full_prompts = [item['full_prompt'] for item in batch_prompts]
                 
-                # ✅ VALIDATE EVERY PROMPT IN BATCH FOR PROPER FORMATTING
-                char_name = character.get('name', 'Assistant')
-                invalid_prompts = []
-                for idx, prompt in enumerate(full_prompts):
-                    # Check for required DanChat-2 structure
-                    if not prompt.startswith('<|system|>'):
-                        invalid_prompts.append(f"Prompt {idx}: Missing <|system|> start")
-                    if '<|endoftext|><|user|>' not in prompt:
-                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
-                    if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
-                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
-                    if prompt.count('<|system|>') != 1:
-                        invalid_prompts.append(f"Prompt {idx}: Multiple or missing <|system|> tags")
-                    if prompt.count('<|endoftext|>') != 2:
-                        invalid_prompts.append(f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
-                
-                if invalid_prompts:
-                    logger.error(f"🚨 BATCH {batch_start}-{batch_end} HAS MALFORMED PROMPTS:")
-                    for issue in invalid_prompts[:5]:  # Show first 5 issues
-                        logger.error(f"  ❌ {issue}")
-                    if len(invalid_prompts) > 5:
-                        logger.error(f"  ... and {len(invalid_prompts) - 5} more issues")
-                
-                # Log first prompt as sample (only for first batch)
-                if batch_start == 0:
-                    logger.info(f"📝 RAW PROMPT SENT TO vLLM (BATCH {batch_start}):")
-                    logger.info(f"────────────────────────────────────────")
-                    logger.info(f"{full_prompts[0]}")
-                    logger.info(f"────────────────────────────────────────")
-                
-                # Log a sample from each batch for verification
-                elif batch_start % 24 == 0:  # Every 3rd batch (24 = 8*3)
-                    logger.info(f"📝 SAMPLE PROMPT FROM BATCH {batch_start}:")
-                    logger.info(f"────────────────────────────────────────")
-                    logger.info(f"{full_prompts[0]}")
-                    logger.info(f"────────────────────────────────────────")
-                
-                # Generate batch
-                logger.info(f"🔥 Generating batch {batch_start}-{batch_end} with {len(full_prompts)} prompts using {self.inference_engine.name}")
+                # Generate the replies respecting bucket-level max_tokens
                 if batch_size > 1:
-                    # Pass character name for proper stop tokens
                     replies = await self._generate_text_batch(
                         prompts=full_prompts,
-                        max_tokens=max_tokens,
+                        max_tokens=bucket_max_tokens,
                         temperature=temperature,
                         top_p=top_p,
                         character_name=character.get('name')
                     )
                 else:
-                    # Single generation fallback
                     replies = [await self._generate_text(
                         prompt=full_prompts[0],
-                        max_tokens=max_tokens,
+                        max_tokens=bucket_max_tokens,
                         temperature=temperature,
                         top_p=top_p,
                         character_name=character.get('name')
                     )]
                 
-                logger.info(f"📥 Got {len(replies)} replies from {self.inference_engine.name}")
+                logger.info(f"🔥 Got {len(replies)} replies from {self.inference_engine.name}")
                 
                 # Process batch results
                 for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
@@ -670,8 +653,8 @@ class DatasetManager:
                         if word_count < 1:
                             logger.warning(f"❌ Reply {batch_start+i} filtered: too short (word_count={word_count})")
                             continue
-                        if word_count > 1000:
-                            logger.warning(f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count})")
+                        if word_count > bucket_max_tokens * 1.5:  # generous upper bound
+                            logger.warning(f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count} > {bucket_max_tokens * 1.5})")
                             continue
                         
                         # Log sample replies for first few batches
@@ -709,16 +692,33 @@ class DatasetManager:
                 if len(samples) >= num_samples:
                     break
                 
-                # Small delay between batches (much less than before)
-                if batch_size > 1:
-                    await asyncio.sleep(0.5)
-                else:
-                    await asyncio.sleep(0.1)
-                
-            except Exception as e:
-                logger.error(f"Generation error for batch {batch_start}-{batch_end}: {e}")
-                continue
+                # Small delay between different length buckets for stability
+                await asyncio.sleep(0.2)
+            
+            # End inner batch loop
         
+            # Validate prompt structure to catch template errors early
+            invalid_prompts = []
+            for idx, prompt in enumerate(full_prompts):
+                if not prompt.startswith('<|system|>'):
+                    invalid_prompts.append(f"Prompt {idx}: Missing <|system|> start")
+                if '<|endoftext|><|user|>' not in prompt:
+                    invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
+                if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
+                    invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
+                if prompt.count('<|system|>') != 1:
+                    invalid_prompts.append(f"Prompt {idx}: Multiple or missing <|system|> tags")
+                if prompt.count('<|endoftext|>') != 2:
+                    invalid_prompts.append(f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
+            if invalid_prompts:
+                logger.error(f"🚨 BATCH VALIDATION FAILURE ({batch_start}-{batch_end}): {len(invalid_prompts)} issues")
+                for issue in invalid_prompts[:5]:
+                    logger.error(f"  ❌ {issue}")
+                if len(invalid_prompts) > 5:
+                    logger.error(f"  ... and {len(invalid_prompts) - 5} more issues")
+        
+        # End grouped processing
+
         if progress_callback:
             progress_callback(1.0)
         
@@ -731,7 +731,7 @@ class DatasetManager:
         if len(prompts_data) > 0:
             logger.info(f"   Success rate: {new_generated/len(prompts_data)*100:.1f}%")
         logger.info(f"   Engine used: {self.inference_engine.name}")
-        logger.info(f"   Batch size: {batch_size}")
+        logger.info(f"   Batch size: {base_batch_size}")
         
         # Spot check final samples for consistency
         if samples:

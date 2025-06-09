@@ -144,11 +144,17 @@ class TrainingManager:
         """Setup LoRA configuration for the model"""
         model = prepare_model_for_kbit_training(model)
         
+        # Apply guideline-driven defaults
+        r_val = config.get('lora_r', 8)
+        alpha_val = config.get('lora_alpha', r_val)  # Use α ≈ r if not provided
+        dropout_val = config.get('lora_dropout', 0.05)
+        target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+        
         lora_config = LoraConfig(
-            r=config.get('lora_r', 8),
-            lora_alpha=config.get('lora_alpha', 32),
-            target_modules=config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"]),
-            lora_dropout=config.get('lora_dropout', 0.05),
+            r=r_val,
+            lora_alpha=alpha_val,
+            target_modules=target_modules_val,
+            lora_dropout=dropout_val,
             bias="none",
             task_type="CAUSAL_LM",
         )
@@ -200,7 +206,7 @@ class TrainingManager:
             print("📈 Calculating training parameters...")
             batch_size = config.get('batch_size', 2)
             gradient_accumulation = config.get('gradient_accumulation_steps', 2)
-            epochs = config.get('epochs', 3)
+            epochs = config.get('epochs', 6)  # 5-10 epochs recommended for character LoRA
             dataset_size = len(processed_dataset)
             
             # Calculate total steps (can be overridden by UI)
@@ -238,7 +244,7 @@ class TrainingManager:
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=gradient_accumulation,
                 max_steps=total_steps,
-                learning_rate=config.get('learning_rate', 2e-5),
+                learning_rate=config.get('learning_rate', 3e-4),  # 1e-4–5e-4 recommended
                 fp16=use_fp16,
                 optim="adamw_torch",
                 logging_steps=config.get('logging_steps', 10),
