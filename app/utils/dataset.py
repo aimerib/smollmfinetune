@@ -861,4 +861,63 @@ class DatasetManager:
             return False
         except Exception as e:
             logger.error(f"❌ Failed to delete dataset: {e}")
+            return False
+
+    # ------------------------------------------------------------------
+    # 📦 Import / Export helpers
+    # ------------------------------------------------------------------
+
+    def export_dataset(self, character: Dict[str, Any]) -> Optional[str]:
+        """Return the raw JSON string of a character's dataset for download.
+
+        This is primarily used by the Streamlit UI to feed into a download
+        button.  If no dataset exists, returns ``None``.
+        """
+        dataset_path = self._get_dataset_path(character)
+        if not os.path.exists(dataset_path):
+            logger.warning("No dataset found to export.")
+            return None
+        try:
+            with open(dataset_path, "r", encoding="utf-8") as f:
+                return f.read()
+        except Exception as e:
+            logger.error(f"Failed to export dataset: {e}")
+            return None
+
+    def import_dataset_from_bytes(self, character: Dict[str, Any], raw_bytes: bytes,
+                                   merge_mode: str = "replace") -> bool:
+        """Import a dataset JSON (bytes) for the given character.
+
+        merge_mode:
+          - "replace"  : overwrite any existing dataset
+          - "append"   : append new samples (deduplicated) to existing dataset
+        Returns ``True`` on success.
+        """
+        try:
+            data = json.loads(raw_bytes.decode("utf-8"))
+
+            # Validate structure
+            if "dataset" not in data or not isinstance(data["dataset"], list):
+                raise ValueError("Invalid dataset file: missing 'dataset' list")
+
+            imported_dataset = data["dataset"]
+
+            if merge_mode == "append":
+                existing = self.load_dataset(character) or []
+                # Very naive deduplication by hashing messages tuple
+                seen = {json.dumps(s, sort_keys=True) for s in existing}
+                for sample in imported_dataset:
+                    key = json.dumps(sample, sort_keys=True)
+                    if key not in seen:
+                        existing.append(sample)
+                        seen.add(key)
+                merged_dataset = existing
+            else:
+                merged_dataset = imported_dataset
+
+            self.save_dataset(character, merged_dataset)
+            logger.info(f"Imported dataset with {len(imported_dataset)} samples (mode={merge_mode})")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to import dataset: {e}")
             return False 

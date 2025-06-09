@@ -543,6 +543,56 @@ def page_dataset_preview():
                     st.session_state.dataset_manager.default_user_prompts.extend(selected_qs)
                     st.success(f"Added {len(selected_qs)} questions to baseline list.")
 
+        # 📦 Dataset Import / Export
+        st.markdown("### 📦 Import / Export Dataset")
+        with st.expander("Manage dataset files (download or import)"):
+            # Export (download button)
+            if dataset_info['exists']:
+                raw_json = st.session_state.dataset_manager.export_dataset(st.session_state.current_character)
+                if raw_json is not None:
+                    st.download_button(
+                        label="⬇️ Download Dataset JSON",
+                        data=raw_json,
+                        file_name="character_dataset.json",
+                        mime="application/json",
+                        use_container_width=True
+                    )
+            else:
+                st.info("No dataset available for export yet.")
+
+            st.markdown("---")
+
+            # Import
+            import_file = st.file_uploader(
+                "Upload a dataset JSON to import",
+                type=["json"],
+                key="import_dataset_uploader"
+            )
+
+            merge_mode = st.radio(
+                "Merge strategy",
+                ("replace", "append"),
+                horizontal=True,
+                help="Replace will overwrite any existing dataset, append will add new unique samples"
+            )
+
+            if import_file is not None:
+                if st.button("📥 Import Dataset", key="import_dataset_btn", use_container_width=True):
+                    success = st.session_state.dataset_manager.import_dataset_from_bytes(
+                        st.session_state.current_character,
+                        import_file.getvalue(),
+                        merge_mode=merge_mode
+                    )
+                    if success:
+                        st.success("Dataset imported successfully!")
+                        # Reload into preview
+                        st.session_state.dataset_preview = st.session_state.dataset_manager.load_dataset(
+                            st.session_state.current_character
+                        )
+                        st.rerun()
+                    else:
+                        st.error("Failed to import dataset. Check file format.")
+
         # ------------------------------------------------------------
         
         st.markdown("### Dataset Generation Settings")
