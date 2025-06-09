@@ -343,7 +343,7 @@ class DatasetManager:
         if card.get("scenario"):
             lines.append(f"Scenario: {substitute_vars(card.get('scenario').strip())}")
         else:
-            lines.append(f"Scenario: User is interviweing {char_name}.")
+            lines.append(f"Scenario: User is asking {char_name} questions.")
 
         # Clean formatting: single newlines, no extra whitespace
         return "\n".join(lines).strip()
