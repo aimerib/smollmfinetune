@@ -103,6 +103,11 @@ class TrainingManager:
         # Directory for exported zips
         self.exports_dir = self.project_dir / "exports"
         self.exports_dir.mkdir(exist_ok=True)
+        
+        # Remember context for resuming
+        self._last_character: Optional[Dict[str, Any]] = None
+        self._last_dataset: Optional[List[Dict[str, Any]]] = None
+        self._last_config: Optional[Dict[str, Any]] = None
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""
@@ -345,6 +350,11 @@ class TrainingManager:
         self.loss_history.clear()
         self.current_metrics.clear()
         
+        # Cache context for potential resume later
+        self._last_character = character
+        self._last_dataset = dataset
+        self._last_config = config.copy()
+        
         # Start training thread
         self.training_thread = threading.Thread(
             target=self._training_worker,
@@ -363,6 +373,12 @@ class TrainingManager:
         if self.trainer:
             # Save current checkpoint
             self.trainer.save_model()
+            # Request trainer to stop after current step
+            try:
+                if hasattr(self.trainer, 'control'):
+                    self.trainer.control.should_training_stop = True
+            except Exception as _e:
+                pass
             self.status_queue.put({
                 'type': 'training_paused',
                 'checkpoint_saved': True
@@ -371,13 +387,29 @@ class TrainingManager:
     
     def resume_training(self):
         """Resume paused training"""
-        if not self.is_paused:
+        if not self.is_paused or self.is_training:
             return False
-        
+
+        # Locate latest checkpoint for character
+        if not self._last_character or not self._last_dataset or not self._last_config:
+            logger.error("No previous training context cached – cannot resume.")
+            return False
+
+        character_name = self._last_character.get('name', 'unknown').lower().replace(' ', '_')
+        adapter_dir = self.project_dir / f"adapters/{character_name}"
+        latest_ckpt = self._latest_checkpoint_dir(adapter_dir)
+        if not latest_ckpt:
+            logger.error("No checkpoint found to resume from.")
+            return False
+
+        # Inject resume checkpoint path into config copy
+        cfg = self._last_config.copy()
+        cfg['resume_from_checkpoint'] = str(latest_ckpt)
+
+        # Reset flags and start new training thread
         self.is_paused = False
-        self.status_queue.put({
-            'type': 'training_resumed'
-        })
+        self.start_training(self._last_character, self._last_dataset, cfg)
+        self.status_queue.put({'type': 'training_resumed'})
         return True
     
     def stop_training(self):

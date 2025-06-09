@@ -344,6 +344,7 @@ def render_sidebar():
         status_colors = {
             'idle': '#94a3b8',
             'training': '#f59e0b',
+            'paused': '#f97316',  # orange
             'complete': '#10b981',
             'error': '#ef4444'
         }
@@ -351,6 +352,7 @@ def render_sidebar():
         status_text = {
             'idle': 'Ready',
             'training': 'Training in Progress',
+            'paused': 'Paused',
             'complete': 'Training Complete',
             'error': 'Error Occurred'
         }
@@ -735,6 +737,11 @@ def page_dataset_preview():
 def page_training_config():
     """Training configuration page"""
     st.markdown('<h2 class="gradient-text">⚙️ Training Configuration</h2>', unsafe_allow_html=True)
+    
+    # If training is already running or paused, encourage user to switch to Dashboard
+    if st.session_state.get('training_status') in ['training', 'paused']:
+        st.info("🚧 Training is in progress. Please use the Training Dashboard to monitor or control the run.")
+        return
     
     if not st.session_state.dataset_preview:
         st.warning("⚠️ Please generate a dataset first.")

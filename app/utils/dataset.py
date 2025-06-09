@@ -444,19 +444,18 @@ class DatasetManager:
         samples = existing_samples.copy()
         
         # ------------------------------------------------------------------
-        # 1️⃣  Seed generation with a deterministic "ground-truth" round
+        # Determine which baseline prompts still need coverage.  We collect
+        # *unique* user messages already present to avoid duplicates, then
+        # enqueue any new questions that were added (e.g. via UI augmentation)
+        # for the next generation run – even when the dataset already exists.
         # ------------------------------------------------------------------
-        # When we start from scratch we first generate one response for a
-        # curated list of fundamental questions.  These samples establish a
-        # knowledge baseline that future synthetic turns can reference to stay
-        # self-consistent.  They are injected at the front of `prompts_data`
-        # so they are processed before any random prompt buckets.
 
-        baseline_prompts: list[str] = []
-        if existing_count == 0:
-            # Use the default_user_prompts list defined in __init__.  Feel free
-            # to customise / extend this list for richer coverage.
-            baseline_prompts = self.default_user_prompts.copy()
+        seen_user_prompts: set[str] = {
+            sample['messages'][1]['content'] for sample in existing_samples
+            if isinstance(sample, dict) and 'messages' in sample and len(sample['messages']) > 1
+        }
+
+        baseline_prompts: list[str] = [q for q in self.default_user_prompts if q not in seen_user_prompts]
 
         # Determine batch size based on inference engine
         batch_size = 50 if hasattr(self.inference_engine, 'generate_batch') else 1
