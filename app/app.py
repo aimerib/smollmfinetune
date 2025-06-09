@@ -693,9 +693,9 @@ def page_dataset_preview():
                             )
                         )
                         current_total = len(dataset)
-                        global_fraction = current_total / target_total
+                        global_fraction = min(current_total / target_total, 1.0)  # Clamp to [0,1]
                         progress_bar.progress(global_fraction)
-                        status_text.text(f"Total progress: {current_total}/{target_total} samples")
+                        status_text.text(f"Total progress: {min(current_total, target_total)}/{target_total} samples")
                         chunk_idx += 1
                 finally:
                     loop.close()
