@@ -286,7 +286,8 @@ class DatasetManager:
         return prompt
 
     async def suggest_user_questions(self, character: Dict[str, Any], num_questions: int = 10,
-                                     temperature: float = 0.8, top_p: float = 0.9) -> List[str]:
+                                     temperature: float = 0.8, top_p: float = 0.9,
+                                     existing_dataset: Optional[List[Dict[str, Any]]] = None) -> List[str]:
         """Generate a list of engaging user questions tailored to the given character card.
 
         The method prompts the currently selected inference engine to act as a creative user
@@ -294,13 +295,30 @@ class DatasetManager:
         questions – no numbering, quotes, or extra commentary – ready to be added to the
         baseline prompt list for ground-truth generation.
         """
-        # Build a descriptive prompt containing the full character context
         card_block = self._make_card_block(character)
+
+        # Optionally sample a few existing Q/A pairs for richer context
+        interactions_block = ""
+        if existing_dataset:
+            # Sample up to 6 unique interactions (prefer diverse questions)
+            import random as _rnd
+            sample_examples = _rnd.sample(existing_dataset, min(len(existing_dataset), 6))
+            formatted_examples = []
+            for ex in sample_examples:
+                try:
+                    user_q = ex['messages'][1]['content'].strip()
+                    assistant_a = ex['messages'][2]['content'].strip()
+                    formatted_examples.append(f"Q: {user_q}\nA: {assistant_a}")
+                except Exception:
+                    continue
+            if formatted_examples:
+                interactions_block = "Here are some previous interactions to inspire you:\n" + "\n\n".join(formatted_examples) + "\n\n"
+
         prompt_template = (
             "You are brainstorming conversation starters for a chat with the following character.\n"
-            "Based on the character information, write ONE concise and engaging question that a user might ask.\n"
+            "Based on the character information and the sample dialogue below, write ONE concise and engaging question that a user might ask next.\n"
             "Respond with ONLY the question itself.\n\n"
-            f"{card_block}\n\nQuestion:"
+            f"{card_block}\n\n" + interactions_block + "Question:"
         )
 
         # Determine whether we can leverage batched generation

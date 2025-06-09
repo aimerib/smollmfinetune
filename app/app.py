@@ -524,7 +524,8 @@ def page_dataset_preview():
                         qs = loop.run_until_complete(
                             st.session_state.dataset_manager.suggest_user_questions(
                                 st.session_state.current_character,
-                                num_questions=int(num_q)
+                                num_questions=int(num_q),
+                                existing_dataset=st.session_state.dataset_preview
                             )
                         )
                         st.session_state.generated_questions = qs
