@@ -11,6 +11,9 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from datasets import Dataset
+import shutil
+import zipfile
+import datetime
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -97,6 +100,9 @@ class TrainingManager:
         # Paths
         self.project_dir = Path("training_output")
         self.project_dir.mkdir(exist_ok=True)
+        # Directory for exported zips
+        self.exports_dir = self.project_dir / "exports"
+        self.exports_dir.mkdir(exist_ok=True)
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""
@@ -287,10 +293,13 @@ class TrainingManager:
                 'message': f'Training started: {total_steps} steps over {epochs} epochs'
             })
             
-            # Training loop with pause/resume support
+            # Training loop with pause/resume support – allow resuming from checkpoint
+            resume_cp = config.get('resume_from_checkpoint')
+            if resume_cp:
+                print(f"🔄 Resuming training from checkpoint: {resume_cp}")
             print("📊 About to call trainer.train()...")
             try:
-                self.trainer.train()
+                self.trainer.train(resume_from_checkpoint=resume_cp if resume_cp else None)
                 print("🎉 trainer.train() completed successfully!")
             except Exception as train_error:
                 print(f"❌ Error during trainer.train(): {train_error}")
@@ -459,4 +468,57 @@ class TrainingManager:
         elif self.current_metrics.get('error'):
             return 'error'
         else:
-            return 'idle' 
+            return 'idle'
+    
+    # ------------------------------------------------------------------
+    # 🔧 Asset-management helpers
+    # ------------------------------------------------------------------
+
+    def _adapter_dir(self, character_name: str) -> Path:
+        return self.project_dir / f"adapters/{character_name.lower().replace(' ', '_')}"
+
+    def clear_training_assets(self, character_name: str) -> bool:
+        """Delete the LoRA adapter folder (and all checkpoints)."""
+        target_dir = self._adapter_dir(character_name)
+        if target_dir.exists():
+            shutil.rmtree(target_dir)
+            logger.info(f"🗑️ Cleared training assets at {target_dir}")
+            return True
+        logger.warning(f"No training assets found for {character_name} at {target_dir}")
+        return False
+
+    def _zip_dir(self, source_dir: Path, zip_name: str) -> Path:
+        """Utility to zip an entire directory tree and return resulting path."""
+        zip_path = self.exports_dir / f"{zip_name}.zip"
+        if zip_path.exists():
+            zip_path.unlink()
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+            for file_path in source_dir.rglob('*'):
+                zf.write(file_path, file_path.relative_to(source_dir))
+        logger.info(f"📦 Created export zip {zip_path} (source {source_dir})")
+        return zip_path
+
+    def export_lora(self, character_name: str) -> Path:
+        """Zip the final adapter folder for sharing/deployment."""
+        adapter_dir = self._adapter_dir(character_name)
+        if not adapter_dir.exists():
+            raise FileNotFoundError(f"Adapter directory not found for {character_name}: {adapter_dir}")
+        return self._zip_dir(adapter_dir, f"{character_name}_lora_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}")
+
+    def _latest_checkpoint_dir(self, adapter_dir: Path) -> Optional[Path]:
+        checkpoints = [p for p in adapter_dir.iterdir() if p.is_dir() and p.name.startswith('checkpoint-')]
+        if not checkpoints:
+            return None
+        # Sort by integer after 'checkpoint-'
+        checkpoints.sort(key=lambda p: int(p.name.split('-')[-1]))
+        return checkpoints[-1]
+
+    def export_latest_checkpoint(self, character_name: str) -> Optional[Path]:
+        """Zip the most recent checkpoint directory (if any)."""
+        adapter_dir = self._adapter_dir(character_name)
+        checkpoint_dir = self._latest_checkpoint_dir(adapter_dir)
+        if not checkpoint_dir:
+            logger.warning(f"No checkpoints found for {character_name}")
+            return None
+        zip_name = f"{character_name}_{checkpoint_dir.name}_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+        return self._zip_dir(checkpoint_dir, zip_name) 

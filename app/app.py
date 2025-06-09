@@ -251,6 +251,39 @@ def render_sidebar():
         )
         
         # ------------------------------------------------------------------
+        # 🔧 Asset-management shortcuts
+        # ------------------------------------------------------------------
+
+        if st.session_state.current_character:
+            char_name = st.session_state.current_character.get("name", "unknown")
+
+            with st.expander("🗑️ Clear / Export / Checkpoints"):
+                col_a, col_b, col_c = st.columns(3)
+
+                with col_a:
+                    if st.button("🗑️ Clear Training", key="clear_training_btn"):
+                        if st.session_state.training_manager.clear_training_assets(char_name):
+                            st.success("Training assets cleared!")
+                        else:
+                            st.info("No training assets to remove.")
+
+                with col_b:
+                    if st.button("⬇️ Export LoRA", key="export_lora_btn"):
+                        try:
+                            zip_path = st.session_state.training_manager.export_lora(char_name)
+                            st.success(f"LoRA exported to {zip_path}")
+                        except Exception as e:
+                            st.error(str(e))
+
+                with col_c:
+                    if st.button("⬇️ Export Latest Checkpoint", key="export_ckpt_btn"):
+                        zip_path = st.session_state.training_manager.export_latest_checkpoint(char_name)
+                        if zip_path:
+                            st.success(f"Checkpoint exported to {zip_path}")
+                        else:
+                            st.info("No checkpoints found to export.")
+        
+        # ------------------------------------------------------------------
         # Inference-engine selector
         # ------------------------------------------------------------------
 
@@ -646,6 +679,22 @@ def page_training_config():
                     default=["q_proj", "k_proj", "v_proj", "o_proj"]  # Focus on attention layers
                 )
             
+            # --------------------------------------------------------------
+            # Resume-from-checkpoint selection
+            # --------------------------------------------------------------
+            available_ckpts = st.session_state.training_manager.get_available_checkpoints(
+                st.session_state.current_character.get("name", "unknown")
+            )
+
+            if available_ckpts:
+                resume_ckpt_option = st.selectbox(
+                    "Resume from checkpoint (optional)",
+                    ["None"] + available_ckpts
+                )
+                resume_ckpt = None if resume_ckpt_option == "None" else resume_ckpt_option
+            else:
+                resume_ckpt = None
+            
             # Advanced settings
             with st.expander("🔧 Advanced Settings"):
                 fp16 = st.checkbox("Enable FP16", value=True, help="Enables mixed precision training for better performance")
@@ -717,7 +766,8 @@ def page_training_config():
             'save_steps': save_steps,
             'logging_steps': logging_steps,
             'eval_steps': eval_steps,
-            'max_steps_override': int(max_steps_override) if max_steps_override else 0
+            'max_steps_override': int(max_steps_override) if max_steps_override else 0,
+            'resume_from_checkpoint': resume_ckpt
         }
         
         try:
