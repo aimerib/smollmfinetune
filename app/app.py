@@ -539,17 +539,25 @@ def page_dataset_preview():
                 st.markdown("#### Review Generated Questions")
                 selections = []
                 for idx, item in enumerate(gen_data):
-                    with st.expander(f"{idx+1}. {item['question']}"):
-                        # Checkbox to include
-                        include = st.checkbox("Add to baseline", value=True, key=f"include_q_{idx}")
+                    # Layout: checkbox | question | context toggle
+                    cols = st.columns([0.08, 0.72, 0.2])
+                    with cols[0]:
+                        include = st.checkbox("", value=True, key=f"include_q_{idx}")
                         if include:
                             selections.append(item['question'])
-                        # Show context
-                        if item['context']:
-                            st.markdown("**Context used:**")
-                            for j, ctx in enumerate(item['context']):
-                                st.markdown(f"*Q{j+1}:* {ctx['user']}")
-                                st.markdown(f"*A{j+1}:* {ctx['assistant']}")
+                    with cols[1]:
+                        st.markdown(f"**{idx+1}. {item['question']}**")
+                    with cols[2]:
+                        toggle_key = f"show_ctx_{idx}"
+                        if st.button("Context ↕", key=f"btn_{toggle_key}"):
+                            st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+                    # Display context when toggled
+                    if st.session_state.get(toggle_key, False) and item['context']:
+                        st.markdown("**Context used:**")
+                        for j, ctx in enumerate(item['context']):
+                            st.markdown(f"*Q{j+1}:* {ctx['user']}")
+                            st.markdown(f"*A{j+1}:* {ctx['assistant']}")
+                        st.markdown("---")
 
                 if selections and st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
                     st.session_state.dataset_manager.default_user_prompts.extend(selections)
