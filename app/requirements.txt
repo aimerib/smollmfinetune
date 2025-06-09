@@ -22,3 +22,5 @@ vllm>=0.2.0; sys_platform != "darwin"
 
 # For CPU deployment or as fallback:
 llama-cpp-python>=0.2.0
+
+sentencepiece>=0.1.99  # needed for translation models

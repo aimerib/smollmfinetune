@@ -26,7 +26,8 @@ run_server() {
        --server.enableCORS false \
        --server.enableXsrfProtection false \
        --server.headless true \
-       --browser.gatherUsageStats false
+       --browser.gatherUsageStats false \
+       --server.fileWatcherType none
 }
 
 if [[ -n ${TMUX:-} ]]; then

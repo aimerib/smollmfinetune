@@ -22,5 +22,7 @@ vllm
 # Fallback inference engine
 llama-cpp-python
 
+sentencepiece
+
 # GPU optimizations
 xformers

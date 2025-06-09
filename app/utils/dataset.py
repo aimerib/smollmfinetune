@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable
 from datasets import Dataset
 from .inference_engines import get_inference_engine
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -16,34 +17,57 @@ class DatasetManager:
     
     def __init__(self, preferred_engine: Optional[str] = None):
         self.inference_engine = get_inference_engine(preferred_engine)
-        self.templates = [
-            (
-                "short_qa",
-                textwrap.dedent("""
-                    You are {name}. Answer the question in first person and stay in character.
-                    Q: {question}
-                    A:""").strip(),
-            ),
-            (
-                "narration",
-                "Write one paragraph describing {name} entering a room from {name}'s perspective. Mention at least one physical trait in a subtle way.",
-            ),
-            (
-                "monologue",
-                "In two sentences let {name} reflect on {topic} while subtly referencing {fact}.",
-            ),
-            (
-                "dialogue_turn",
-                "User: {user_prompt}\n### {name}:",
-            ),
-            (
-                "character_response",
-                "{user_prompt}",
-            ),
-            (
-                "internal_thought",
-                "Write {name}'s internal thoughts about {situation} in first person.",
-            ),
+        # For DanChat-2 we only need a *single* chat template – the chat
+        # wrapper (<|user|> …) is added later by vLLM/HF tokenizer.
+        self.templates = [("chat", "{user_prompt}")]
+
+        # High-fidelity prompt buckets -------------------------------------------------
+        self.prompts_casual = [
+            "hey there!",
+            "hi 👋", "yo, got a sec?", "morning ☀️", "sup?",
+            "hellooo~", "🖐️ hi!"
+        ]
+
+        self.prompts_personal = [
+            "do you ever feel lonely?", "what keeps you awake at night?",
+            "what's your biggest fear?", "have you ever been in love?",
+            "what are you most proud of?", "any secret dreams?"
+        ]
+
+        self.prompts_action = [
+            "*pushes the door open* you coming?",
+            "quick, hide with me!", "help me pick this lock…",
+            "look out! what's that?", "hold my hand and run!"
+        ]
+
+        self.prompts_emotion = [
+            "i'm feeling kinda down today…", "haha that was hilarious 😂",
+            "ugh, this place gives me the creeps…", "i'm so excited!!",
+            "why am i crying?", "that makes me angry!"
+        ]
+
+        self.prompts_intimate = [
+            "*whispers* what do you desire most?",
+            "tell me your favourite place to be touched…",
+            "do you ever think about us?",
+            "what turns you on? 😏",
+            "describe your perfect night together…",
+            "*leans closer* what's the softest place you've ever kissed?",
+            "describe your favorite kind of touch…",
+            "what makes your pulse quicken?",
+            "have you ever wanted someone you couldn't have?",
+            "tell me a secret fantasy—no holding back.",
+            "does the idea of forbidden love excite you?",
+            "how would you comfort a lover after a nightmare?",
+        ]
+
+        # Sampling weights for variety (must sum to 1.0)
+        self.bucket_choices = [
+            ("casual",   0.35),
+            ("personal", 0.25),
+            ("action",   0.15),
+            ("emotion",  0.15),
+            ("intimate", 0.10),
         ]
         
         self.default_questions = [
@@ -150,48 +174,137 @@ class DatasetManager:
         except Exception as e:
             raise RuntimeError(f"Batch text generation failed ({self.inference_engine.name}): {str(e)}")
     
-    def _fill_template(self, template: str, card: Dict[str, str]) -> str:
-        """Fill template placeholders with character data and random selections"""
-        def _rand(lst: List[str]):
-            return random.choice(lst)
-        
-        # Create format dictionary
-        format_dict = dict(card)
-        
-        # Add template variables
-        template_vars = {
-            "question": _rand(self.default_questions),
-            "topic": _rand(self.default_topics),
-            "fact": card.get("description", "your past"),
-            "user_prompt": _rand(self.default_user_prompts),
-            "situation": _rand(self.default_situations),
-        }
-        
-        format_dict.update(template_vars)
-        
+    # ------------------------- prompt sampling helpers -------------------------
+    def _choose_bucket(self) -> str:
+        buckets, weights = zip(*self.bucket_choices)
+        return random.choices(buckets, weights=weights, k=1)[0]
+
+    def _add_noise(self, text: str) -> str:
+        """Apply light realism noise: random lowercase, ellipsis, emoji, etc."""
+        if random.random() < 0.2:
+            text = text.capitalize() if random.random() < 0.5 else text.lower()
+        if random.random() < 0.15:
+            text += random.choice(["…", " :)", " 😅", " ;)", " 🤔"])
+        # occasional stutter
+        if random.random() < 0.05 and len(text.split()) > 2:
+            first = text.split()[0]
+            text = f"{first[0]}-{first} " + " ".join(text.split()[1:])
+        return text
+
+    # ---------------- paraphrasing & back-translation ----------------
+    def _paraphrase(self, text: str) -> str:
+        if not self.paraphraser or random.random() > 0.5:  # 50% keep original
+            return text
         try:
-            return template.format(**format_dict).strip()
-        except KeyError as e:
-            # Fallback with minimal required fields
-            minimal_dict = {"name": card.get("name", "Unknown")}
-            minimal_dict.update(template_vars)
-            try:
-                return template.format(**minimal_dict).strip()
-            except:
-                return template.strip()
+            out = self.paraphraser(
+                f"paraphrase: {text} </s>",
+                max_length=min(len(text.split()) + 30, 60),
+                num_beams=5,
+                num_return_sequences=1,
+            )[0]["generated_text"]
+            return out.strip()
+        except Exception:
+            return text
+
+    def _backtranslate(self, text: str) -> str:
+        if random.random() > 0.1:  # only 10% of prompts
+            return text
+
+        try:
+            def _get(model_name):
+                if model_name not in self._bt_models:
+                    tok = self._AutoTokenizer.from_pretrained(model_name)
+                    mod = self._AutoModel.from_pretrained(model_name)
+                    self._bt_tokenizers[model_name] = tok
+                    self._bt_models[model_name] = mod
+                return self._bt_tokenizers[model_name], self._bt_models[model_name]
+
+            tok_en_fr, mod_en_fr = _get("Helsinki-NLP/opus-mt-en-fr")
+            tok_fr_en, mod_fr_en = _get("Helsinki-NLP/opus-mt-fr-en")
+
+            tgt = mod_en_fr.generate(**tok_en_fr(text, return_tensors="pt", truncation=True))
+            fr = tok_en_fr.decode(tgt[0], skip_special_tokens=True)
+            src = mod_fr_en.generate(**tok_fr_en(fr, return_tensors="pt", truncation=True))
+            return tok_fr_en.decode(src[0], skip_special_tokens=True)
+        except Exception:
+            return text
+
+    def _build_user_prompt(self) -> str:
+        bucket = self._choose_bucket()
+        prompt_list = getattr(self, f"prompts_{bucket}")
+        prompt = random.choice(prompt_list)
+        prompt = self._add_noise(prompt.strip())
+        prompt = self._paraphrase(prompt)
+        prompt = self._backtranslate(prompt)
+        return prompt
+
+    # ---------------------------------------------------------------------------
+
+    def _fill_template(self, template: str, card: Dict[str, str]) -> str:
+        """Return a single realistic user prompt (no formatting placeholders)."""
+        return self._build_user_prompt()
     
     def _make_card_block(self, card: Dict[str, str]) -> str:
-        """Create character card block for system prompt"""
-        lines = ["You are a character in a story. Bellow are the details of the character. Behave as the character would.", "### <CHAR_CARD>"]
-        lines.append(f"Name: {card.get('name', 'Unknown')}")
-        
-        for field in ["description", "scenario", "personality", "first_mes", "mes_example"]:
-            if field in card:
-                pretty = card[field].replace("\n", " ")
-                lines.append(f"{field.capitalize()}: {pretty}")
-        
-        # lines.append("<|endofcard|>")
-        return "\n".join(lines)
+        """Build a DanChat-2 compatible *system* prompt block.
+
+        The real chat template (added later by the tokenizer or vLLM) will wrap
+        this string in ``<|system|> ... <|endoftext|>``, so **do not** add
+        those markers here – just construct the inner text exactly like
+        SillyTavern does when using the DanChat-2 preset (see `story_string` in
+        the question):
+
+            <|system|>{system/wiBefore/description/personality/scenario/…}<|endoftext|>
+
+        We include only the fields that are present in the character card and
+        keep the order identical to SillyTavern:
+
+            system
+            wiBefore
+            description
+            {name}'s personality: {personality}
+            Scenario: {scenario}
+            wiAfter
+            persona
+        """
+
+        lines: list[str] = [f"You are {card.get('name', 'a character in a story')}. Bellow are your details. Behave accordingly."]
+
+        # 1. explicit system string if provided
+        if sys_msg := card.get("system"):
+            lines.append(sys_msg.strip())
+
+        # 2. wiBefore – extra world-info before the description
+        if wi_before := card.get("wiBefore"):
+            lines.append(wi_before.strip())
+
+        # 3. description
+        if desc := card.get("description"):
+            lines.append(desc.strip())
+
+        # 4. personality
+        if pers := card.get("personality"):
+            char_name = card.get("name", "The character")
+            lines.append(f"{char_name}'s personality: {pers.strip()}")
+
+        # 5. scenario
+        if scen := card.get("scenario"):
+            lines.append(f"Scenario: {scen.strip()}")
+
+        # 6. wiAfter – world-info appended after the scenario
+        if wi_after := card.get("wiAfter"):
+            lines.append(wi_after.strip())
+
+        # 7. persona (rarely used but supported by ST)
+        if persona := card.get("persona"):
+            lines.append(persona.strip())
+
+        # If everything is missing fall back to a generic instruction so the
+        # prompt is never empty.
+        if not lines:
+            lines.append("You are a fictional character. Respond in character at all times.")
+
+        # The story_string uses single new-line separators and gets trimmed.
+        return "\n".join(lines).strip()
     
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,
                              max_tokens: int = 300, temperature: float = 0.8,
