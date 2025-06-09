@@ -542,7 +542,7 @@ def page_dataset_preview():
                     # Layout: checkbox | question | context toggle
                     cols = st.columns([0.08, 0.72, 0.2])
                     with cols[0]:
-                        include = st.checkbox("", value=True, key=f"include_q_{idx}")
+                        include = st.checkbox(f"q{idx+1}", value=True, key=f"include_q_{idx}", label_visibility="hidden")
                         if include:
                             selections.append(item['question'])
                     with cols[1]:
