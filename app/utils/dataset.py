@@ -23,29 +23,58 @@ class DatasetManager:
         # wrapper (<|user|> …) is added later by vLLM/HF tokenizer.
         self.templates = [("chat", "{user_prompt}")]
 
-        # High-fidelity prompt buckets -------------------------------------------------
+        # Natural conversation starters (how users actually talk) ----------------
         self.prompts_casual = [
-            "hey there!",
-            "hi 👋", "yo, got a sec?", "morning ☀️", "sup?",
-            "hellooo~", "🖐️ hi!"
+            "Hey! How's it going?",
+            "What's up?", 
+            "Good morning!",
+            "How are you feeling today?",
+            "What have you been up to?",
+            "Nice to meet you!",
+            "How's your day been?",
+            "What's on your mind?"
         ]
 
         self.prompts_personal = [
             "do you ever feel lonely?", "what keeps you awake at night?",
             "what's your biggest fear?", "have you ever been in love?",
-            "what are you most proud of?", "any secret dreams?"
+            "what are you most proud of?", "any secret dreams?",
+            "Tell me about yourself.",
+            "What do you like to do for fun?",
+            "What's something you're passionate about?",
+            "Do you have any interesting stories?",
+            "What's been on your mind lately?",
+            "What makes you happy?",
+            "What's your biggest dream?",
+            "What's something most people don't know about you?"
         ]
 
         self.prompts_action = [
             "*pushes the door open* you coming?",
             "quick, hide with me!", "help me pick this lock…",
-            "look out! what's that?", "hold my hand and run!"
+            "look out! what's that?", "hold my hand and run!",
+            "Want to go somewhere?",
+            "Should we check that out?",
+            "What do you think we should do?",
+            "Ready for an adventure?",
+            "Let's try something new.",
+            "Come on, let's go!",
+            "What's the plan?",
+            "Want to explore a bit?"
         ]
 
         self.prompts_emotion = [
             "i'm feeling kinda down today…", "haha that was hilarious 😂",
             "ugh, this place gives me the creeps…", "i'm so excited!!",
-            "why am i crying?", "that makes me angry!"
+            "why am i crying?", "that makes me angry!",
+            "You seem thoughtful today.",
+            "Something's bothering you, isn't it?",
+            "You look happy about something.",
+            "Is everything alright?",
+            "You're in a good mood!",
+            "What's got you so excited?",
+            "You seem a bit distant.",
+            "I can tell something's up."
         ]
 
         self.prompts_intimate = [
@@ -61,6 +90,18 @@ class DatasetManager:
             "tell me a secret fantasy—no holding back.",
             "does the idea of forbidden love excite you?",
             "how would you comfort a lover after a nightmare?",
+            "I've been thinking about you.",
+            "You mean a lot to me.",
+            "What are you thinking about?",
+            "I love spending time with you.",
+            "You're really special to me.",
+            "Can I tell you something?",
+            "I feel close to you.",
+            "What do you think about us?",
+            "You make me feel...",
+            "I trust you.",
+            "There's something about you...",
+            "I care about you."
         ]
 
         # Sampling weights for variety (must sum to 1.0)
@@ -182,15 +223,7 @@ class DatasetManager:
         return random.choices(buckets, weights=weights, k=1)[0]
 
     def _add_noise(self, text: str) -> str:
-        """Apply light realism noise: random lowercase, ellipsis, emoji, etc."""
-        if random.random() < 0.2:
-            text = text.capitalize() if random.random() < 0.5 else text.lower()
-        if random.random() < 0.15:
-            text += random.choice(["…", " :)", " 😅", " ;)", " 🤔"])
-        # occasional stutter
-        if random.random() < 0.05 and len(text.split()) > 2:
-            first = text.split()[0]
-            text = f"{first[0]}-{first} " + " ".join(text.split()[1:])
+        """Keep prompts clean - no artificial noise"""
         return text
 
     # ---------------- paraphrasing & back-translation ----------------
@@ -228,29 +261,25 @@ class DatasetManager:
         return self._build_user_prompt()
     
     def _make_card_block(self, card: Dict[str, str]) -> str:
-        """Build a DanChat-2 compatible *system* prompt block.
+        """Build a SillyTavern-style system prompt for DanChat-2.
 
-        The real chat template (added later by the tokenizer or vLLM) will wrap
-        this string in ``<|system|> ... <|endoftext|>``, so **do not** add
-        those markers here – just construct the inner text exactly like
-        SillyTavern does when using the DanChat-2 preset (see `story_string` in
-        the question):
-
-            <|system|>{system/wiBefore/description/personality/scenario/…}<|endoftext|>
-
-        We include only the fields that are present in the character card and
-        keep the order identical to SillyTavern:
-
-            system
-            wiBefore
-            description
-            {name}'s personality: {personality}
-            Scenario: {scenario}
-            wiAfter
-            persona
+        Following ST's story_string template exactly:
+        {{#if system}}{{system}}\n{{/if}}
+        {{#if wiBefore}}{{wiBefore}}\n{{/if}}
+        {{#if description}}{{description}}\n{{/if}}
+        {{#if personality}}{{char}}'s personality: {{personality}}\n{{/if}}
+        {{#if scenario}}Scenario: {{scenario}}\n{{/if}}
+        {{#if wiAfter}}{{wiAfter}}\n{{/if}}
+        {{#if persona}}{{persona}}\n{{/if}}
+        
+        Plus adding mes_example and first_mes for few-shot learning.
         """
+        lines = []
+        char_name = card.get("name", "Assistant")
 
-        lines: list[str] = [f"You are {card.get('name', 'a character in a story')}. Bellow are your details. Behave accordingly."]
+        # Basic system instruction (SillyTavern default)
+        basic_instruction = f"Write {char_name}'s actions and dialogue, do not speak or act for {{{{user}}}}"
+        lines.append(basic_instruction)
 
         # 1. explicit system string if provided
         if sys_msg := card.get("system"):
@@ -260,13 +289,12 @@ class DatasetManager:
         if wi_before := card.get("wiBefore"):
             lines.append(wi_before.strip())
 
-        # 3. description
+        # 3. description (core character info)
         if desc := card.get("description"):
             lines.append(desc.strip())
 
         # 4. personality
         if pers := card.get("personality"):
-            char_name = card.get("name", "The character")
             lines.append(f"{char_name}'s personality: {pers.strip()}")
 
         # 5. scenario
@@ -281,12 +309,15 @@ class DatasetManager:
         if persona := card.get("persona"):
             lines.append(persona.strip())
 
-        # If everything is missing fall back to a generic instruction so the
-        # prompt is never empty.
-        if not lines:
-            lines.append("You are a fictional character. Respond in character at all times.")
+        # 8. Example messages for few-shot learning (critical for quality)
+        if mes_example := card.get("mes_example"):
+            lines.append(mes_example.strip())
 
-        # The story_string uses single new-line separators and gets trimmed.
+        # 9. First message provides character voice context
+        if first_mes := card.get("first_mes"):
+            lines.append(first_mes.strip())
+
+        # Clean formatting: single newlines, no extra whitespace
         return "\n".join(lines).strip()
     
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,
