@@ -35,7 +35,7 @@ class DatasetManager:
             "What have you been up to?",
             "Nice to meet you!",
             "How's your day been?",
-            "What's on your mind?"
+            "What's on your mind?",
             "Who are you?",
             "What's your name?",
         ]
