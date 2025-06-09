@@ -173,7 +173,7 @@ class VLLMEngine(InferenceEngine):
                 tensor_parallel_size=self.tensor_parallel_size,
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
-                enforce_eager=True,
+                enforce_eager=False,
                 trust_remote_code=True,
             )
             

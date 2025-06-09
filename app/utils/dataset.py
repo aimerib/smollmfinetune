@@ -374,7 +374,7 @@ class DatasetManager:
                     try:
                         # Quality filters
                         word_count = len(reply.split())
-                        if word_count < 3 or word_count > 420:
+                        if word_count < 1 or word_count > 1000:
                             continue
                         
                         # Create ChatML sample
