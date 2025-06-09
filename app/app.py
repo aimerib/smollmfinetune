@@ -847,6 +847,17 @@ def page_model_testing():
             return
         
         selected_model = st.selectbox("Select Model", available_models)
+
+        system_prompt_option = st.radio(
+            "Choose system prompt strategy:",
+            [
+                "Default (Tokenizer's built-in)",
+                "Empty (No system prompt)",
+                "Roleplay Director",
+                "Custom"
+            ],
+            help="Test how the LoRA responds to different system prompts"
+        )
         
         # Show debug info about what's being tested
         with st.expander("🔧 Test Configuration"):
@@ -864,16 +875,6 @@ def page_model_testing():
         
         # System prompt selection
         st.markdown("### System Prompt Configuration")
-        system_prompt_option = st.radio(
-            "Choose system prompt strategy:",
-            [
-                "Default (Tokenizer's built-in)",
-                "Empty (No system prompt)",
-                "Roleplay Director",
-                "Custom"
-            ],
-            help="Test how the LoRA responds to different system prompts"
-        )
         
         system_prompt = None
         if system_prompt_option == "Empty (No system prompt)":
