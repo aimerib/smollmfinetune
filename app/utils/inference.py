@@ -3,6 +3,11 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class InferenceManager:
@@ -10,21 +15,49 @@ class InferenceManager:
     
     def __init__(self, base_model: str = "HuggingFaceTB/SmolLM2-135M-Instruct"):
         self.base_model = base_model
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # Better device handling
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            self.device = "mps"
+        else:
+            self.device = "cpu"
+        
+        logger.info(f"InferenceManager initialized with device: {self.device}")
+        
         self.loaded_models = {}  # Cache for loaded models
         self.project_dir = Path("training_output")
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""
+        logger.info(f"Loading base model: {self.base_model}")
+        
+        # Better device mapping and dtype handling
+        if self.device == "cuda":
+            device_map = "auto"
+            torch_dtype = torch.float16
+        else:
+            # For MPS and CPU, don't use device_map
+            device_map = None
+            torch_dtype = torch.float32
+        
         model = AutoModelForCausalLM.from_pretrained(
             self.base_model,
-            device_map=self.device,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+            device_map=device_map,
+            torch_dtype=torch_dtype,
+            trust_remote_code=True
         )
         
-        tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        # For non-CUDA devices, manually move to device
+        if self.device != "cuda":
+            model = model.to(self.device)
+        
+        tokenizer = AutoTokenizer.from_pretrained(self.base_model, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
+        
+        logger.info(f"Model loaded successfully on {self.device}")
+        logger.info(f"Model has {model.num_parameters():,} parameters")
         
         return model, tokenizer
     
@@ -58,7 +91,10 @@ class InferenceManager:
     def load_model(self, model_path: str) -> tuple:
         """Load a specific model (base, LoRA, or checkpoint)"""
         if model_path in self.loaded_models:
+            logger.info(f"Using cached model: {model_path}")
             return self.loaded_models[model_path]
+        
+        logger.info(f"Loading model: {model_path}")
         
         # Load base model and tokenizer
         base_model, tokenizer = self._load_base_model()
@@ -66,6 +102,7 @@ class InferenceManager:
         if model_path.startswith("Base:"):
             # Use base model as-is
             model = base_model
+            logger.info("Using base model without adapters")
         elif model_path.startswith("LoRA:") or model_path.startswith("Checkpoint:"):
             # Extract character name and optional checkpoint
             parts = model_path.split(": ", 1)[1].split("/")
@@ -81,24 +118,67 @@ class InferenceManager:
                 raise FileNotFoundError(f"Model not found: {adapter_path}")
             
             # Load LoRA adapter
+            logger.info(f"Loading LoRA adapter from: {adapter_path}")
             model = PeftModel.from_pretrained(base_model, str(adapter_path))
         else:
             raise ValueError(f"Invalid model path format: {model_path}")
         
         # Cache the loaded model
         self.loaded_models[model_path] = (model, tokenizer)
+        logger.info(f"Model loaded and cached: {model_path}")
         
         return model, tokenizer
+    
+    def _format_chat_prompt(self, prompt: str) -> List[Dict[str, str]]:
+        """Format prompt using proper chat template for SmolLM2-135M-Instruct"""
+        
+        # Always use clean prompt without character context
+        # The LoRA should have learned the character behavior during training
+        messages = [
+            {"role": "user", "content": prompt}
+        ]
+        
+        return messages
     
     def generate_response(self, model_path: str, prompt: str, max_new_tokens: int = 150,
                          temperature: float = 0.8, top_p: float = 0.9,
                          repetition_penalty: float = 1.1, do_sample: bool = True) -> str:
         """Generate a response using the specified model"""
         try:
+            logger.info(f"Generating response with model: {model_path}")
+            logger.debug(f"Raw prompt: {prompt[:100]}...")
+            logger.debug(f"Generation params: max_tokens={max_new_tokens}, temp={temperature}, top_p={top_p}")
+            
             model, tokenizer = self.load_model(model_path)
             
+            # Format prompt properly for chat models (no character context injection)
+            logger.info(f"Formatting clean prompt for model: {model_path}")
+            messages = self._format_chat_prompt(prompt)
+            
+            # Try to use the model's chat template
+            if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template:
+                logger.debug("Using tokenizer's chat template")
+                formatted_prompt = tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=True
+                )
+            else:
+                # Fallback formatting for models without chat template
+                logger.debug("Using fallback prompt formatting")
+                formatted_prompt = f"User: {prompt}\nAssistant:"
+            
+            logger.debug(f"Formatted prompt: {formatted_prompt[:200]}...")
+            
             # Tokenize input
-            inputs = tokenizer(prompt, return_tensors="pt").to(model.device)
+            inputs = tokenizer(formatted_prompt, return_tensors="pt")
+            
+            # Ensure inputs are on the same device as model
+            inputs = {k: v.to(model.device) for k, v in inputs.items()}
+            
+            logger.debug(f"Input tokens: {inputs['input_ids'].shape}")
+            logger.debug(f"Model device: {next(model.parameters()).device}")
+            logger.debug(f"Input device: {inputs['input_ids'].device}")
             
             # Generate response
             with torch.no_grad():
@@ -111,15 +191,48 @@ class InferenceManager:
                     do_sample=do_sample,
                     pad_token_id=tokenizer.eos_token_id,
                     eos_token_id=tokenizer.eos_token_id,
+                    # Add some safety parameters
+                    use_cache=True,
+                    output_attentions=False,
+                    output_hidden_states=False,
                 )
             
-            # Decode response (only the new tokens)
-            response = tokenizer.decode(outputs[0][inputs['input_ids'].shape[-1]:], skip_special_tokens=True)
+            logger.debug(f"Generated tokens: {outputs.shape}")
             
-            return response.strip()
+            # Decode response (only the new tokens)
+            input_length = inputs['input_ids'].shape[-1]
+            generated_tokens = outputs[0][input_length:]
+            
+            logger.debug(f"New tokens generated: {len(generated_tokens)}")
+            
+            if len(generated_tokens) == 0:
+                logger.warning("No new tokens generated!")
+                return "No response generated. Try adjusting generation parameters."
+            
+            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            
+            logger.debug(f"Raw decoded response: {response[:100]}...")
+            
+            # Clean up response
+            response = response.strip()
+            
+            # Remove any remaining special tokens or artifacts
+            if response.startswith(("User:", "Assistant:", "System:")):
+                response = response.split(":", 1)[1].strip()
+            
+            logger.info(f"Final response length: {len(response)} characters")
+            
+            if not response:
+                logger.warning("Empty response after processing!")
+                return "Empty response generated. Check model and generation parameters."
+            
+            logger.info("Response generation completed successfully")
+            return response
             
         except Exception as e:
-            return f"Error generating response: {str(e)}"
+            error_msg = f"Error generating response: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            return error_msg
     
     def test_model_quality(self, model_path: str, test_prompts: List[str]) -> Dict[str, Any]:
         """Test model quality with a set of prompts"""
@@ -186,7 +299,11 @@ class InferenceManager:
         return comparison
     
     def create_chat_context(self, character: Dict[str, Any], conversation_history: List[Dict[str, str]] = None) -> str:
-        """Create a chat context with character card and conversation history"""
+        """Create a chat context with character card and conversation history
+        
+        NOTE: This method is available for other use cases but is NOT used in model testing
+        to ensure pure LoRA evaluation without character context injection.
+        """
         from .character import CharacterManager
         
         char_manager = CharacterManager()

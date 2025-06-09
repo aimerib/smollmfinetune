@@ -34,8 +34,14 @@ from utils.inference_engines import InferenceEngineFactory
 import logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+    ]
 )
+
+# Set specific loggers to DEBUG for more detail
+logging.getLogger('utils.inference').setLevel(logging.DEBUG)
 
 # Page config
 st.set_page_config(
@@ -830,6 +836,8 @@ def page_model_testing():
     with col1:
         st.markdown("### Test Your Trained Model")
         
+        st.info("🧪 **Pure LoRA Testing**: No character context is injected. Testing how well the LoRA learned character behavior during training.")
+        
         # Model selection
         available_models = st.session_state.inference_manager.get_available_models()
         
@@ -838,6 +846,19 @@ def page_model_testing():
             return
         
         selected_model = st.selectbox("Select Model", available_models)
+        
+        # Show debug info about what's being tested
+        with st.expander("🔧 Test Configuration"):
+            st.write(f"**Selected Model:** {selected_model}")
+            st.write(f"**Character Context Injection:** No (Pure LoRA Test)")
+            if st.session_state.current_character and not selected_model.startswith("Base:"):
+                char = st.session_state.current_character
+                st.write(f"**Testing Character:** {char.get('name', 'Unknown')}")
+                st.info("💡 Testing how well the LoRA learned the character without explicit context")
+            elif selected_model.startswith("Base:"):
+                st.write("**Mode:** Base model testing")
+            else:
+                st.warning("⚠️ No character uploaded for LoRA comparison")
         
         # Test prompt
         test_prompt = st.text_area(
@@ -874,6 +895,16 @@ def page_model_testing():
                         <p style="margin: 0; color: #f8fafc;">{response}</p>
                     </div>
                 """, unsafe_allow_html=True)
+                
+                # Show recent logs for debugging
+                with st.expander("🔍 Debug Logs (Last 20 lines)"):
+                    try:
+                        with open('app.log', 'r') as f:
+                            lines = f.readlines()
+                            recent_logs = ''.join(lines[-20:])
+                            st.code(recent_logs, language='text')
+                    except FileNotFoundError:
+                        st.info("No log file found yet.")
             else:
                 st.warning("⚠️ Please enter a test prompt.")
     
