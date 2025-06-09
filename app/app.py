@@ -235,6 +235,47 @@ def render_sidebar():
             }
         )
         
+        # ------------------------------------------------------------------
+        # Inference-engine selector
+        # ------------------------------------------------------------------
+
+        from app.utils.inference_engines import InferenceEngineFactory
+
+        # Build a map of available engines (name ➜ internal key)
+        _engine_key_map = {
+            "vLLM": "vllm",
+            "LM Studio": "lmstudio",
+            "llama-cpp": "llamacpp",
+            "Transformers": "transformers",
+        }
+
+        available_engine_names = []
+        for friendly_name, key in _engine_key_map.items():
+            try:
+                if InferenceEngineFactory.create_engine(key).is_available():
+                    available_engine_names.append(friendly_name)
+            except Exception:
+                # If creation fails we treat the engine as unavailable
+                continue
+
+        if not available_engine_names:
+            available_engine_names = ["Transformers"]
+
+        selected_engine_friendly = st.selectbox(
+            "🛠️ Inference Engine",
+            available_engine_names,
+            index=available_engine_names.index(st.session_state.selected_engine)
+            if st.session_state.selected_engine in available_engine_names else 0,
+            help="Select which backend to use for text generation"
+        )
+
+        # If the user picked a different engine we recreate the DatasetManager
+        if selected_engine_friendly != st.session_state.selected_engine:
+            internal_key = _engine_key_map[selected_engine_friendly]
+            st.session_state.selected_engine = selected_engine_friendly
+            st.session_state.dataset_manager = DatasetManager(preferred_engine=internal_key)
+            st.experimental_rerun()
+        
         # Status indicator
         status_colors = {
             'idle': '#94a3b8',
