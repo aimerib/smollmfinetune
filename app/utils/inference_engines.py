@@ -485,6 +485,7 @@ class InferenceEngineFactory:
         
         # If user specified a preference, try that first
         if preferred_engine:
+            logger.info(f"User requested preferred engine: {preferred_engine}")
             engine_map = {
                 "lmstudio": LMStudioEngine(),
                 "vllm": VLLMEngine(), 
@@ -494,17 +495,24 @@ class InferenceEngineFactory:
             
             if preferred_engine.lower() in engine_map:
                 preferred = engine_map[preferred_engine.lower()]
+                logger.info(f"Testing availability of preferred engine: {preferred.name}")
                 if preferred.is_available():
-                    logger.info(f"Using preferred engine: {preferred.name}")
+                    logger.info(f"✅ Using preferred engine: {preferred.name}")
                     return preferred
                 else:
-                    logger.warning(f"Preferred engine {preferred.name} not available, falling back...")
+                    logger.warning(f"❌ Preferred engine {preferred.name} not available, falling back...")
+            else:
+                logger.warning(f"❌ Unknown preferred engine: {preferred_engine}, falling back...")
         
         # Auto-select best available engine
+        logger.info("🔍 Auto-detecting best available engine...")
         for engine in engines:
+            logger.info(f"Testing engine: {engine.name}")
             if engine.is_available():
-                logger.info(f"Auto-selected inference engine: {engine.name}")
+                logger.info(f"✅ Auto-selected inference engine: {engine.name}")
                 return engine
+            else:
+                logger.info(f"❌ Engine {engine.name} not available")
         
         # This should never happen since TransformersEngine should always work
         raise RuntimeError("No inference engines available!")

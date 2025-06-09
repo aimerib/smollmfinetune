@@ -16,7 +16,9 @@ class DatasetManager:
     """Manages synthetic dataset generation and processing"""
     
     def __init__(self, preferred_engine: Optional[str] = None):
+        logger.info(f"DatasetManager initializing with preferred_engine: {preferred_engine}")
         self.inference_engine = get_inference_engine(preferred_engine)
+        logger.info(f"DatasetManager created with engine: {self.inference_engine.name}")
         # For DanChat-2 we only need a *single* chat template – the chat
         # wrapper (<|user|> …) is added later by vLLM/HF tokenizer.
         self.templates = [("chat", "{user_prompt}")]

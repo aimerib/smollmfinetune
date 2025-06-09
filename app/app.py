@@ -30,6 +30,13 @@ from utils.training import TrainingManager
 from utils.inference import InferenceManager
 from utils.inference_engines import InferenceEngineFactory
 
+# Configure logging for debugging
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
 # Page config
 st.set_page_config(
     page_title="🎭 Character AI Training Studio",
@@ -268,12 +275,24 @@ def render_sidebar():
             help="Select which backend to use for text generation"
         )
 
+        # Debug info
+        current_actual_engine = st.session_state.dataset_manager.inference_engine.name
+        
         # If the user picked a different engine we recreate the DatasetManager
         if selected_engine_friendly != st.session_state.selected_engine:
             internal_key = _engine_key_map[selected_engine_friendly]
+            st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
             st.session_state.selected_engine = selected_engine_friendly
             st.session_state.dataset_manager = DatasetManager(preferred_engine=internal_key)
-            st.experimental_rerun()
+            st.rerun()
+        
+        # Also check if the actual engine doesn't match what's selected
+        elif current_actual_engine != selected_engine_friendly:
+            internal_key = _engine_key_map[selected_engine_friendly]
+            st.warning(f"⚠️ Engine mismatch detected! Selected: {selected_engine_friendly}, Actual: {current_actual_engine}. Fixing...")
+            st.session_state.selected_engine = selected_engine_friendly
+            st.session_state.dataset_manager = DatasetManager(preferred_engine=internal_key)
+            st.rerun()
         
         # Status indicator
         status_colors = {
