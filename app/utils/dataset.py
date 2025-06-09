@@ -298,44 +298,49 @@ class DatasetManager:
         char_name = card.get("name", "Assistant")
 
         # Basic system instruction (SillyTavern default)
-        basic_instruction = f"Write {char_name}'s actions and dialogue, do not speak or act for {{{{user}}}}"
+        basic_instruction = f"Write {char_name}'s actions and dialogue, do not speak or act for User"
         lines.append(basic_instruction)
+
+        # Helper function to substitute SillyTavern template variables
+        def substitute_vars(text: str) -> str:
+            if not text:
+                return text
+            # Replace SillyTavern template variables
+            text = text.replace("{{char}}", char_name)
+            text = text.replace("{{user}}", "User")
+            return text
 
         # 1. explicit system string if provided
         if sys_msg := card.get("system"):
-            lines.append(sys_msg.strip())
+            lines.append(substitute_vars(sys_msg.strip()))
 
         # 2. wiBefore – extra world-info before the description
         if wi_before := card.get("wiBefore"):
-            lines.append(wi_before.strip())
+            lines.append(substitute_vars(wi_before.strip()))
 
         # 3. description (core character info)
         if desc := card.get("description"):
-            lines.append(desc.strip())
+            lines.append(substitute_vars(desc.strip()))
 
         # 4. personality
         if pers := card.get("personality"):
-            lines.append(f"{char_name}'s personality: {pers.strip()}")
+            lines.append(f"{char_name}'s personality: {substitute_vars(pers.strip())}")
 
         # 5. scenario
         if scen := card.get("scenario"):
-            lines.append(f"Scenario: {scen.strip()}")
+            lines.append(f"Scenario: {substitute_vars(scen.strip())}")
 
         # 6. wiAfter – world-info appended after the scenario
         if wi_after := card.get("wiAfter"):
-            lines.append(wi_after.strip())
+            lines.append(substitute_vars(wi_after.strip()))
 
         # 7. persona (rarely used but supported by ST)
         if persona := card.get("persona"):
-            lines.append(persona.strip())
+            lines.append(substitute_vars(persona.strip()))
 
         # 8. Example messages for few-shot learning (critical for quality)
         if mes_example := card.get("mes_example"):
-            lines.append(mes_example.strip())
-
-        # 9. First message provides character voice context
-        if first_mes := card.get("first_mes"):
-            lines.append(first_mes.strip())
+            lines.append(substitute_vars(mes_example.strip()))
 
         # Clean formatting: single newlines, no extra whitespace
         return "\n".join(lines).strip()
@@ -363,8 +368,9 @@ class DatasetManager:
                 if unfilled_placeholders:
                     continue
                 
-                # Build proper DanChat-2 text completion prompt
-                danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>"
+                # Build proper DanChat-2 text completion prompt with character name
+                char_name = character.get('name', 'Assistant')
+                danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
                 
                 prompts_data.append({
                     'prompt': prompt,
