@@ -207,6 +207,8 @@ def init_session_state():
     if 'selected_engine' not in st.session_state:
         # Display current engine in sidebar
         st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
+    if 'generated_questions' not in st.session_state:
+        st.session_state.generated_questions = None
 
 def render_header():
     """Render the beautiful header"""
@@ -497,6 +499,51 @@ def page_dataset_preview():
                         st.rerun()
             
             st.markdown("---")
+        
+        # ----------------------------
+        # ✨ Augment Baseline Questions
+        # ----------------------------
+        st.markdown("### ✨ Augment Baseline Questions")
+        with st.expander("Generate questions with AI"):
+            num_q = st.number_input(
+                "Number of questions to generate",
+                min_value=1,
+                max_value=100,
+                value=10,
+                step=1,
+                key="num_q_generate"
+            )
+
+            if st.button("🔮 Generate Questions", key="generate_questions_btn", use_container_width=True):
+                with st.spinner("Generating questions..."):
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        qs = loop.run_until_complete(
+                            st.session_state.dataset_manager.suggest_user_questions(
+                                st.session_state.current_character,
+                                num_questions=int(num_q)
+                            )
+                        )
+                        st.session_state.generated_questions = qs
+                    finally:
+                        loop.close()
+                st.success(f"Generated {len(st.session_state.generated_questions)} questions!")
+
+            # Show generated questions and allow user to add to baseline
+            if st.session_state.get('generated_questions'):
+                selected_qs = st.multiselect(
+                    "Select questions to add to baseline list",
+                    st.session_state.generated_questions,
+                    default=st.session_state.generated_questions,
+                    key="selected_generated_qs"
+                )
+
+                if st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
+                    st.session_state.dataset_manager.default_user_prompts.extend(selected_qs)
+                    st.success(f"Added {len(selected_qs)} questions to baseline list.")
+
+        # ------------------------------------------------------------
         
         st.markdown("### Dataset Generation Settings")
         

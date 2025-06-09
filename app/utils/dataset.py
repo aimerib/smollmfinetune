@@ -285,6 +285,64 @@ class DatasetManager:
         prompt = self._backtranslate(prompt)
         return prompt
 
+    async def suggest_user_questions(self, character: Dict[str, Any], num_questions: int = 10,
+                                     temperature: float = 0.8, top_p: float = 0.9) -> List[str]:
+        """Generate a list of engaging user questions tailored to the given character card.
+
+        The method prompts the currently selected inference engine to act as a creative user
+        who is about to start a conversation with the character.  It returns *only* the raw
+        questions – no numbering, quotes, or extra commentary – ready to be added to the
+        baseline prompt list for ground-truth generation.
+        """
+        # Build a descriptive prompt containing the full character context
+        card_block = self._make_card_block(character)
+        prompt_template = (
+            "You are brainstorming conversation starters for a chat with the following character.\n"
+            "Based on the character information, write ONE concise and engaging question that a user might ask.\n"
+            "Respond with ONLY the question itself.\n\n"
+            f"{card_block}\n\nQuestion:"
+        )
+
+        # Determine whether we can leverage batched generation
+        batch_size = min(num_questions, 50) if hasattr(self.inference_engine, 'generate_batch') else 1
+        prompts = [prompt_template] * num_questions
+
+        # Generate the questions (batched when supported)
+        if batch_size > 1:
+            raw_outputs = await self._generate_text_batch(
+                prompts=prompts,
+                max_tokens=60,
+                temperature=temperature,
+                top_p=top_p
+            )
+        else:
+            raw_outputs = []
+            for _ in range(num_questions):
+                out = await self._generate_text(
+                    prompt=prompt_template,
+                    max_tokens=60,
+                    temperature=temperature,
+                    top_p=top_p
+                )
+                raw_outputs.append(out)
+
+        # Post-process the replies: strip fluff, normalise, deduplicate
+        cleaned: List[str] = []
+        seen = set()
+        for q in raw_outputs:
+            q_str = str(q).strip()
+            # Remove bullets / numbering if present (e.g. "1. ", "- ")
+            q_str = re.sub(r'^[\d\-\*\.\s]+', '', q_str)
+            q_str = q_str.strip(' "\'')
+            # Ensure terminal question-mark for consistency
+            if q_str and not q_str.endswith('?'):
+                q_str += '?'
+            if q_str and q_str not in seen:
+                cleaned.append(q_str)
+                seen.add(q_str)
+
+        return cleaned[:num_questions]
+
     # ---------------------------------------------------------------------------
 
     def _fill_template(self, template: str, card: Dict[str, str]) -> str:
