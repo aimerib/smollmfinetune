@@ -2,6 +2,7 @@ import threading
 import queue
 import time
 import torch
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Callable
 from transformers import (
@@ -10,6 +11,9 @@ from transformers import (
 )
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from datasets import Dataset
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 
 class TrainingCallback(TrainerCallback):
@@ -61,7 +65,17 @@ class TrainingManager:
     
     def __init__(self, base_model: str = "HuggingFaceTB/SmolLM2-135M-Instruct"):
         self.base_model = base_model
-        self.device = "mps" if torch.backends.mps.is_available() else "cpu"
+        # Conservative device selection - prefer CPU for stability during debugging
+        if torch.cuda.is_available():
+            self.device = "cuda"
+        elif torch.backends.mps.is_available():
+            # MPS can be problematic with training, use with caution
+            self.device = "mps"
+            print("⚠️  Using MPS device - if training hangs, switch to CPU")
+        else:
+            self.device = "cpu"
+        
+        print(f"🔧 TrainingManager initialized with device: {self.device}")
         
         # Training state
         self.is_training = False
@@ -86,16 +100,33 @@ class TrainingManager:
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""
+        # Fix device mapping for different backends
+        if self.device == "cuda":
+            device_map = "auto"
+            torch_dtype = torch.float16
+        else:
+            # For MPS and CPU, don't use device_map, load normally and move to device
+            device_map = None
+            torch_dtype = torch.float32
+        
+        print(f"Loading model {self.base_model} on device {self.device}")
+        
         model = AutoModelForCausalLM.from_pretrained(
             self.base_model,
-            device_map=self.device,
-            torch_dtype=torch.float16 if self.device == "cuda" else torch.float32
+            device_map=device_map,
+            torch_dtype=torch_dtype,
+            trust_remote_code=True
         )
         
-        tokenizer = AutoTokenizer.from_pretrained(self.base_model)
+        # For non-CUDA devices, manually move to device
+        if self.device != "cuda":
+            model = model.to(self.device)
+        
+        tokenizer = AutoTokenizer.from_pretrained(self.base_model, trust_remote_code=True)
         if tokenizer.pad_token is None:
             tokenizer.pad_token = tokenizer.eos_token
         
+        print(f"Model loaded successfully on {self.device}")
         return model, tokenizer
     
     def _setup_lora_model(self, model, config: Dict[str, Any]):
@@ -117,19 +148,37 @@ class TrainingManager:
                         config: Dict[str, Any]):
         """Worker function that runs training in a separate thread"""
         try:
+            print("🚀 Starting training worker thread...")
             self.is_training = True
             self.should_stop = False
             
+            # Check dependencies
+            print("🔍 Checking dependencies...")
+            try:
+                import torch
+                import transformers
+                import peft
+                import datasets
+                print(f"✅ Dependencies OK - PyTorch: {torch.__version__}, Transformers: {transformers.__version__}")
+            except ImportError as e:
+                raise RuntimeError(f"Missing dependency: {e}")
+            
+            print("📦 Loading base model and tokenizer...")
             # Load model and tokenizer
             model, tokenizer = self._load_base_model()
+            
+            print("⚙️ Setting up LoRA configuration...")
             model = self._setup_lora_model(model, config)
             
             # Prepare dataset
+            print("📊 Preparing dataset for training...")
             from .dataset import DatasetManager
             dataset_manager = DatasetManager()
             processed_dataset = dataset_manager.prepare_for_training(dataset, tokenizer)
+            print(f"✅ Dataset prepared: {len(processed_dataset)} samples")
             
             # Data collator
+            print("🔧 Setting up data collator...")
             data_collator = DataCollatorForLanguageModeling(
                 tokenizer=tokenizer,
                 mlm=False,
@@ -137,39 +186,62 @@ class TrainingManager:
             )
             
             # Calculate training steps
+            print("📈 Calculating training parameters...")
             batch_size = config.get('batch_size', 2)
             gradient_accumulation = config.get('gradient_accumulation_steps', 2)
             epochs = config.get('epochs', 3)
             total_steps = (len(processed_dataset) * epochs) // (batch_size * gradient_accumulation)
             
+            print(f"📊 Training config: {epochs} epochs, {batch_size} batch size, {gradient_accumulation} grad accum")
+            print(f"📊 Total steps: {total_steps}")
+            
             # Setup output directory
             character_name = character.get('name', 'unknown').lower().replace(' ', '_')
             output_dir = self.project_dir / f"adapters/{character_name}"
             output_dir.mkdir(parents=True, exist_ok=True)
+            print(f"📁 Output directory: {output_dir}")
             
             # Training arguments
+            print("⚙️ Setting up training arguments...")
+            
+            # Adjust settings based on device
+            use_fp16 = config.get('fp16', False) and self.device == "cuda"  # Only use FP16 on CUDA
+            if self.device == "mps" and config.get('fp16', False):
+                print("⚠️  FP16 disabled on MPS (Apple Silicon) for stability")
+            
             training_args = TrainingArguments(
                 output_dir=str(output_dir),
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=gradient_accumulation,
                 num_train_epochs=epochs,
                 learning_rate=config.get('learning_rate', 2e-5),
-                fp16=config.get('fp16', False),
+                fp16=use_fp16,
                 optim="adamw_torch",
                 logging_steps=config.get('logging_steps', 10),
                 save_steps=config.get('save_steps', 100),
                 save_strategy="steps",
                 evaluation_strategy="no",
                 report_to="none",
-                dataloader_pin_memory=False,
-                dataloader_num_workers=0,
+                # MPS/CPU optimizations
+                dataloader_pin_memory=(self.device == "cuda"),  # Only pin memory on CUDA
+                dataloader_num_workers=0,  # Avoid multiprocessing issues
                 max_grad_norm=config.get('max_grad_norm', 1.0),
                 warmup_steps=config.get('warmup_steps', 10),
                 remove_unused_columns=False,
+                # Additional stability settings
+                greater_is_better=False,
+                load_best_model_at_end=False,
+                seed=42,
             )
             
+            print(f"⚙️ Training args configured for {self.device}")
+            
             # Create trainer
+            print("🏗️ Creating trainer instance...")
             callback = TrainingCallback(self.status_queue)
+            
+            print(f"🧠 Model parameters: {model.num_parameters():,}")
+            print(f"📊 Training on {len(processed_dataset)} samples")
             
             self.trainer = Trainer(
                 model=model,
@@ -179,8 +251,30 @@ class TrainingManager:
                 callbacks=[callback],
             )
             
+            print("✅ Trainer created successfully!")
+            print("🚀 Starting training loop...")
+            
+            # Add a small delay to ensure everything is set up properly
+            import time
+            time.sleep(1)
+            
+            # Manually trigger the start callback
+            self.status_queue.put({
+                'type': 'train_begin',
+                'total_steps': total_steps,
+                'message': 'Training started successfully'
+            })
+            
             # Training loop with pause/resume support
-            self.trainer.train()
+            print("📊 About to call trainer.train()...")
+            try:
+                self.trainer.train()
+                print("🎉 trainer.train() completed successfully!")
+            except Exception as train_error:
+                print(f"❌ Error during trainer.train(): {train_error}")
+                raise
+            
+            print("🎉 Training completed successfully!")
             
             # Save final model
             self.trainer.save_model()
@@ -190,11 +284,19 @@ class TrainingManager:
             })
             
         except Exception as e:
+            import traceback
+            error_msg = f"Training failed: {str(e)}"
+            traceback_str = traceback.format_exc()
+            print(f"❌ {error_msg}")
+            print(f"🔍 Full traceback:\n{traceback_str}")
+            
             self.status_queue.put({
                 'type': 'error',
-                'message': str(e)
+                'message': error_msg,
+                'traceback': traceback_str
             })
         finally:
+            print("🔄 Training worker cleanup...")
             self.is_training = False
             self.is_paused = False
     
@@ -203,6 +305,10 @@ class TrainingManager:
         """Start training in a background thread"""
         if self.is_training:
             raise RuntimeError("Training is already in progress")
+        
+        print(f"🚀 Starting training for character: {character.get('name', 'Unknown')}")
+        print(f"📊 Dataset size: {len(dataset)} samples")
+        print(f"⚙️ Config: {config}")
         
         # Clear previous state
         self.loss_history.clear()
@@ -215,6 +321,7 @@ class TrainingManager:
             daemon=True
         )
         self.training_thread.start()
+        print("✅ Training thread started successfully")
     
     def pause_training(self):
         """Pause training and save checkpoint"""
