@@ -807,6 +807,9 @@ class DatasetManager:
             """Process a single example for training"""
             messages = example["messages"]
             
+            # Remove system-level context to encourage the adapter to internalise the persona
+            messages = [m for m in messages if m.get("role") != "system"]
+            
             # Apply chat template
             chat_text = tokenizer.apply_chat_template(messages, tokenize=False)
             
