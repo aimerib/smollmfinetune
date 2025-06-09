@@ -356,7 +356,7 @@ class DatasetManager:
         samples = []
         
         # Determine batch size based on inference engine
-        batch_size = 8 if hasattr(self.inference_engine, 'generate_batch') else 1
+        batch_size = 64 if hasattr(self.inference_engine, 'generate_batch') else 1
         
         # Pre-generate all prompts
         prompts_data = []
