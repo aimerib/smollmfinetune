@@ -401,7 +401,7 @@ class DatasetManager:
             baseline_prompts = self.default_user_prompts.copy()
 
         # Determine batch size based on inference engine
-        batch_size = 64 if hasattr(self.inference_engine, 'generate_batch') else 1
+        batch_size = 50 if hasattr(self.inference_engine, 'generate_batch') else 1
         
         # ------------------------------------------------------------------
         # Build the prompt metadata list (baseline first, then random samples)

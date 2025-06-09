@@ -1,3 +1,4 @@
+import asyncio
 import os
 # Disable Streamlit's autoreload file-watcher early to avoid PyTorch inspection
 # errors. Must be set before importing Streamlit so that Streamlit reads the
@@ -543,32 +544,39 @@ def page_dataset_preview():
             progress_bar = st.progress(0)
             status_text = st.empty()
             
+            # Progress callback (called by DatasetManager)
+            def update_progress(p: float):
+                """Update main progress bar for current chunk."""
+                progress_bar.progress(p)
+                status_text.text(f"Current chunk: {p*100:.1f}%")
+            
             try:
-                # Generate dataset (run async function in sync context)
-                with st.spinner("Generating synthetic dataset..."):
-                    import asyncio
-                    
-                    # Create progress callback
-                    def update_progress(p):
-                        progress_bar.progress(p)
-                        status_text.text(f"Generated {int(p * num_samples)} / {num_samples} samples")
-                    
-                    # Run the async generation
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
+                # Run generation in smaller logical chunks (>500 → 100-sample blocks)
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    existing_count = dataset_info['sample_count'] if dataset_info['exists'] else 0
+                    target_total = num_samples
+                    current_total = existing_count
+                    dataset = None
+                    while current_total < target_total:
+                        step_target = min(current_total + (100 if target_total - current_total > 500 else target_total - current_total), target_total)
                         dataset = loop.run_until_complete(
                             st.session_state.dataset_manager.generate_dataset(
                                 st.session_state.current_character,
-                                num_samples=num_samples,
+                                num_samples=step_target,
                                 max_tokens=max_tokens,
                                 temperature=temperature,
                                 top_p=top_p,
-                                progress_callback=update_progress
+                                progress_callback=update_progress,
+                                append_to_existing=True
                             )
                         )
-                    finally:
-                        loop.close()
+                        current_total = len(dataset)
+                        # Give Streamlit a moment to render
+                        asyncio.sleep(0.01)
+                finally:
+                    loop.close()
                 
                 st.session_state.dataset_preview = dataset
                 progress_bar.progress(1.0)
