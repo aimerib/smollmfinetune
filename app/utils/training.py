@@ -190,10 +190,17 @@ class TrainingManager:
             batch_size = config.get('batch_size', 2)
             gradient_accumulation = config.get('gradient_accumulation_steps', 2)
             epochs = config.get('epochs', 3)
-            total_steps = (len(processed_dataset) * epochs) // (batch_size * gradient_accumulation)
+            dataset_size = len(processed_dataset)
             
-            print(f"📊 Training config: {epochs} epochs, {batch_size} batch size, {gradient_accumulation} grad accum")
-            print(f"📊 Total steps: {total_steps}")
+            # Calculate total steps precisely
+            total_steps = (dataset_size * epochs) // (batch_size * gradient_accumulation)
+            
+            print(f"📊 Training calculation:")
+            print(f"   Dataset size: {dataset_size} samples")
+            print(f"   Epochs: {epochs}")
+            print(f"   Batch size: {batch_size}")
+            print(f"   Gradient accumulation: {gradient_accumulation}")
+            print(f"   Formula: ({dataset_size} × {epochs}) ÷ ({batch_size} × {gradient_accumulation}) = {total_steps} steps")
             
             # Setup output directory
             character_name = character.get('name', 'unknown').lower().replace(' ', '_')
@@ -213,7 +220,7 @@ class TrainingManager:
                 output_dir=str(output_dir),
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=gradient_accumulation,
-                num_train_epochs=epochs,
+                max_steps=total_steps,  # Use max_steps instead of num_train_epochs for precise control
                 learning_rate=config.get('learning_rate', 2e-5),
                 fp16=use_fp16,
                 optim="adamw_torch",
@@ -234,6 +241,8 @@ class TrainingManager:
                 seed=42,
             )
             
+            print(f"✅ Using max_steps={total_steps} for precise control (instead of epochs)")
+            
             print(f"⚙️ Training args configured for {self.device}")
             
             # Create trainer
@@ -251,7 +260,14 @@ class TrainingManager:
                 callbacks=[callback],
             )
             
-            print("✅ Trainer created successfully!")
+            # Verify the trainer is using our calculated steps
+            actual_max_steps = self.trainer.args.max_steps
+            print(f"✅ Trainer created successfully!")
+            print(f"🔍 Verification: Trainer will run for {actual_max_steps} steps (expected: {total_steps})")
+            
+            if actual_max_steps != total_steps:
+                print(f"⚠️  WARNING: Step count mismatch! Expected {total_steps}, but trainer has {actual_max_steps}")
+            
             print("🚀 Starting training loop...")
             
             # Add a small delay to ensure everything is set up properly
@@ -262,7 +278,7 @@ class TrainingManager:
             self.status_queue.put({
                 'type': 'train_begin',
                 'total_steps': total_steps,
-                'message': 'Training started successfully'
+                'message': f'Training started: {total_steps} steps over {epochs} epochs'
             })
             
             # Training loop with pause/resume support

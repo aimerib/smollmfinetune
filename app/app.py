@@ -786,7 +786,7 @@ def page_training_dashboard():
                 )
             
             with col4:
-                elapsed = metrics.get('elapsed_time', 0)
+                elapsed = int(metrics.get('elapsed_time', 0))  # Convert to int for formatting
                 st.metric(
                     "Elapsed Time",
                     f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
