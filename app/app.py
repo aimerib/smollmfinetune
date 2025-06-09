@@ -376,7 +376,15 @@ def page_character_upload():
             try:
                 character_data = json.load(uploaded_file)
                 st.session_state.current_character = character_data
-                st.success("✅ Character card loaded successfully!")
+                
+                # Auto-load existing dataset if available
+                existing_dataset = st.session_state.dataset_manager.load_dataset(character_data)
+                if existing_dataset:
+                    st.session_state.dataset_preview = existing_dataset
+                    st.success(f"✅ Character card loaded with existing dataset ({len(existing_dataset)} samples)!")
+                else:
+                    st.session_state.dataset_preview = None
+                    st.success("✅ Character card loaded successfully!")
                 
                 # Display character preview
                 st.markdown("### Character Preview")
@@ -422,9 +430,35 @@ def page_dataset_preview():
         st.warning("⚠️ Please upload a character card first.")
         return
     
+    # Check for existing dataset
+    dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
+    
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        # Show existing dataset info if available
+        if dataset_info['exists']:
+            st.markdown("### 📂 Existing Dataset Found")
+            
+            col_info1, col_info2, col_info3 = st.columns(3)
+            with col_info1:
+                st.metric("Existing Samples", dataset_info['sample_count'])
+            with col_info2:
+                if st.button("📂 Load Existing", use_container_width=True):
+                    existing_dataset = st.session_state.dataset_manager.load_dataset(st.session_state.current_character)
+                    if existing_dataset:
+                        st.session_state.dataset_preview = existing_dataset
+                        st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
+                        st.rerun()
+            with col_info3:
+                if st.button("🗑️ Reset Dataset", use_container_width=True):
+                    if st.session_state.dataset_manager.delete_dataset(st.session_state.current_character):
+                        st.session_state.dataset_preview = None
+                        st.success("✅ Dataset reset! Generate a new one below.")
+                        st.rerun()
+            
+            st.markdown("---")
+        
         st.markdown("### Dataset Generation Settings")
         
         # Show current inference engine with model info
@@ -439,14 +473,25 @@ def page_dataset_preview():
             col_a, col_b = st.columns(2)
             
             with col_a:
-                num_samples = st.slider("Number of samples", 50, 1000, 200, step=50)
+                num_samples = st.slider("Total samples target", 50, 1000, 200, step=50)
                 temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
             
             with col_b:
                 max_tokens = st.slider("Max tokens per sample", 100, 800, 300, step=50)
                 top_p = st.slider("Top-p", 0.7, 1.0, 0.9, step=0.05)
             
-            generate_button = st.form_submit_button("🚀 Generate Dataset", use_container_width=True)
+            # Show incremental info
+            if dataset_info['exists']:
+                current_count = dataset_info['sample_count']
+                if current_count < num_samples:
+                    st.info(f"📈 Will generate {num_samples - current_count} new samples to reach {num_samples} total")
+                else:
+                    st.info(f"✅ Target already reached ({current_count} samples)")
+            
+            generate_button = st.form_submit_button(
+                "🚀 Generate/Add to Dataset" if dataset_info['exists'] else "🚀 Generate Dataset", 
+                use_container_width=True
+            )
         
         if generate_button:
             progress_bar = st.progress(0)
@@ -550,42 +595,44 @@ def page_training_config():
             col_a, col_b = st.columns(2)
             
             with col_a:
-                epochs = st.slider("Epochs", 1, 10, min(3, max(1, 800 // dataset_size)))
+                # Optimize epochs based on dataset size for character training
+                optimal_epochs = min(5, max(2, 600 // dataset_size))
+                epochs = st.slider("Epochs", 1, 10, optimal_epochs)
                 learning_rate = st.select_slider(
                     "Learning Rate",
-                    options=[1e-5, 2e-5, 5e-5, 1e-4, 2e-4],
-                    value=2e-5,
+                    options=[5e-6, 1e-5, 2e-5, 5e-5, 1e-4],
+                    value=1e-5,  # Lower for character training stability
                     format_func=lambda x: f"{x:.0e}"
                 )
                 batch_size = st.selectbox("Batch Size", [1, 2, 4, 8], index=1)
             
             with col_b:
-                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=1)
-                warmup_steps = st.slider("Warmup Steps", 0, 100, 10)
-                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 1.0, step=0.1)
+                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=2)  # Default to 4
+                warmup_steps = st.slider("Warmup Steps", 0, 100, 20)  # More warmup for stability
+                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 0.5, step=0.1)  # Lower for stability
             
-            # LoRA settings
-            st.markdown("#### LoRA Configuration")
+            # LoRA settings optimized for character training
+            st.markdown("#### LoRA Configuration (Character-Optimized)")
             col_c, col_d = st.columns(2)
             
             with col_c:
-                lora_r = st.slider("LoRA Rank (r)", 4, 64, 8, step=4)
-                lora_alpha = st.slider("LoRA Alpha", 8, 128, 32, step=8)
+                lora_r = st.slider("LoRA Rank (r)", 4, 64, 16, step=4)  # Higher rank for character complexity
+                lora_alpha = st.slider("LoRA Alpha", 8, 128, 32, step=8)  # Keep scaling factor
             
             with col_d:
-                lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.05, step=0.01)
+                lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01)  # Slightly higher for regularization
                 target_modules = st.multiselect(
                     "Target Modules",
-                    ["q_proj", "k_proj", "v_proj", "o_proj", "fc_in", "fc_out"],
-                    default=["q_proj", "k_proj", "v_proj", "o_proj"]
+                    ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                    default=["q_proj", "k_proj", "v_proj", "o_proj"]  # Focus on attention layers
                 )
             
             # Advanced settings
             with st.expander("🔧 Advanced Settings"):
-                fp16 = st.checkbox("Enable FP16", value=False)
-                save_steps = st.slider("Save Every N Steps", 50, 500, 100, step=50)
-                logging_steps = st.slider("Log Every N Steps", 5, 50, 10, step=5)
-                eval_steps = st.slider("Evaluation Steps", 50, 200, 100, step=25)
+                fp16 = st.checkbox("Enable FP16", value=True, help="Enables mixed precision training for better performance")
+                save_steps = st.slider("Save Every N Steps", 25, 200, 50, step=25)
+                logging_steps = st.slider("Log Every N Steps", 1, 20, 5, step=1)
+                eval_steps = st.slider("Evaluation Steps", 25, 100, 50, step=25)
             
             start_training = st.form_submit_button("🚀 Start Training", use_container_width=True)
     
@@ -646,7 +693,8 @@ def page_training_config():
         }
         
         try:
-            st.session_state.training_config = config
+            # Use different key to avoid widget conflict
+            st.session_state.active_training_config = config
             
             # Start training
             st.session_state.training_manager.start_training(

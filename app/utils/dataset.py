@@ -4,10 +4,13 @@ import re
 import textwrap
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable
+from typing import Any, Dict, List, Optional, Callable, Union
 from datasets import Dataset
 from .inference_engines import get_inference_engine
 import torch
+import json
+import os
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -181,6 +184,10 @@ class DatasetManager:
             "finding unexpected allies",
             "dealing with betrayal",
         ]
+        
+        # Dataset persistence
+        self.datasets_dir = "app/training_output/datasets"
+        os.makedirs(self.datasets_dir, exist_ok=True)
     
     async def _generate_text(self, prompt: str, max_tokens: int = 160, 
                            temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
@@ -350,17 +357,36 @@ class DatasetManager:
     
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 200,
                              max_tokens: int = 300, temperature: float = 0.8,
-                             top_p: float = 0.9, progress_callback: Optional[Callable] = None) -> List[Dict[str, Any]]:
+                             top_p: float = 0.9, progress_callback: Optional[Callable] = None,
+                             append_to_existing: bool = True) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         card_block = self._make_card_block(character)
-        samples = []
+        
+        # Load existing dataset if append_to_existing is True
+        existing_samples = []
+        if append_to_existing:
+            existing_dataset = self.load_dataset(character)
+            if existing_dataset:
+                existing_samples = existing_dataset
+                logger.info(f"📂 Found existing dataset with {len(existing_samples)} samples")
+        
+        # Calculate how many new samples to generate
+        existing_count = len(existing_samples)
+        if existing_count >= num_samples:
+            logger.info(f"✅ Dataset already has {existing_count} samples (requested: {num_samples})")
+            return existing_samples[:num_samples]  # Return requested amount
+        
+        new_samples_needed = num_samples - existing_count
+        logger.info(f"🎯 Generating {new_samples_needed} new samples to reach {num_samples} total")
+        
+        samples = existing_samples.copy()
         
         # Determine batch size based on inference engine
         batch_size = 64 if hasattr(self.inference_engine, 'generate_batch') else 1
         
-        # Pre-generate all prompts
+        # Pre-generate prompts for new samples only
         prompts_data = []
-        for i in range(num_samples * 2):  # Generate extra to account for filtering
+        for i in range(new_samples_needed * 2):  # Generate extra to account for filtering
             try:
                 # Select random template
                 mode, template = random.choice(self.templates)
@@ -419,7 +445,7 @@ class DatasetManager:
                     'char_name': char_name  # Store for debugging
                 })
                 
-                if len(prompts_data) >= num_samples * 1.5:  # Buffer for filtering
+                if len(prompts_data) >= new_samples_needed * 1.5:  # Buffer for filtering
                     break
                     
             except Exception as e:
@@ -546,20 +572,21 @@ class DatasetManager:
                         samples.append(sample)
                         processed_count += 1
                         
-                        # Update progress
+                        # Update progress (account for existing samples)
                         if progress_callback:
-                            progress_callback(min(processed_count / num_samples, 1.0))
+                            total_current = len(samples)
+                            progress_callback(min(total_current / num_samples, 1.0))
                         
-                        # Stop if we have enough samples
-                        if processed_count >= num_samples:
+                        # Stop if we have enough total samples
+                        if len(samples) >= num_samples:
                             break
                             
                     except Exception as e:
                         logger.debug(f"Error processing sample: {e}")
                         continue
                 
-                # Stop if we have enough samples
-                if processed_count >= num_samples:
+                # Stop if we have enough total samples
+                if len(samples) >= num_samples:
                     break
                 
                 # Small delay between batches (much less than before)
@@ -576,17 +603,20 @@ class DatasetManager:
             progress_callback(1.0)
         
         # ✅ FINAL BATCH VALIDATION SUMMARY
+        new_generated = len(samples) - existing_count
         logger.info(f"🎯 DATASET GENERATION COMPLETE:")
-        logger.info(f"   Total prompts prepared: {len(prompts_data)}")
-        logger.info(f"   Total samples generated: {len(samples)}")
-        logger.info(f"   Success rate: {len(samples)/len(prompts_data)*100:.1f}%")
+        logger.info(f"   Existing samples: {existing_count}")
+        logger.info(f"   New samples generated: {new_generated}")
+        logger.info(f"   Total samples: {len(samples)}")
+        if len(prompts_data) > 0:
+            logger.info(f"   Success rate: {new_generated/len(prompts_data)*100:.1f}%")
         logger.info(f"   Engine used: {self.inference_engine.name}")
         logger.info(f"   Batch size: {batch_size}")
         
         # Spot check final samples for consistency
         if samples:
             sample_chars = set()
-            for sample in samples[:10]:  # Check first 10 samples
+            for sample in samples[-min(10, new_generated):]:  # Check last 10 new samples
                 assistant_msg = sample['messages'][2]['content']
                 # Look for character name at start of response
                 first_words = assistant_msg.split()[:3]
@@ -594,7 +624,10 @@ class DatasetManager:
             
             logger.info(f"   Character consistency check: {sample_chars}")
         
-        logger.info(f"Generated {len(samples)} samples using {self.inference_engine.name} (batch_size: {batch_size})")
+        # 💾 Auto-save dataset
+        self.save_dataset(character, samples)
+        
+        logger.info(f"Generated {len(samples)} total samples ({new_generated} new) using {self.inference_engine.name}")
         return samples
     
     def analyze_dataset_quality(self, dataset: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -679,4 +712,79 @@ class DatasetManager:
         # Filter out empty examples
         processed_dataset = processed_dataset.filter(lambda x: len(x["input_ids"]) > 0)
         
-        return processed_dataset 
+        return processed_dataset
+    
+    def _get_character_id(self, character: Dict[str, Any]) -> str:
+        """Generate a unique ID for a character based on name and description"""
+        name = character.get('name', 'unknown')
+        description = character.get('description', '')
+        # Create hash of name + description for unique ID
+        content = f"{name}_{description}"
+        char_id = hashlib.md5(content.encode()).hexdigest()[:12]
+        return f"{name.replace(' ', '_')}_{char_id}"
+    
+    def _get_dataset_path(self, character: Dict[str, Any]) -> str:
+        """Get the file path for storing character's dataset"""
+        char_id = self._get_character_id(character)
+        return os.path.join(self.datasets_dir, f"{char_id}_dataset.json")
+    
+    def save_dataset(self, character: Dict[str, Any], dataset: List[Dict[str, Any]]) -> None:
+        """Save dataset to disk"""
+        try:
+            dataset_path = self._get_dataset_path(character)
+            with open(dataset_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'character': character,
+                    'dataset': dataset,
+                    'created_at': str(asyncio.get_event_loop().time() if hasattr(asyncio, 'get_event_loop') else 0),
+                    'sample_count': len(dataset)
+                }, f, indent=2, ensure_ascii=False)
+            logger.info(f"💾 Saved dataset with {len(dataset)} samples to {dataset_path}")
+        except Exception as e:
+            logger.error(f"❌ Failed to save dataset: {e}")
+    
+    def load_dataset(self, character: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Load existing dataset from disk"""
+        try:
+            dataset_path = self._get_dataset_path(character)
+            if os.path.exists(dataset_path):
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                dataset = data.get('dataset', [])
+                logger.info(f"📂 Loaded existing dataset with {len(dataset)} samples from {dataset_path}")
+                return dataset
+            return None
+        except Exception as e:
+            logger.error(f"❌ Failed to load dataset: {e}")
+            return None
+    
+    def get_dataset_info(self, character: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Get dataset metadata without loading full dataset"""
+        try:
+            dataset_path = self._get_dataset_path(character)
+            if os.path.exists(dataset_path):
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                return {
+                    'exists': True,
+                    'sample_count': data.get('sample_count', 0),
+                    'created_at': data.get('created_at', 'unknown'),
+                    'path': dataset_path
+                }
+            return {'exists': False}
+        except Exception as e:
+            logger.error(f"❌ Failed to get dataset info: {e}")
+            return {'exists': False}
+    
+    def delete_dataset(self, character: Dict[str, Any]) -> bool:
+        """Delete stored dataset"""
+        try:
+            dataset_path = self._get_dataset_path(character)
+            if os.path.exists(dataset_path):
+                os.remove(dataset_path)
+                logger.info(f"🗑️ Deleted dataset at {dataset_path}")
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"❌ Failed to delete dataset: {e}")
+            return False 
