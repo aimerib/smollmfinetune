@@ -632,16 +632,15 @@ def page_dataset_preview():
                 # Allow generating much larger synthetic datasets (up to 20k samples)
                 num_samples = st.slider(
                     "Total samples target",
-                    min_value=100,
+                    min_value=20,
                     max_value=20000,
-                    value=1000,
-                    step=100,
-                    help="How many conversation samples to include in the dataset. Larger values yield better coverage but take longer to generate."
+                    value=80,
+                    step=20,
+                    help="Desired total size of the synthetic dataset. 20-100 samples is usually enough for a single character LoRA."
                 )
                 temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
             
             with col_b:
-                max_tokens = st.slider("Max tokens per sample", 100, 800, 300, step=50)
                 top_p = st.slider("Top-p", 0.7, 1.0, 0.9, step=0.05)
             
             # Show incremental info
@@ -687,7 +686,6 @@ def page_dataset_preview():
                             st.session_state.dataset_manager.generate_dataset(
                                 st.session_state.current_character,
                                 num_samples=step_target,
-                                max_tokens=max_tokens,
                                 temperature=temperature,
                                 top_p=top_p,
                                 progress_callback=update_progress,
@@ -784,8 +782,8 @@ def page_training_config():
                 else:
                     optimal_epochs = min(5, max(2, 600 // dataset_size))
                 epochs = st.slider("Epochs", 1, 10, optimal_epochs)
-                lr_options = [2e-6, 5e-6, 1e-5, 2e-5, 5e-5, 1e-4]
-                default_lr = 5e-6 if dataset_size >= 2000 else 1e-5
+                lr_options = [1e-4, 2e-4, 3e-4, 5e-4]
+                default_lr = 3e-4
                 learning_rate = st.select_slider(
                     "Learning Rate",
                     options=lr_options,
@@ -870,7 +868,7 @@ def page_training_config():
         if overfitting_risk == "High":
             st.warning("⚠️ High overfitting risk! Consider reducing epochs or increasing dataset size.")
         
-        if learning_rate > 5e-5:
+        if learning_rate > 5e-4:
             st.warning("⚠️ High learning rate may cause instability.")
         
         # Tips
