@@ -129,20 +129,26 @@ class InferenceManager:
         
         return model, tokenizer
     
-    def _format_chat_prompt(self, prompt: str) -> List[Dict[str, str]]:
+    def _format_chat_prompt(self, prompt: str, system_prompt: Optional[str] = None) -> List[Dict[str, str]]:
         """Format prompt using proper chat template for SmolLM2-135M-Instruct"""
         
-        # Always use clean prompt without character context
-        # The LoRA should have learned the character behavior during training
-        messages = [
-            {"role": "user", "content": prompt}
-        ]
+        messages = []
+        
+        # Add system prompt if provided
+        if system_prompt is not None:
+            if system_prompt.strip():  # Only add if not empty
+                messages.append({"role": "system", "content": system_prompt})
+            # If system_prompt is empty string, we deliberately skip adding any system message
+        
+        # Add user message
+        messages.append({"role": "user", "content": prompt})
         
         return messages
     
     def generate_response(self, model_path: str, prompt: str, max_new_tokens: int = 150,
                          temperature: float = 0.8, top_p: float = 0.9,
-                         repetition_penalty: float = 1.1, do_sample: bool = True) -> str:
+                         repetition_penalty: float = 1.1, do_sample: bool = True,
+                         system_prompt: Optional[str] = None) -> str:
         """Generate a response using the specified model"""
         try:
             logger.info(f"Generating response with model: {model_path}")
@@ -152,21 +158,46 @@ class InferenceManager:
             model, tokenizer = self.load_model(model_path)
             
             # Format prompt properly for chat models (no character context injection)
-            logger.info(f"Formatting clean prompt for model: {model_path}")
-            messages = self._format_chat_prompt(prompt)
+            logger.info(f"Formatting prompt for model: {model_path}")
+            if system_prompt is not None:
+                logger.info(f"Using system prompt: {system_prompt[:100]}..." if system_prompt else "Using empty system prompt")
+            else:
+                logger.info("Using default tokenizer system prompt")
+            
+            messages = self._format_chat_prompt(prompt, system_prompt)
             
             # Try to use the model's chat template
             if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template:
                 logger.debug("Using tokenizer's chat template")
-                formatted_prompt = tokenizer.apply_chat_template(
-                    messages, 
-                    tokenize=False, 
-                    add_generation_prompt=True
-                )
+                
+                # For empty system prompt, we want to avoid any default system message
+                if system_prompt == "":
+                    logger.debug("Attempting to bypass default system prompt")
+                    # Some tokenizers might still inject default system prompt
+                    # Try to apply template and check result
+                    formatted_prompt = tokenizer.apply_chat_template(
+                        messages, 
+                        tokenize=False, 
+                        add_generation_prompt=True
+                    )
+                    
+                    # Check if default system prompt was injected anyway
+                    if "helpful AI assistant named SmolLM" in formatted_prompt:
+                        logger.warning("Default system prompt detected in output, using fallback formatting")
+                        formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+                else:
+                    formatted_prompt = tokenizer.apply_chat_template(
+                        messages, 
+                        tokenize=False, 
+                        add_generation_prompt=True
+                    )
             else:
                 # Fallback formatting for models without chat template
                 logger.debug("Using fallback prompt formatting")
-                formatted_prompt = f"User: {prompt}\nAssistant:"
+                if system_prompt and system_prompt.strip():
+                    formatted_prompt = f"System: {system_prompt}\nUser: {prompt}\nAssistant:"
+                else:
+                    formatted_prompt = f"User: {prompt}\nAssistant:"
             
             logger.debug(f"Formatted prompt: {formatted_prompt[:200]}...")
             

@@ -851,16 +851,52 @@ def page_model_testing():
         # Show debug info about what's being tested
         with st.expander("🔧 Test Configuration"):
             st.write(f"**Selected Model:** {selected_model}")
+            st.write(f"**System Prompt Strategy:** {system_prompt_option}")
             st.write(f"**Character Context Injection:** No (Pure LoRA Test)")
             if st.session_state.current_character and not selected_model.startswith("Base:"):
                 char = st.session_state.current_character
                 st.write(f"**Testing Character:** {char.get('name', 'Unknown')}")
-                st.info("💡 Testing how well the LoRA learned the character without explicit context")
+                st.info("💡 Testing how well the LoRA learned the character behavior")
             elif selected_model.startswith("Base:"):
                 st.write("**Mode:** Base model testing")
             else:
                 st.warning("⚠️ No character uploaded for LoRA comparison")
         
+        # System prompt selection
+        st.markdown("### System Prompt Configuration")
+        system_prompt_option = st.radio(
+            "Choose system prompt strategy:",
+            [
+                "Default (Tokenizer's built-in)",
+                "Empty (No system prompt)",
+                "Roleplay Director",
+                "Custom"
+            ],
+            help="Test how the LoRA responds to different system prompts"
+        )
+        
+        system_prompt = None
+        if system_prompt_option == "Empty (No system prompt)":
+            system_prompt = ""
+            st.info("🧪 Testing pure LoRA behavior without any system guidance")
+        elif system_prompt_option == "Roleplay Director":
+            system_prompt = "You are a scene director playing the role of a character in a never ending chat"
+            st.info("🎭 Testing LoRA with roleplay-oriented system prompt")
+        elif system_prompt_option == "Custom":
+            system_prompt = st.text_area(
+                "Enter custom system prompt:",
+                placeholder="You are...",
+                height=80
+            )
+            st.info("✏️ Testing LoRA with your custom system prompt")
+        else:
+            st.info("🤖 Using tokenizer's default system prompt (SmolLM assistant)")
+        
+        if system_prompt_option != "Default (Tokenizer's built-in)" and system_prompt_option != "Custom":
+            st.code(f"System: {system_prompt}", language="text")
+        elif system_prompt_option == "Custom" and system_prompt:
+            st.code(f"System: {system_prompt}", language="text")
+
         # Test prompt
         test_prompt = st.text_area(
             "Enter your test prompt:",
@@ -887,7 +923,8 @@ def page_model_testing():
                         max_new_tokens=max_new_tokens,
                         temperature=temperature,
                         top_p=top_p,
-                        repetition_penalty=repetition_penalty
+                        repetition_penalty=repetition_penalty,
+                        system_prompt=system_prompt
                     )
                 
                 st.markdown("### Response")
@@ -910,14 +947,39 @@ def page_model_testing():
                 st.warning("⚠️ Please enter a test prompt.")
     
     with col2:
+        st.markdown("### System Prompt Guide")
+        
+        st.markdown("""
+        **🧪 Empty System Prompt**
+        - Tests pure LoRA learned behavior
+        - No guidance from system prompt
+        - Best for seeing raw character adaptation
+        
+        **🎭 Roleplay Director**
+        - Encourages character roleplay
+        - Tests how LoRA responds to roleplay cues
+        - Good for interactive character testing
+        
+        **✏️ Custom System Prompt**
+        - Test specific scenarios
+        - Control system behavior precisely
+        - Useful for targeted evaluation
+        
+        **🤖 Default (SmolLM)**
+        - Uses built-in assistant prompt
+        - May conflict with character training
+        - Good for comparison baseline
+        """)
+        
         st.markdown("### Quick Tests")
         
         quick_tests = [
+            "Who are you?",
             "What drives you in life?",
-            "Describe your greatest fear.",
-            "Tell me about your homeland.",
-            "What's your biggest regret?",
-            "How do you handle failure?"
+            "Describe your greatest fear.", 
+            "Tell me about your past.",
+            "What's your personality like?",
+            "How do you speak to others?"
         ]
         
         for i, prompt in enumerate(quick_tests):
