@@ -195,7 +195,7 @@ class DatasetManager:
 
     # ---------------- paraphrasing & back-translation ----------------
     def _paraphrase(self, text: str) -> str:
-        if not self.paraphraser or random.random() > 0.5:  # 50% keep original
+        if not hasattr(self, 'paraphraser') or not self.paraphraser or random.random() > 0.5:  # 50% keep original
             return text
         try:
             out = self.paraphraser(
@@ -209,27 +209,8 @@ class DatasetManager:
             return text
 
     def _backtranslate(self, text: str) -> str:
-        if random.random() > 0.1:  # only 10% of prompts
-            return text
-
-        try:
-            def _get(model_name):
-                if model_name not in self._bt_models:
-                    tok = self._AutoTokenizer.from_pretrained(model_name)
-                    mod = self._AutoModel.from_pretrained(model_name)
-                    self._bt_tokenizers[model_name] = tok
-                    self._bt_models[model_name] = mod
-                return self._bt_tokenizers[model_name], self._bt_models[model_name]
-
-            tok_en_fr, mod_en_fr = _get("Helsinki-NLP/opus-mt-en-fr")
-            tok_fr_en, mod_fr_en = _get("Helsinki-NLP/opus-mt-fr-en")
-
-            tgt = mod_en_fr.generate(**tok_en_fr(text, return_tensors="pt", truncation=True))
-            fr = tok_en_fr.decode(tgt[0], skip_special_tokens=True)
-            src = mod_fr_en.generate(**tok_fr_en(fr, return_tensors="pt", truncation=True))
-            return tok_fr_en.decode(src[0], skip_special_tokens=True)
-        except Exception:
-            return text
+        # Disabled for now - requires additional model downloads
+        return text
 
     def _build_user_prompt(self) -> str:
         bucket = self._choose_bucket()
@@ -346,6 +327,8 @@ class DatasetManager:
         
         # Process in batches
         processed_count = 0
+        logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared, batch_size={batch_size}")
+        
         for batch_start in range(0, len(prompts_data), batch_size):
             try:
                 batch_end = min(batch_start + batch_size, len(prompts_data))
@@ -354,7 +337,12 @@ class DatasetManager:
                 # Extract full prompts for generation
                 full_prompts = [item['full_prompt'] for item in batch_prompts]
                 
+                # Log first prompt as sample (only for first batch)
+                if batch_start == 0:
+                    logger.info(f"📝 Sample prompt (first batch): '{full_prompts[0][:200]}{'...' if len(full_prompts[0]) > 200 else ''}'")
+                
                 # Generate batch
+                logger.info(f"🔥 Generating batch {batch_start}-{batch_end} with {len(full_prompts)} prompts using {self.inference_engine.name}")
                 if batch_size > 1:
                     replies = await self._generate_text_batch(
                         prompts=full_prompts,
@@ -371,12 +359,20 @@ class DatasetManager:
                         top_p=top_p,
                     )]
                 
+                logger.info(f"📥 Got {len(replies)} replies from {self.inference_engine.name}")
+                
                 # Process batch results
                 for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
                     try:
+                        logger.debug(f"Processing reply {i}: '{reply[:100]}{'...' if len(reply) > 100 else ''}' (length: {len(reply)})")
+                        
                         # Quality filters
                         word_count = len(reply.split())
-                        if word_count < 1 or word_count > 1000:
+                        if word_count < 1:
+                            logger.warning(f"❌ Reply {i} filtered: too short (word_count={word_count})")
+                            continue
+                        if word_count > 1000:
+                            logger.warning(f"❌ Reply {i} filtered: too long (word_count={word_count})")
                             continue
                         
                         # Create ChatML sample

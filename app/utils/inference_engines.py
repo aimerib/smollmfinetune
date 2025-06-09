@@ -224,6 +224,8 @@ class VLLMEngine(InferenceEngine):
                            temperature: float = 0.8, top_p: float = 0.9) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
         try:
+            logger.info(f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
+            
             # Initialize model if needed (only happens once)
             self._initialize_model()
             
@@ -240,6 +242,8 @@ class VLLMEngine(InferenceEngine):
                 stop=["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>"]
             )
             
+            logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model")
+            
             # Generate all prompts in a single batch
             loop = asyncio.get_event_loop()
             outputs = await loop.run_in_executor(
@@ -247,17 +251,24 @@ class VLLMEngine(InferenceEngine):
                 lambda: VLLMEngine._llm.generate(prompts, sampling_params)
             )
             
+            logger.info(f"📤 vLLM returned {len(outputs)} outputs")
+            
             # Extract results
             results = []
-            for output in outputs:
+            for i, output in enumerate(outputs):
                 if output.outputs:
-                    results.append(output.outputs[0].text.strip())
+                    text = output.outputs[0].text.strip()
+                    logger.debug(f"vLLM output {i}: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
+                    results.append(text)
                 else:
+                    logger.warning(f"❌ vLLM output {i}: No outputs generated")
                     results.append("")
             
+            logger.info(f"✅ vLLM batch generation complete: {len(results)} results")
             return results
             
         except Exception as e:
+            logger.error(f"💥 vLLM batch generation failed: {str(e)}")
             raise RuntimeError(f"vLLM batch generation failed: {str(e)}")
 
 
