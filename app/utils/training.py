@@ -220,7 +220,7 @@ class TrainingManager:
                 logging_steps=config.get('logging_steps', 10),
                 save_steps=config.get('save_steps', 100),
                 save_strategy="steps",
-                evaluation_strategy="no",
+                eval_strategy="no",  # Fixed: was 'evaluation_strategy'
                 report_to="none",
                 # MPS/CPU optimizations
                 dataloader_pin_memory=(self.device == "cuda"),  # Only pin memory on CUDA
