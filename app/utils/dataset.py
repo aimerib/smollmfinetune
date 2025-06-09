@@ -36,6 +36,8 @@ class DatasetManager:
             "Nice to meet you!",
             "How's your day been?",
             "What's on your mind?"
+            "Who are you?",
+            "What's your name?",
         ]
 
         self.prompts_personal = [
@@ -49,7 +51,9 @@ class DatasetManager:
             "What's been on your mind lately?",
             "What makes you happy?",
             "What's your biggest dream?",
-            "What's something most people don't know about you?"
+            "What's something most people don't know about you?",
+            "Who are you?",
+            "What's your name?",
         ]
 
         self.prompts_action = [
