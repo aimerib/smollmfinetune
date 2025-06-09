@@ -192,8 +192,14 @@ class TrainingManager:
             epochs = config.get('epochs', 3)
             dataset_size = len(processed_dataset)
             
-            # Calculate total steps precisely
+            # Calculate total steps (can be overridden by UI)
             total_steps = (dataset_size * epochs) // (batch_size * gradient_accumulation)
+            
+            # Optional manual override coming from the UI – helpful when working
+            # with very large datasets where a full epoch would be overkill.
+            if config.get('max_steps_override') and config['max_steps_override'] > 0:
+                print(f"🔧 Overriding total_steps: {total_steps} → {config['max_steps_override']}")
+                total_steps = int(config['max_steps_override'])
             
             print(f"📊 Training calculation:")
             print(f"   Dataset size: {dataset_size} samples")
@@ -220,7 +226,7 @@ class TrainingManager:
                 output_dir=str(output_dir),
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=gradient_accumulation,
-                max_steps=total_steps,  # Use max_steps instead of num_train_epochs for precise control
+                max_steps=total_steps,
                 learning_rate=config.get('learning_rate', 2e-5),
                 fp16=use_fp16,
                 optim="adamw_torch",

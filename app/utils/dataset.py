@@ -385,73 +385,85 @@ class DatasetManager:
         
         samples = existing_samples.copy()
         
+        # ------------------------------------------------------------------
+        # 1️⃣  Seed generation with a deterministic "ground-truth" round
+        # ------------------------------------------------------------------
+        # When we start from scratch we first generate one response for a
+        # curated list of fundamental questions.  These samples establish a
+        # knowledge baseline that future synthetic turns can reference to stay
+        # self-consistent.  They are injected at the front of `prompts_data`
+        # so they are processed before any random prompt buckets.
+
+        baseline_prompts: list[str] = []
+        if existing_count == 0:
+            # Use the default_user_prompts list defined in __init__.  Feel free
+            # to customise / extend this list for richer coverage.
+            baseline_prompts = self.default_user_prompts.copy()
+
         # Determine batch size based on inference engine
         batch_size = 64 if hasattr(self.inference_engine, 'generate_batch') else 1
         
-        # Pre-generate prompts for new samples only
-        prompts_data = []
-        for i in range(new_samples_needed * 2):  # Generate extra to account for filtering
+        # ------------------------------------------------------------------
+        # Build the prompt metadata list (baseline first, then random samples)
+        # ------------------------------------------------------------------
+
+        # Pre-populate with baseline prompts so they are guaranteed inclusion
+        prompts_data: list[Dict[str, Any]] = []
+
+        char_name_for_prompts = character.get('name', 'Assistant')
+
+        for bp in baseline_prompts:
+            danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{bp}<|endoftext|><|assistant|>{char_name_for_prompts}:"
+            prompts_data.append({
+                'prompt': bp,
+                'full_prompt': danschat_prompt,
+                'template_mode': 'baseline',
+                'char_name': char_name_for_prompts
+            })
+
+        # Pre-generate prompts for the remaining samples we still need
+        new_samples_needed_after_baseline = max(0, new_samples_needed - len(baseline_prompts))
+
+        # Generate up to 1.5× the remaining need (for filtering margin)
+        random_prompt_target = int(new_samples_needed_after_baseline * 1.5)
+
+        # ------------------------------------------------------------------
+        # Random prompt generation loop (same logic as before, but uses the new
+        # target size so we don't waste time over-generating when baseline is
+        # large).
+        # ------------------------------------------------------------------
+
+        generated_random = 0  # Counter for random prompts added
+
+        for i in range(random_prompt_target * 2):  # keep safety margin
+            if generated_random >= random_prompt_target:
+                break
             try:
                 # Select random template
                 mode, template = random.choice(self.templates)
                 prompt = self._fill_template(template, character)
-                
+
                 # Validate template filling
                 unfilled_placeholders = re.findall(r'\{[^}]+\}', prompt)
                 if unfilled_placeholders:
                     continue
-                
-                # Build proper DanChat-2 text completion prompt with character name
-                char_name = character.get('name', 'Assistant')
-                
-                # Validate inputs before building prompt
-                if not char_name or char_name.strip() == '':
-                    logger.warning(f"⚠️ Empty character name in prompt {i}, using 'Assistant'")
-                    char_name = 'Assistant'
-                
-                if not card_block or card_block.strip() == '':
-                    logger.error(f"❌ Empty card_block in prompt {i}")
-                    continue
-                
-                if not prompt or prompt.strip() == '':
-                    logger.warning(f"⚠️ Empty user prompt in prompt {i}")
-                    continue
-                
+
+                char_name = character.get('name', 'Assistant') or 'Assistant'
+
                 danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
-                
-                # ✅ VALIDATE CONSTRUCTED PROMPT STRUCTURE
-                expected_parts = [
-                    '<|system|>',
-                    '<|endoftext|><|user|>',
-                    f'<|endoftext|><|assistant|>{char_name}:'
-                ]
-                
-                is_valid = True
-                for part in expected_parts:
-                    if part not in danschat_prompt:
-                        logger.error(f"❌ Malformed prompt {i}: Missing '{part}'")
-                        logger.error(f"   Prompt: {danschat_prompt[:200]}...")
-                        is_valid = False
-                        break
-                
-                # Validate token counts
-                if is_valid and danschat_prompt.count('<|endoftext|>') != 2:
-                    logger.error(f"❌ Prompt {i}: Wrong number of <|endoftext|> tokens ({danschat_prompt.count('<|endoftext|>')})")
-                    is_valid = False
-                
-                if not is_valid:
+
+                # Basic validation of structure
+                if danschat_prompt.count('<|endoftext|>') != 2:
                     continue
-                
+
                 prompts_data.append({
                     'prompt': prompt,
                     'full_prompt': danschat_prompt,
                     'template_mode': mode,
-                    'char_name': char_name  # Store for debugging
+                    'char_name': char_name
                 })
-                
-                if len(prompts_data) >= new_samples_needed * 1.5:  # Buffer for filtering
-                    break
-                    
+                generated_random += 1
+
             except Exception as e:
                 logger.debug(f"Error preparing prompt {i}: {e}")
                 continue

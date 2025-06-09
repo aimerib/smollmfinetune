@@ -478,7 +478,15 @@ def page_dataset_preview():
             col_a, col_b = st.columns(2)
             
             with col_a:
-                num_samples = st.slider("Total samples target", 50, 1000, 200, step=50)
+                # Allow generating much larger synthetic datasets (up to 20k samples)
+                num_samples = st.slider(
+                    "Total samples target",
+                    min_value=100,
+                    max_value=20000,
+                    value=1000,
+                    step=100,
+                    help="How many conversation samples to include in the dataset. Larger values yield better coverage but take longer to generate."
+                )
                 temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
             
             with col_b:
@@ -600,13 +608,18 @@ def page_training_config():
             col_a, col_b = st.columns(2)
             
             with col_a:
-                # Optimize epochs based on dataset size for character training
-                optimal_epochs = min(5, max(2, 600 // dataset_size))
+                # Dynamically pick a sensible default epoch count based on dataset size
+                if dataset_size >= 2000:
+                    optimal_epochs = 1  # Large datasets usually need only a single pass
+                else:
+                    optimal_epochs = min(5, max(2, 600 // dataset_size))
                 epochs = st.slider("Epochs", 1, 10, optimal_epochs)
+                lr_options = [2e-6, 5e-6, 1e-5, 2e-5, 5e-5, 1e-4]
+                default_lr = 5e-6 if dataset_size >= 2000 else 1e-5
                 learning_rate = st.select_slider(
                     "Learning Rate",
-                    options=[5e-6, 1e-5, 2e-5, 5e-5, 1e-4],
-                    value=1e-5,  # Lower for character training stability
+                    options=lr_options,
+                    value=default_lr,
                     format_func=lambda x: f"{x:.0e}"
                 )
                 batch_size = st.selectbox("Batch Size", [1, 2, 4, 8], index=1)
@@ -621,7 +634,8 @@ def page_training_config():
             col_c, col_d = st.columns(2)
             
             with col_c:
-                lora_r = st.slider("LoRA Rank (r)", 4, 64, 16, step=4)  # Higher rank for character complexity
+                default_r = 32 if dataset_size >= 2000 else 16
+                lora_r = st.slider("LoRA Rank (r)", 4, 128, default_r, step=4, help="Higher rank captures more nuance but uses more VRAM.")
                 lora_alpha = st.slider("LoRA Alpha", 8, 128, 32, step=8)  # Keep scaling factor
             
             with col_d:
@@ -638,6 +652,14 @@ def page_training_config():
                 save_steps = st.slider("Save Every N Steps", 25, 200, 50, step=25)
                 logging_steps = st.slider("Log Every N Steps", 1, 20, 5, step=1)
                 eval_steps = st.slider("Evaluation Steps", 25, 100, 50, step=25)
+                max_steps_override = st.number_input(
+                    "Override Total Training Steps (0 = auto)",
+                    min_value=0,
+                    max_value=50000,
+                    value=0,
+                    step=100,
+                    help="Manually set the total number of optimisation steps if you need finer control. Leave at 0 to use the computed value."
+                )
             
             start_training = st.form_submit_button("🚀 Start Training", use_container_width=True)
     
@@ -694,7 +716,8 @@ def page_training_config():
             'fp16': fp16,
             'save_steps': save_steps,
             'logging_steps': logging_steps,
-            'eval_steps': eval_steps
+            'eval_steps': eval_steps,
+            'max_steps_override': int(max_steps_override) if max_steps_override else 0
         }
         
         try:
