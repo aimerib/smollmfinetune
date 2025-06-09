@@ -340,6 +340,7 @@ class DatasetManager:
 
         # 8. Example messages for few-shot learning (critical for quality)
         if mes_example := card.get("mes_example"):
+            lines.append(f"These are examples of how {char_name} speaks. Do not use these examples in your response.")
             lines.append(substitute_vars(mes_example.strip()))
 
         # Clean formatting: single newlines, no extra whitespace
