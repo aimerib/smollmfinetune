@@ -183,35 +183,55 @@ class DatasetManager:
         ]
     
     async def _generate_text(self, prompt: str, max_tokens: int = 160, 
-                           temperature: float = 0.8, top_p: float = 0.9) -> str:
+                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
         """Generate text using the configured inference engine"""
         try:
-            return await self.inference_engine.generate(
-                prompt=prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p
-            )
-        except Exception as e:
-            raise RuntimeError(f"Text generation failed ({self.inference_engine.name}): {str(e)}")
-    
-    async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
-                                 temperature: float = 0.8, top_p: float = 0.9) -> list[str]:
-        """Generate text for multiple prompts using batching (if supported)"""
-        try:
-            # Check if engine supports batching
-            if hasattr(self.inference_engine, 'generate_batch'):
-                return await self.inference_engine.generate_batch(
-                    prompts=prompts,
+            # Pass character name if the engine supports it
+            if hasattr(self.inference_engine, 'generate') and 'character_name' in self.inference_engine.generate.__code__.co_varnames:
+                return await self.inference_engine.generate(
+                    prompt=prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    character_name=character_name
+                )
+            else:
+                return await self.inference_engine.generate(
+                    prompt=prompt,
                     max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p
                 )
+        except Exception as e:
+            raise RuntimeError(f"Text generation failed ({self.inference_engine.name}): {str(e)}")
+    
+    async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
+                                 temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> list[str]:
+        """Generate text for multiple prompts using batching (if supported)"""
+        try:
+            # Check if engine supports batching
+            if hasattr(self.inference_engine, 'generate_batch'):
+                # Pass character name if the batch method supports it
+                if 'character_name' in self.inference_engine.generate_batch.__code__.co_varnames:
+                    return await self.inference_engine.generate_batch(
+                        prompts=prompts,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        character_name=character_name
+                    )
+                else:
+                    return await self.inference_engine.generate_batch(
+                        prompts=prompts,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p
+                    )
             else:
                 # Fallback to individual generation
                 results = []
                 for prompt in prompts:
-                    result = await self._generate_text(prompt, max_tokens, temperature, top_p)
+                    result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name)
                     results.append(result)
                 return results
         except Exception as e:
@@ -343,9 +363,12 @@ class DatasetManager:
                 if unfilled_placeholders:
                     continue
                 
+                # Build proper DanChat-2 text completion prompt
+                danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>"
+                
                 prompts_data.append({
                     'prompt': prompt,
-                    'full_prompt': f"{card_block}\n\n{prompt}",
+                    'full_prompt': danschat_prompt,
                     'template_mode': mode
                 })
                 
@@ -370,16 +393,21 @@ class DatasetManager:
                 
                 # Log first prompt as sample (only for first batch)
                 if batch_start == 0:
-                    logger.info(f"📝 Sample prompt (first batch): '{full_prompts[0][:200]}{'...' if len(full_prompts[0]) > 200 else ''}'")
+                    logger.info(f"📝 RAW PROMPT SENT TO vLLM:")
+                    logger.info(f"────────────────────────────────────────")
+                    logger.info(f"{full_prompts[0]}")
+                    logger.info(f"────────────────────────────────────────")
                 
                 # Generate batch
                 logger.info(f"🔥 Generating batch {batch_start}-{batch_end} with {len(full_prompts)} prompts using {self.inference_engine.name}")
                 if batch_size > 1:
+                    # Pass character name for proper stop tokens
                     replies = await self._generate_text_batch(
                         prompts=full_prompts,
                         max_tokens=max_tokens,
                         temperature=temperature,
                         top_p=top_p,
+                        character_name=character.get('name')
                     )
                 else:
                     # Single generation fallback
@@ -388,6 +416,7 @@ class DatasetManager:
                         max_tokens=max_tokens,
                         temperature=temperature,
                         top_p=top_p,
+                        character_name=character.get('name')
                     )]
                 
                 logger.info(f"📥 Got {len(replies)} replies from {self.inference_engine.name}")
@@ -395,7 +424,7 @@ class DatasetManager:
                 # Process batch results
                 for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
                     try:
-                        logger.debug(f"Processing reply {i}: '{reply[:100]}{'...' if len(reply) > 100 else ''}' (length: {len(reply)})")
+                        # logger.debug(f"Processing reply {i}: '{reply[:100]}{'...' if len(reply) > 100 else ''}' (length: {len(reply)})")
                         
                         # Quality filters
                         word_count = len(reply.split())

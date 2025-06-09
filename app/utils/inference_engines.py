@@ -186,7 +186,7 @@ class VLLMEngine(InferenceEngine):
             raise
     
     async def generate(self, prompt: str, max_tokens: int = 160,
-                      temperature: float = 0.8, top_p: float = 0.9) -> str:
+                      temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
         """Generate using vLLM with smart batching"""
         try:
             # Initialize model if needed (only happens once)
@@ -197,12 +197,19 @@ class VLLMEngine(InferenceEngine):
             
             from vllm import SamplingParams
             
+            # Create stop tokens list
+            stop_tokens = ["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+            
+            # Add character name as stop token to prevent speaking for other characters
+            if character_name:
+                stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
+            
             # Create sampling parameters
             sampling_params = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>"]  # Better stop tokens
+                stop=stop_tokens
             )
             
             # Generate using the singleton model instance
@@ -221,7 +228,7 @@ class VLLMEngine(InferenceEngine):
             raise RuntimeError(f"vLLM generation failed: {str(e)}")
     
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
-                           temperature: float = 0.8, top_p: float = 0.9) -> List[str]:
+                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
         try:
             logger.info(f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
@@ -234,15 +241,22 @@ class VLLMEngine(InferenceEngine):
             
             from vllm import SamplingParams
             
+            # Create stop tokens list
+            stop_tokens = ["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+            
+            # Add character name as stop token to prevent speaking for other characters
+            if character_name:
+                stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
+            
             # Create sampling parameters
             sampling_params = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>"]
+                stop=stop_tokens
             )
             
-            logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model")
+            logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model (character: {character_name or 'none'})")
             
             # Generate all prompts in a single batch
             loop = asyncio.get_event_loop()
@@ -258,7 +272,7 @@ class VLLMEngine(InferenceEngine):
             for i, output in enumerate(outputs):
                 if output.outputs:
                     text = output.outputs[0].text.strip()
-                    logger.debug(f"vLLM output {i}: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
+                    # logger.debug(f"vLLM output {i}: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
                     results.append(text)
                 else:
                     logger.warning(f"❌ vLLM output {i}: No outputs generated")

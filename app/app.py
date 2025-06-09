@@ -255,17 +255,22 @@ def render_sidebar():
             "Transformers": "transformers",
         }
 
-        available_engine_names = []
-        for friendly_name, key in _engine_key_map.items():
-            try:
-                if InferenceEngineFactory.create_engine(key).is_available():
-                    available_engine_names.append(friendly_name)
-            except Exception:
-                # If creation fails we treat the engine as unavailable
-                continue
-
-        if not available_engine_names:
-            available_engine_names = ["Transformers"]
+        # Cache available engines to avoid repeated testing
+        if 'available_engines_cache' not in st.session_state:
+            available_engine_names = []
+            for friendly_name, key in _engine_key_map.items():
+                try:
+                    if InferenceEngineFactory.create_engine(key).is_available():
+                        available_engine_names.append(friendly_name)
+                except Exception:
+                    continue
+            
+            if not available_engine_names:
+                available_engine_names = ["Transformers"]
+            
+            st.session_state.available_engines_cache = available_engine_names
+        else:
+            available_engine_names = st.session_state.available_engines_cache
 
         selected_engine_friendly = st.selectbox(
             "🛠️ Inference Engine",
