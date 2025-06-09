@@ -6,12 +6,10 @@ Automatically selects the best engine based on available resources.
 import os
 import asyncio
 from abc import ABC, abstractmethod
-import random
 import secrets
-from typing import Dict, Any, Optional, List
+from typing import Optional, List
 import logging
 
-import torch
 
 logger = logging.getLogger(__name__)
 
@@ -311,205 +309,6 @@ class VLLMEngine(InferenceEngine):
             raise RuntimeError(f"vLLM batch generation failed: {str(e)}")
 
 
-class LlamaCppEngine(InferenceEngine):
-    """llama-cpp-python engine as fallback option"""
-    
-    def __init__(self, model_path: Optional[str] = None):
-        self.model_path = model_path or self._find_model_path()
-        self._llm = None
-        self._available = None
-    
-    @property
-    def name(self) -> str:
-        return "llama-cpp-python"
-    
-    def _find_model_path(self) -> Optional[str]:
-        """Try to find a suitable model file"""
-        # Common model locations
-        possible_paths = [
-            "/models/model.gguf",
-            "/app/models/model.gguf",
-            "./models/model.gguf",
-            # Add more paths as needed
-        ]
-        
-        for path in possible_paths:
-            if os.path.exists(path):
-                return path
-        
-        return None
-    
-    def is_available(self) -> bool:
-        """Check if llama-cpp-python is available"""
-        if self._available is not None:
-            return self._available
-        
-        try:
-            from llama_cpp import Llama
-            
-            # Check if we have a model file
-            if self.model_path and os.path.exists(self.model_path):
-                self._available = True
-                logger.info(f"llama-cpp-python available with model: {self.model_path}")
-            else:
-                self._available = False
-                logger.debug(f"llama-cpp-python model not found at: {self.model_path}")
-                
-        except ImportError:
-            self._available = False
-            logger.debug("llama-cpp-python not installed")
-        except Exception as e:
-            self._available = False
-            logger.debug(f"llama-cpp-python not available: {e}")
-        
-        return self._available
-    
-    def _initialize_model(self):
-        """Lazy initialization of llama-cpp model"""
-        if self._llm is None:
-            from llama_cpp import Llama
-            
-            self._llm = Llama(
-                model_path=self.model_path,
-                n_ctx=4096,  # Context length
-                n_threads=None,  # Use all available threads
-                verbose=False
-            )
-            logger.info(f"llama-cpp-python model loaded: {self.model_path}")
-    
-    async def generate(self, prompt: str, max_tokens: int = 160,
-                      temperature: float = 0.8, top_p: float = 0.9) -> str:
-        """Generate using llama-cpp-python"""
-        try:
-            # Initialize model if needed
-            self._initialize_model()
-            
-            # Generate in thread pool since llama-cpp is synchronous
-            loop = asyncio.get_event_loop()
-            output = await loop.run_in_executor(
-                None,
-                lambda: self._llm(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    echo=False,
-                    stop=["\n\n", "<|endoftext|>"]
-                )
-            )
-            
-            if output and 'choices' in output and output['choices']:
-                return output['choices'][0]['text'].strip()
-            else:
-                raise RuntimeError("llama-cpp-python returned empty output")
-                
-        except Exception as e:
-            raise RuntimeError(f"llama-cpp-python generation failed: {str(e)}")
-
-
-class TransformersEngine(InferenceEngine):
-    """Transformers engine as universal fallback"""
-    
-    def __init__(self, model_name: str = "HuggingFaceTB/SmolLM2-135M-Instruct"):
-        self.model_name = model_name
-        self._model = None
-        self._tokenizer = None
-        self._available = None
-    
-    @property
-    def name(self) -> str:
-        return "Transformers"
-    
-    def is_available(self) -> bool:
-        """Transformers should always be available as it's a core dependency"""
-        if self._available is not None:
-            return self._available
-        
-        try:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            self._available = True
-            logger.info("Transformers engine available as fallback")
-        except ImportError:
-            self._available = False
-            logger.error("Transformers not available - this should not happen!")
-        
-        return self._available
-    
-    def _initialize_model(self):
-        """Lazy initialization of transformers model"""
-        if self._model is None:
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            import torch
-            
-            # Decide execution device
-            use_gpu = torch.cuda.is_available()
-            device = torch.device("cuda") if use_gpu else torch.device("cpu")
-
-            # Load tokenizer first
-            self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-            if self._tokenizer.pad_token is None:
-                self._tokenizer.pad_token = self._tokenizer.eos_token
-
-            # Load model. "device_map" only accepts special keywords (e.g. "auto") or an
-            # explicit mapping. Passing the literal string "cpu" is invalid and causes
-            # an exception. We therefore:
-            #   • use "auto" when running on GPU so Transformers will shard across GPUs
-            #   • omit the argument entirely on CPU and move the model afterwards.
-            if use_gpu:
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    device_map="auto",
-                    torch_dtype=torch.float16
-                )
-            else:
-                self._model = AutoModelForCausalLM.from_pretrained(
-                    self.model_name,
-                    torch_dtype=torch.float32
-                )
-                self._model.to(device)
-            
-            logger.info(f"Transformers model loaded: {self.model_name}")
-    
-    async def generate(self, prompt: str, max_tokens: int = 160,
-                      temperature: float = 0.8, top_p: float = 0.9) -> str:
-        """Generate using transformers"""
-        try:
-            import torch
-            
-            # Initialize model if needed
-            self._initialize_model()
-            
-            # Tokenize
-            inputs = self._tokenizer(prompt, return_tensors="pt").to(self._model.device)
-            
-            # Generate in thread pool
-            loop = asyncio.get_event_loop()
-            
-            def _generate():
-                with torch.no_grad():
-                    outputs = self._model.generate(
-                        **inputs,
-                        max_new_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        do_sample=True,
-                        pad_token_id=self._tokenizer.eos_token_id,
-                        eos_token_id=self._tokenizer.eos_token_id,
-                    )
-                
-                # Decode only new tokens
-                response = self._tokenizer.decode(
-                    outputs[0][inputs['input_ids'].shape[-1]:], 
-                    skip_special_tokens=True
-                )
-                return response.strip()
-            
-            result = await loop.run_in_executor(None, _generate)
-            return result
-            
-        except Exception as e:
-            raise RuntimeError(f"Transformers generation failed: {str(e)}")
-
 
 class InferenceEngineFactory:
     """Factory to automatically select the best available inference engine"""
@@ -529,8 +328,6 @@ class InferenceEngineFactory:
         engines = [
             VLLMEngine(),       # Best for cloud GPU deployment
             LMStudioEngine(),   # Best for local Mac development
-            LlamaCppEngine(),   # Good CPU fallback
-            TransformersEngine() # Universal fallback
         ]
         
         # If user specified a preference, try that first
@@ -538,9 +335,7 @@ class InferenceEngineFactory:
             logger.info(f"User requested preferred engine: {preferred_engine}")
             engine_map = {
                 "lmstudio": LMStudioEngine(),
-                "vllm": VLLMEngine(), 
-                "llamacpp": LlamaCppEngine(),
-                "transformers": TransformersEngine()
+                "vllm": VLLMEngine(),
             }
             
             if preferred_engine.lower() in engine_map:
