@@ -546,9 +546,14 @@ def page_dataset_preview():
             
             # Progress callback (called by DatasetManager)
             def update_progress(p: float):
-                """Update main progress bar for current chunk."""
-                progress_bar.progress(p)
-                status_text.text(f"Current chunk: {p*100:.1f}%")
+                """Update inner-chunk progress and overlay total progress."""
+                # Local chunk bar (thin overlay)
+                chunk_fraction = p
+                # Global progress bar will be driven from outer loop after each chunk
+                progress_bar.progress(global_fraction)
+                status_text.text(
+                    f"Chunk {chunk_idx+1}: {chunk_fraction*100:.1f}% • Total: {current_total}/{target_total} samples"
+                )
             
             try:
                 # Run generation in smaller logical chunks (>500 → 100-sample blocks)
@@ -559,8 +564,12 @@ def page_dataset_preview():
                     target_total = num_samples
                     current_total = existing_count
                     dataset = None
+                    chunk_idx = 0
                     while current_total < target_total:
-                        step_target = min(current_total + (100 if target_total - current_total > 500 else target_total - current_total), target_total)
+                        step_target = min(
+                            current_total + (100 if target_total - current_total > 500 else target_total - current_total),
+                            target_total,
+                        )
                         dataset = loop.run_until_complete(
                             st.session_state.dataset_manager.generate_dataset(
                                 st.session_state.current_character,
@@ -573,8 +582,10 @@ def page_dataset_preview():
                             )
                         )
                         current_total = len(dataset)
-                        # Give Streamlit a moment to render
-                        asyncio.sleep(0.01)
+                        global_fraction = current_total / target_total
+                        progress_bar.progress(global_fraction)
+                        status_text.text(f"Total progress: {current_total}/{target_total} samples")
+                        chunk_idx += 1
                 finally:
                     loop.close()
                 
