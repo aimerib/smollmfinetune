@@ -319,7 +319,7 @@ class InferenceEngineFactory:
         Create the best available inference engine.
         
         Args:
-            preferred_engine: Force a specific engine ("lmstudio", "vllm", "llamacpp", "transformers")
+            preferred_engine: Force a specific engine ("lmstudio", "vllm")
         
         Returns:
             The best available inference engine

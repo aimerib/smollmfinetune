@@ -84,8 +84,6 @@ CUDA_VISIBLE_DEVICES=0
 
 **GPU Memory**: For 24B model, ensure your RunPod instance has at least 48GB VRAM.
 
-**Dependencies**: If vLLM fails to install, the app will fall back to transformers automatically.
-
 **tmux Session Lost**: Re-run the setup script to recreate the session.
 
 ## 🎭 Ready to Train!

@@ -251,8 +251,6 @@ def render_sidebar():
         _engine_key_map = {
             "vLLM": "vllm",
             "LM Studio": "lmstudio",
-            "llama-cpp": "llamacpp",
-            "Transformers": "transformers",
         }
 
         # Cache available engines to avoid repeated testing
@@ -266,7 +264,7 @@ def render_sidebar():
                     continue
             
             if not available_engine_names:
-                available_engine_names = ["Transformers"]
+                available_engine_names = ["LM Studio"]
             
             st.session_state.available_engines_cache = available_engine_names
         else:

@@ -97,25 +97,12 @@ The app automatically selects the best inference engine for your environment:
 - **Requirements**: LM Studio app running locally
 - **Auto-detected**: When LM Studio is accessible
 
-### **llama-cpp-python** (CPU Fallback)
-- **Best for**: CPU-only deployment or lightweight setups
-- **Performance**: Optimized CPU inference
-- **Requirements**: GGUF model files
-- **Auto-detected**: When model files are found
-
-### **Transformers** (Universal Fallback)
-- **Best for**: Development and testing
-- **Performance**: Standard HuggingFace performance
-- **Requirements**: Always available
-- **Auto-detected**: Always works as final fallback
 
 ### **Manual Engine Selection**
 Set the `INFERENCE_ENGINE` environment variable to force a specific engine:
 ```bash
 export INFERENCE_ENGINE=vllm      # Force vLLM
 export INFERENCE_ENGINE=lmstudio  # Force LM Studio
-export INFERENCE_ENGINE=llamacpp  # Force llama-cpp-python
-export INFERENCE_ENGINE=transformers # Force transformers
 ```
 
 ## 🧠 **Model Architecture**
