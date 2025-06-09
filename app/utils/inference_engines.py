@@ -391,17 +391,32 @@ class TransformersEngine(InferenceEngine):
             from transformers import AutoTokenizer, AutoModelForCausalLM
             import torch
             
-            device = "cuda" if torch.cuda.is_available() else "cpu"
-            
+            # Decide execution device
+            use_gpu = torch.cuda.is_available()
+            device = torch.device("cuda") if use_gpu else torch.device("cpu")
+
+            # Load tokenizer first
             self._tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             if self._tokenizer.pad_token is None:
                 self._tokenizer.pad_token = self._tokenizer.eos_token
-            
-            self._model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                device_map=device,
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32
-            )
+
+            # Load model. "device_map" only accepts special keywords (e.g. "auto") or an
+            # explicit mapping. Passing the literal string "cpu" is invalid and causes
+            # an exception. We therefore:
+            #   • use "auto" when running on GPU so Transformers will shard across GPUs
+            #   • omit the argument entirely on CPU and move the model afterwards.
+            if use_gpu:
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    device_map="auto",
+                    torch_dtype=torch.float16
+                )
+            else:
+                self._model = AutoModelForCausalLM.from_pretrained(
+                    self.model_name,
+                    torch_dtype=torch.float32
+                )
+                self._model.to(device)
             
             logger.info(f"Transformers model loaded: {self.model_name}")
     
