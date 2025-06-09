@@ -326,10 +326,6 @@ class DatasetManager:
         if pers := card.get("personality"):
             lines.append(f"{char_name}'s personality: {substitute_vars(pers.strip())}")
 
-        # 5. scenario
-        if scen := card.get("scenario"):
-            lines.append(f"Scenario: {substitute_vars(scen.strip())}")
-
         # 6. wiAfter – world-info appended after the scenario
         if wi_after := card.get("wiAfter"):
             lines.append(substitute_vars(wi_after.strip()))
@@ -340,8 +336,14 @@ class DatasetManager:
 
         # 8. Example messages for few-shot learning (critical for quality)
         if mes_example := card.get("mes_example"):
-            lines.append(f"These are examples of how {char_name} speaks. Do not use these examples in your response.")
+            lines.append(f"--- {char_name} speaks like this: ---")
             lines.append(substitute_vars(mes_example.strip()))
+            lines.append("--- END OF EXAMPLES ---")
+        # 5. scenario
+        if card.get("scenario"):
+            lines.append(f"Scenario: {substitute_vars(card.get('scenario').strip())}")
+        else:
+            lines.append(f"Scenario: User is interviweing {char_name}.")
 
         # Clean formatting: single newlines, no extra whitespace
         return "\n".join(lines).strip()
