@@ -204,12 +204,20 @@ class VLLMEngine(InferenceEngine):
             if character_name:
                 stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
             
-            # Create sampling parameters
+            # Create sampling parameters (optimized for character generation)
             sampling_params = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=stop_tokens
+                stop=stop_tokens,
+                # Character-optimized settings
+                repetition_penalty=1.05,  # Slight penalty to reduce repetition
+                frequency_penalty=0.1,    # Light penalty for frequent tokens
+                presence_penalty=0.05,    # Encourage topic diversity
+                top_k=-1,                # Disabled (use top_p)
+                min_p=0.0,               # Disabled (use top_p) 
+                logprobs=None,           # Disabled for performance
+                min_tokens=1,            # Ensure non-empty responses
             )
             
             # Generate using the singleton model instance
@@ -248,12 +256,20 @@ class VLLMEngine(InferenceEngine):
             if character_name:
                 stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
             
-            # Create sampling parameters
+            # Create sampling parameters (optimized for character generation)
             sampling_params = SamplingParams(
                 temperature=temperature,
                 top_p=top_p,
                 max_tokens=max_tokens,
-                stop=stop_tokens
+                stop=stop_tokens,
+                # Character-optimized settings
+                repetition_penalty=1.05,  # Slight penalty to reduce repetition
+                frequency_penalty=0.1,    # Light penalty for frequent tokens
+                presence_penalty=0.05,    # Encourage topic diversity
+                top_k=-1,                # Disabled (use top_p)
+                min_p=0.0,               # Disabled (use top_p) 
+                logprobs=None,           # Disabled for performance
+                min_tokens=1,            # Ensure non-empty responses
             )
             
             logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model (character: {character_name or 'none'})")

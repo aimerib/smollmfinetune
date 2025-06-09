@@ -370,12 +370,50 @@ class DatasetManager:
                 
                 # Build proper DanChat-2 text completion prompt with character name
                 char_name = character.get('name', 'Assistant')
+                
+                # Validate inputs before building prompt
+                if not char_name or char_name.strip() == '':
+                    logger.warning(f"⚠️ Empty character name in prompt {i}, using 'Assistant'")
+                    char_name = 'Assistant'
+                
+                if not card_block or card_block.strip() == '':
+                    logger.error(f"❌ Empty card_block in prompt {i}")
+                    continue
+                
+                if not prompt or prompt.strip() == '':
+                    logger.warning(f"⚠️ Empty user prompt in prompt {i}")
+                    continue
+                
                 danschat_prompt = f"<|system|>{card_block}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+                
+                # ✅ VALIDATE CONSTRUCTED PROMPT STRUCTURE
+                expected_parts = [
+                    '<|system|>',
+                    '<|endoftext|><|user|>',
+                    f'<|endoftext|><|assistant|>{char_name}:'
+                ]
+                
+                is_valid = True
+                for part in expected_parts:
+                    if part not in danschat_prompt:
+                        logger.error(f"❌ Malformed prompt {i}: Missing '{part}'")
+                        logger.error(f"   Prompt: {danschat_prompt[:200]}...")
+                        is_valid = False
+                        break
+                
+                # Validate token counts
+                if is_valid and danschat_prompt.count('<|endoftext|>') != 2:
+                    logger.error(f"❌ Prompt {i}: Wrong number of <|endoftext|> tokens ({danschat_prompt.count('<|endoftext|>')})")
+                    is_valid = False
+                
+                if not is_valid:
+                    continue
                 
                 prompts_data.append({
                     'prompt': prompt,
                     'full_prompt': danschat_prompt,
-                    'template_mode': mode
+                    'template_mode': mode,
+                    'char_name': char_name  # Store for debugging
                 })
                 
                 if len(prompts_data) >= num_samples * 1.5:  # Buffer for filtering
@@ -397,9 +435,39 @@ class DatasetManager:
                 # Extract full prompts for generation
                 full_prompts = [item['full_prompt'] for item in batch_prompts]
                 
+                # ✅ VALIDATE EVERY PROMPT IN BATCH FOR PROPER FORMATTING
+                char_name = character.get('name', 'Assistant')
+                invalid_prompts = []
+                for idx, prompt in enumerate(full_prompts):
+                    # Check for required DanChat-2 structure
+                    if not prompt.startswith('<|system|>'):
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|system|> start")
+                    if '<|endoftext|><|user|>' not in prompt:
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
+                    if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
+                    if prompt.count('<|system|>') != 1:
+                        invalid_prompts.append(f"Prompt {idx}: Multiple or missing <|system|> tags")
+                    if prompt.count('<|endoftext|>') != 2:
+                        invalid_prompts.append(f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
+                
+                if invalid_prompts:
+                    logger.error(f"🚨 BATCH {batch_start}-{batch_end} HAS MALFORMED PROMPTS:")
+                    for issue in invalid_prompts[:5]:  # Show first 5 issues
+                        logger.error(f"  ❌ {issue}")
+                    if len(invalid_prompts) > 5:
+                        logger.error(f"  ... and {len(invalid_prompts) - 5} more issues")
+                
                 # Log first prompt as sample (only for first batch)
                 if batch_start == 0:
-                    logger.info(f"📝 RAW PROMPT SENT TO vLLM:")
+                    logger.info(f"📝 RAW PROMPT SENT TO vLLM (BATCH {batch_start}):")
+                    logger.info(f"────────────────────────────────────────")
+                    logger.info(f"{full_prompts[0]}")
+                    logger.info(f"────────────────────────────────────────")
+                
+                # Log a sample from each batch for verification
+                elif batch_start % 24 == 0:  # Every 3rd batch (24 = 8*3)
+                    logger.info(f"📝 SAMPLE PROMPT FROM BATCH {batch_start}:")
                     logger.info(f"────────────────────────────────────────")
                     logger.info(f"{full_prompts[0]}")
                     logger.info(f"────────────────────────────────────────")
@@ -430,23 +498,46 @@ class DatasetManager:
                 # Process batch results
                 for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
                     try:
-                        # logger.debug(f"Processing reply {i}: '{reply[:100]}{'...' if len(reply) > 100 else ''}' (length: {len(reply)})")
+                        # ✅ VALIDATE REPLY QUALITY AND FORMAT
+                        reply_str = str(reply).strip()
+                        
+                        # Check for obvious prompt formatting leakage
+                        format_issues = []
+                        if '<|system|>' in reply_str:
+                            format_issues.append("Contains <|system|> token")
+                        if '<|user|>' in reply_str:
+                            format_issues.append("Contains <|user|> token")
+                        if '<|assistant|>' in reply_str:
+                            format_issues.append("Contains <|assistant|> token")
+                        if '<|endoftext|>' in reply_str:
+                            format_issues.append("Contains <|endoftext|> token")
+                        
+                        if format_issues:
+                            logger.warning(f"🔴 Reply {batch_start+i} has format leakage: {', '.join(format_issues)}")
+                            logger.warning(f"   Reply preview: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
                         
                         # Quality filters
-                        word_count = len(reply.split())
+                        word_count = len(reply_str.split())
                         if word_count < 1:
-                            logger.warning(f"❌ Reply {i} filtered: too short (word_count={word_count})")
+                            logger.warning(f"❌ Reply {batch_start+i} filtered: too short (word_count={word_count})")
                             continue
                         if word_count > 1000:
-                            logger.warning(f"❌ Reply {i} filtered: too long (word_count={word_count})")
+                            logger.warning(f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count})")
                             continue
+                        
+                        # Log sample replies for first few batches
+                        if batch_start < 24 and i == 0:  # First 3 batches, first reply each
+                            logger.info(f"📤 SAMPLE REPLY from batch {batch_start}, reply {i}:")
+                            logger.info(f"   User: '{prompt_data['prompt'][:80]}{'...' if len(prompt_data['prompt']) > 80 else ''}'")
+                            logger.info(f"   {char_name}: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
+                            logger.info(f"   (Word count: {word_count})")
                         
                         # Create ChatML sample
                         sample = {
                             "messages": [
                                 {"role": "system", "content": card_block},
                                 {"role": "user", "content": prompt_data['prompt']},
-                                {"role": "assistant", "content": reply},
+                                {"role": "assistant", "content": reply_str},
                             ]
                         }
                         samples.append(sample)
@@ -480,6 +571,25 @@ class DatasetManager:
         
         if progress_callback:
             progress_callback(1.0)
+        
+        # ✅ FINAL BATCH VALIDATION SUMMARY
+        logger.info(f"🎯 DATASET GENERATION COMPLETE:")
+        logger.info(f"   Total prompts prepared: {len(prompts_data)}")
+        logger.info(f"   Total samples generated: {len(samples)}")
+        logger.info(f"   Success rate: {len(samples)/len(prompts_data)*100:.1f}%")
+        logger.info(f"   Engine used: {self.inference_engine.name}")
+        logger.info(f"   Batch size: {batch_size}")
+        
+        # Spot check final samples for consistency
+        if samples:
+            sample_chars = set()
+            for sample in samples[:10]:  # Check first 10 samples
+                assistant_msg = sample['messages'][2]['content']
+                # Look for character name at start of response
+                first_words = assistant_msg.split()[:3]
+                sample_chars.update(first_words)
+            
+            logger.info(f"   Character consistency check: {sample_chars}")
         
         logger.info(f"Generated {len(samples)} samples using {self.inference_engine.name} (batch_size: {batch_size})")
         return samples
