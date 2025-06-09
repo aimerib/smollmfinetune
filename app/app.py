@@ -28,6 +28,7 @@ from utils.character import CharacterManager
 from utils.dataset import DatasetManager
 from utils.training import TrainingManager
 from utils.inference import InferenceManager
+from utils.inference_engines import InferenceEngineFactory
 
 # Page config
 st.set_page_config(
@@ -238,8 +239,6 @@ def render_sidebar():
         # ------------------------------------------------------------------
         # Inference-engine selector
         # ------------------------------------------------------------------
-
-        from app.utils.inference_engines import InferenceEngineFactory
 
         # Build a map of available engines (name ➜ internal key)
         _engine_key_map = {
