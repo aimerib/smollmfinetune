@@ -546,13 +546,9 @@ def page_dataset_preview():
             
             # Progress callback (called by DatasetManager)
             def update_progress(p: float):
-                """Update inner-chunk progress and overlay total progress."""
-                # Local chunk bar (thin overlay)
-                chunk_fraction = p
-                # Global progress bar will be driven from outer loop after each chunk
-                progress_bar.progress(global_fraction)
+                """Update status text for current chunk progress."""
                 status_text.text(
-                    f"Chunk {chunk_idx+1}: {chunk_fraction*100:.1f}% • Total: {current_total}/{target_total} samples"
+                    f"Chunk {chunk_idx+1}: {p*100:.1f}% • Total so far: {current_total}/{target_total} samples"
                 )
             
             try:
