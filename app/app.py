@@ -37,6 +37,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),  # Console output
+        logging.FileHandler('app.log')  # File output
     ]
 )
 
