@@ -6,8 +6,12 @@ Automatically selects the best engine based on available resources.
 import os
 import asyncio
 from abc import ABC, abstractmethod
+import random
+import secrets
 from typing import Dict, Any, Optional, List
 import logging
+
+import torch
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +207,10 @@ class VLLMEngine(InferenceEngine):
             # Add character name as stop token to prevent speaking for other characters
             if character_name:
                 stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
+
+            # Use a really random seed every time using the gpu seed
+            seed = secrets.randbits(64)
+            
             
             # Create sampling parameters (optimized for character generation)
             sampling_params = SamplingParams(
@@ -218,6 +226,7 @@ class VLLMEngine(InferenceEngine):
                 min_p=0.0,               # Disabled (use top_p) 
                 logprobs=None,           # Disabled for performance
                 min_tokens=1,            # Ensure non-empty responses
+                seed=seed,
             )
             
             # Generate using the singleton model instance
