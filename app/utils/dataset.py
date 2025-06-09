@@ -285,9 +285,15 @@ class DatasetManager:
         prompt = self._backtranslate(prompt)
         return prompt
 
-    async def suggest_user_questions(self, character: Dict[str, Any], num_questions: int = 10,
-                                     temperature: float = 0.8, top_p: float = 0.9,
-                                     existing_dataset: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+    async def suggest_user_questions(
+        self,
+        character: Dict[str, Any],
+        num_questions: int = 10,
+        temperature: float = 0.8,
+        top_p: float = 0.9,
+        existing_dataset: Optional[List[Dict[str, Any]]] = None,
+        context_samples: int = 12,
+    ) -> List[Dict[str, Any]]:
         """Generate a list of engaging user questions tailored to the given character card.
 
         The method prompts the currently selected inference engine to act as a creative user
@@ -296,39 +302,54 @@ class DatasetManager:
         baseline prompt list for ground-truth generation.
         """
         card_block = self._make_card_block(character)
-
-        # Optionally sample a few existing Q/A pairs for richer context
+        
         interactions_block = ""
-        if existing_dataset:
-            # Sample up to 6 unique interactions (prefer diverse questions)
-            import random as _rnd
-            sample_examples = _rnd.sample(existing_dataset, min(len(existing_dataset), 6))
-            formatted_examples = []
-            for ex in sample_examples:
-                try:
-                    user_q = ex['messages'][1]['content'].strip()
-                    assistant_a = ex['messages'][2]['content'].strip()
-                    formatted_examples.append(f"Q: {user_q}\nA: {assistant_a}")
-                except Exception:
-                    continue
-            if formatted_examples:
-                interactions_block = "Here are some previous interactions to inspire you:\n" + "\n\n".join(formatted_examples) + "\n\n"
+        context_examples: list[list[str]] = []  # store per prompt
 
-        prompt_template = (
-            "You are brainstorming conversation starters for a chat with the following character.\n"
-            "Based on the character information and the sample dialogue below, write ONE concise and engaging question that a user might ask next.\n"
-            "Respond with ONLY the question itself.\n\n"
-            f"{card_block}\n\n" + interactions_block + "Question:"
-        )
+        if existing_dataset:
+            import random as _rnd
+            # Pre-sample a pool larger than needed for variety
+            pool = _rnd.sample(existing_dataset, min(len(existing_dataset), context_samples * num_questions))
+        else:
+            pool = []
+
+        prompts = []
+        for i in range(num_questions):
+            # build context for this prompt
+            interactions_block = ""
+            examples_for_prompt = []
+            if pool:
+                # pop random subset for this prompt (without replacement if enough)
+                selected = pool[:context_samples] if len(pool) >= context_samples else pool
+                pool = pool[len(selected):]
+                examples_for_prompt = selected
+                formatted = []
+                for ex in selected:
+                    try:
+                        uq = ex['messages'][1]['content'].strip()
+                        aa = ex['messages'][2]['content'].strip()
+                        formatted.append(f"Q: {uq}\nA: {aa}")
+                    except Exception:
+                        continue
+                if formatted:
+                    interactions_block = "Here are some previous interactions to inspire you:\n" + "\n\n".join(formatted) + "\n\n"
+
+            prompt_txt = (
+                "You are brainstorming conversation starters for a chat with the following character.\n"
+                "Based on the character information and the sample dialogue below, write ONE concise and engaging question that a user might ask next.\n"
+                "Respond with ONLY the question itself.\n\n"
+                f"{card_block}\n\n" + interactions_block + "Question:"
+            )
+            prompts.append((prompt_txt, examples_for_prompt))
 
         # Determine whether we can leverage batched generation
         batch_size = min(num_questions, 50) if hasattr(self.inference_engine, 'generate_batch') else 1
-        prompts = [prompt_template] * num_questions
+        prompt_texts = [p[0] for p in prompts]
 
         # Generate the questions (batched when supported)
         if batch_size > 1:
             raw_outputs = await self._generate_text_batch(
-                prompts=prompts,
+                prompts=prompt_texts,
                 max_tokens=60,
                 temperature=temperature,
                 top_p=top_p
@@ -336,18 +357,18 @@ class DatasetManager:
         else:
             raw_outputs = []
             for _ in range(num_questions):
+                pt, _ctx = prompts[_]
                 out = await self._generate_text(
-                    prompt=prompt_template,
+                    prompt=pt,
                     max_tokens=60,
                     temperature=temperature,
                     top_p=top_p
                 )
                 raw_outputs.append(out)
 
-        # Post-process the replies: strip fluff, normalise, deduplicate
-        cleaned: List[str] = []
+        results: List[Dict[str, Any]] = []
         seen = set()
-        for q in raw_outputs:
+        for idx, q in enumerate(raw_outputs):
             q_str = str(q).strip()
             # Remove bullets / numbering if present (e.g. "1. ", "- ")
             q_str = re.sub(r'^[\d\-\*\.\s]+', '', q_str)
@@ -356,10 +377,18 @@ class DatasetManager:
             if q_str and not q_str.endswith('?'):
                 q_str += '?'
             if q_str and q_str not in seen:
-                cleaned.append(q_str)
+                results.append({
+                    'question': q_str,
+                    'context': [
+                        {
+                            'user': ex['messages'][1]['content'],
+                            'assistant': ex['messages'][2]['content']
+                        } for ex in prompts[idx][1]
+                    ]
+                })
                 seen.add(q_str)
 
-        return cleaned[:num_questions]
+        return results[:num_questions]
 
     # ---------------------------------------------------------------------------
 

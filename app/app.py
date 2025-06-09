@@ -534,17 +534,26 @@ def page_dataset_preview():
                 st.success(f"Generated {len(st.session_state.generated_questions)} questions!")
 
             # Show generated questions and allow user to add to baseline
-            if st.session_state.get('generated_questions'):
-                selected_qs = st.multiselect(
-                    "Select questions to add to baseline list",
-                    st.session_state.generated_questions,
-                    default=st.session_state.generated_questions,
-                    key="selected_generated_qs"
-                )
+            gen_data = st.session_state.get('generated_questions')
+            if gen_data:
+                st.markdown("#### Review Generated Questions")
+                selections = []
+                for idx, item in enumerate(gen_data):
+                    with st.expander(f"{idx+1}. {item['question']}"):
+                        # Checkbox to include
+                        include = st.checkbox("Add to baseline", value=True, key=f"include_q_{idx}")
+                        if include:
+                            selections.append(item['question'])
+                        # Show context
+                        if item['context']:
+                            st.markdown("**Context used:**")
+                            for j, ctx in enumerate(item['context']):
+                                st.markdown(f"*Q{j+1}:* {ctx['user']}")
+                                st.markdown(f"*A{j+1}:* {ctx['assistant']}")
 
-                if st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
-                    st.session_state.dataset_manager.default_user_prompts.extend(selected_qs)
-                    st.success(f"Added {len(selected_qs)} questions to baseline list.")
+                if selections and st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
+                    st.session_state.dataset_manager.default_user_prompts.extend(selections)
+                    st.success(f"Added {len(selections)} questions to baseline list.")
 
         # 📦 Dataset Import / Export
         st.markdown("### 📦 Import / Export Dataset")
