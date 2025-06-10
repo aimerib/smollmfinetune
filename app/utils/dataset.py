@@ -670,9 +670,13 @@ class DatasetManager:
         # Generate diverse prompts using multiple strategies
         all_prompts = []
         
-        # 1. Baseline prompts (ensure coverage)
+        # 1. Baseline prompts (ensure coverage) - convert to dict format
         baseline_prompts = [q for q in self.default_user_prompts if q not in seen_user_prompts]
-        all_prompts.extend(baseline_prompts)
+        for prompt in baseline_prompts:
+            all_prompts.append({
+                'prompt': prompt,
+                'type': 'baseline'
+            })
         
         # 2. Scenario-based prompts
         logger.info("🎭 Generating scenario-based prompts...")
@@ -716,15 +720,18 @@ class DatasetManager:
             convos = self.generate_multi_turn_conversation(character, scenario, turns=3)
             multi_turn_convos.extend(convos)
         
-        # 6. Deduplicate all prompts
+        # 6. Deduplicate all prompts while preserving metadata
         logger.info("🔄 Deduplicating prompts...")
-        if isinstance(all_prompts[0], dict):
-            prompt_texts = [p.get('prompt', p) if isinstance(p, dict) else p for p in all_prompts]
-        else:
-            prompt_texts = all_prompts
+        seen_prompts = set()
+        unique_prompt_data = []
         
-        unique_prompts = self.deduplicate_prompts(prompt_texts, similarity_threshold=0.7)
-        logger.info(f"📊 Reduced from {len(prompt_texts)} to {len(unique_prompts)} unique prompts")
+        for prompt_data in all_prompts:
+            prompt_text = prompt_data.get('prompt', '')
+            if prompt_text and prompt_text not in seen_prompts:
+                seen_prompts.add(prompt_text)
+                unique_prompt_data.append(prompt_data)
+        
+        logger.info(f"📊 Reduced from {len(all_prompts)} to {len(unique_prompt_data)} unique prompts")
         
         # Length buckets following best practices
         length_buckets = [
@@ -744,21 +751,24 @@ class DatasetManager:
         char_name_for_prompts = character.get('name', 'Assistant')
         
         # Process unique prompts with emotional variations and context enhancement
-        for prompt in unique_prompts[:new_samples_needed * 2]:  # Generate extra for quality filtering
+        for prompt_data in unique_prompt_data[:new_samples_needed * 2]:  # Generate extra for quality filtering
             # Skip if we already have enough
             if len(prompts_data) >= new_samples_needed * 1.5:
                 break
-                
+            
+            prompt_text = prompt_data['prompt']
+            prompt_context = prompt_data.get('context')
+            
             # Add emotional variations (30% chance)
             if random.random() < 0.3:
                 emotions = random.sample(['happy', 'sad', 'angry', 'worried', 'excited', 'curious'], k=2)
-                variations = self.generate_emotional_variations(prompt, emotions)
+                variations = self.generate_emotional_variations(prompt_text, emotions)
                 for var in variations[:1]:  # Just one variation per prompt
-                    enhanced_prompt = self.enhance_prompt_with_context(var, character)
+                    enhanced_prompt = self.enhance_prompt_with_context(var, character, prompt_context)
                     prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
             else:
                 # Regular prompt with possible context enhancement
-                enhanced_prompt = self.enhance_prompt_with_context(prompt, character)
+                enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
                 prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
         
         # Add multi-turn conversations
