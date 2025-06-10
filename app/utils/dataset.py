@@ -11,6 +11,8 @@ import torch
 import json
 import os
 import hashlib
+import time as _time
+import tempfile
 
 logger = logging.getLogger(__name__)
 
@@ -868,13 +870,16 @@ class DatasetManager:
         """Save dataset to disk"""
         try:
             dataset_path = self._get_dataset_path(character)
-            with open(dataset_path, 'w', encoding='utf-8') as f:
+            with tempfile.NamedTemporaryFile("w", delete=False, dir=os.path.dirname(dataset_path), encoding="utf-8") as tmp_f:
                 json.dump({
                     'character': character,
                     'dataset': dataset,
-                    'created_at': str(asyncio.get_event_loop().time() if hasattr(asyncio, 'get_event_loop') else 0),
+                    'created_at': _time.time(),
                     'sample_count': len(dataset)
-                }, f, indent=2, ensure_ascii=False)
+                }, tmp_f, indent=2, ensure_ascii=False)
+                tmp_path = tmp_f.name
+
+            os.replace(tmp_path, dataset_path)
             logger.info(f"💾 Saved dataset with {len(dataset)} samples to {dataset_path}")
         except Exception as e:
             logger.error(f"❌ Failed to save dataset: {e}")
