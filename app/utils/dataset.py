@@ -689,7 +689,7 @@ class DatasetManager:
         for i in range(random_prompt_target * 2):  # keep safety margin
             if generated_random >= random_prompt_target:
                 break
-            random_prompt_tasks.append(self._generate_single_random_prompt(character, i))
+            random_prompt_tasks.append(await self._generate_single_random_prompt(character, i))
         
         # Process random prompts in batches to avoid overwhelming the system
         batch_size = 10
