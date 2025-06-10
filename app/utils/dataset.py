@@ -1459,11 +1459,9 @@ Format as a simple list:
 
         for attempt in range(max_retries):
             try:
-                # Add small delay to avoid overwhelming vLLM
+                # ✅ FIX: Remove delays that were causing slowdowns
+                # Force garbage collection and clear CUDA cache between attempts only if needed
                 if attempt > 0:
-                    await asyncio.sleep(1.0)  # Longer delay between retries
-
-                    # Force garbage collection and clear CUDA cache between attempts
                     gc.collect()
                     try:
                         import torch
@@ -1824,31 +1822,26 @@ Format as a simple list:
             self.enable_intelligent_generation and
                 temporal_context in ["past", "future"]):
 
-            # ✅ FIX: Use global lock to prevent concurrent temporal generation
-            async with self._global_temporal_lock:
-                # Check if we have cached intelligent prompts for this character
-                char_id = self._get_character_id(character)
-                cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
+            # Check if we have cached intelligent prompts for this character
+            char_id = self._get_character_id(character)
+            cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
 
-                # Get or generate intelligent prompts (with serialization)
-                if not hasattr(self, '_intelligent_prompt_cache'):
-                    self._intelligent_prompt_cache = {}
-                    self._intelligent_generation_locks = {}
+            # Get or generate intelligent prompts (with serialization)
+            if not hasattr(self, '_intelligent_prompt_cache'):
+                self._intelligent_prompt_cache = {}
+                self._intelligent_generation_locks = {}
 
-                # Use a lock to prevent concurrent generation for the same cache key
-                if cache_key not in self._intelligent_generation_locks:
-                    self._intelligent_generation_locks[cache_key] = asyncio.Lock()
-
-                async with self._intelligent_generation_locks[cache_key]:
+            # ✅ FIX: Only use global lock for cache initialization, not the entire operation
+            if cache_key not in self._intelligent_prompt_cache:
+                # Use global lock only for the actual generation
+                async with self._global_temporal_lock:
+                    # Double-check pattern to avoid race conditions
                     if cache_key not in self._intelligent_prompt_cache:
                         logger.info(
                             f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
                         try:
-                            # ✅ FIX: Add delay to prevent vLLM concurrent batch conflicts
-                            await asyncio.sleep(0.5)  # Give vLLM time between different contexts
-                            
                             intelligent_prompts = await self._generate_intelligent_temporal_prompts(
-                                character, temporal_context, num_prompts=6  # Reduced to be more reliable
+                                character, temporal_context, num_prompts=8  # Generate more to reduce frequency
                             )
                             self._intelligent_prompt_cache[cache_key] = intelligent_prompts
 
@@ -1858,35 +1851,36 @@ Format as a simple list:
                             else:
                                 logger.info(
                                     f"🔄 No intelligent prompts generated, will use static prompts")
+                                # Cache empty result to avoid retrying
+                                self._intelligent_prompt_cache[cache_key] = []
 
-                            # Small delay to give vLLM time to process
-                            await asyncio.sleep(0.1)
                         except Exception as e:
                             logger.debug(
                                 f"Intelligent prompt generation error: {e}")
-                            # Cache empty result
+                            # Cache empty result to avoid retrying
                             self._intelligent_prompt_cache[cache_key] = []
-                    else:
-                        intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+            
+            # ✅ FIX: Use cached prompts without any locks (much faster)
+            intelligent_prompts = self._intelligent_prompt_cache.get(cache_key, [])
 
-                # Use intelligent prompt if available
-                if intelligent_prompts:
-                    intelligent_prompt_data = random.choice(intelligent_prompts)
-                    prompt = intelligent_prompt_data.get('question', '')
+            # Use intelligent prompt if available
+            if intelligent_prompts:
+                intelligent_prompt_data = random.choice(intelligent_prompts)
+                prompt = intelligent_prompt_data.get('question', '')
 
-                    if temporal_context == "past":
-                        relationship_context = intelligent_prompt_data.get('relationship_name',
-                                                                           intelligent_prompt_data.get('relationship_type', 'unknown'))
+                if temporal_context == "past":
+                    relationship_context = intelligent_prompt_data.get('relationship_name',
+                                                                       intelligent_prompt_data.get('relationship_type', 'unknown'))
 
-                    if prompt:
-                        logger.debug(
-                            f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
-                        # Add noise and processing (keeping existing functionality)
-                        prompt = self._add_noise(prompt.strip())
-                        prompt = self._paraphrase(prompt)
-                        prompt = self._backtranslate(prompt)
+                if prompt:
+                    logger.debug(
+                        f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
+                    # Add noise and processing (keeping existing functionality)
+                    prompt = self._add_noise(prompt.strip())
+                    prompt = self._paraphrase(prompt)
+                    prompt = self._backtranslate(prompt)
 
-                        return prompt, temporal_context, relationship_context, intelligent_prompt_data
+                    return prompt, temporal_context, relationship_context, intelligent_prompt_data
 
         # Fallback to static prompts (original system)
         if temporal_context == "past":
