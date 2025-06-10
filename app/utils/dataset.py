@@ -38,6 +38,9 @@ class DatasetManager:
             logger.info(
                 "🔧 Intelligent prompt generation is DISABLED - using static prompts only")
 
+        # ✅ FIX: Add global lock to prevent concurrent temporal prompt generation
+        self._global_temporal_lock = asyncio.Lock()
+
         # Natural conversation starters (how users actually talk) ----------------
         self.prompts_casual = [
             "Hey! How's it going?",
@@ -1419,49 +1422,34 @@ class DatasetManager:
         card_info = f"Character: {char_name}\nDescription: {description}\nPersonality: {personality}\nScenario: {scenario}"
 
         if temporal_context == "past":
-            analysis_prompt = f"""Analyze this character card and generate {num_prompts} specific questions for exploring their past:
+            analysis_prompt = f"""I want to roleplay with {char_name}. Help me create some questions about their past.
 
-{card_info}
+Character: {char_name}
+Description: {description}
+Personality: {personality}
+Scenario: {scenario}
 
-For each question, identify:
-1. WHO should ask it (specific person from their past - family, friend, mentor, companion, rival)
-2. WHAT the question should be (referencing specific events/details from the card)
-3. WHY this relationship/question reveals important character background
+Please suggest 3-4 questions I could ask {char_name} about their past relationships, childhood, or background. Make them personal and engaging for roleplay.
 
-Format your response as a JSON list like this:
-[
-  {{
-    "relationship_type": "father",
-    "relationship_name": "Magnus the Blacksmith", 
-    "question": "Do you still remember the techniques I taught you in the forge?",
-    "context": "speaking with your father about your training"
-  }}
-]
-
-Focus on relationships and events specifically mentioned or implied in the character description. If the card is minimal, infer likely relationships based on the character's background."""
+Format as a simple list:
+1. [question]
+2. [question] 
+3. [question]"""
 
         elif temporal_context == "future":
-            analysis_prompt = f"""Analyze this character card and generate {num_prompts} personal questions for an established relationship:
+            analysis_prompt = f"""I want to roleplay with {char_name} as if we've known each other for years. Help me create intimate questions.
 
-{card_info}
+Character: {char_name}
+Description: {description}
+Personality: {personality}
+Scenario: {scenario}
 
-Generate questions that assume the User and {char_name} have known each other for years and have a deep connection. Consider:
-- Shared experiences they might have had
-- How the relationship has evolved
-- Deep knowledge they'd have of each other
-- Future plans and dreams
-- Honest moments and trust
-- Intimate moments
-- Lewd conversations
+Please suggest 3-4 personal questions I could ask {char_name} as someone who knows them deeply. Make them emotional and intimate.
 
-Format as JSON list:
-[
-  {{
-    "question": "What's your favorite memory of us together?",
-    "intimacy_level": "emotional", 
-    "context": "reflecting on your long relationship"
-  }}
-]"""
+Format as a simple list:
+1. [question]
+2. [question]
+3. [question]"""
 
         else:  # present
             return []  # Use existing present-context system
@@ -1506,13 +1494,13 @@ Format as JSON list:
 
                 # ✅ FIX: Wrap the analytical prompt in proper DanChat format
                 # The model expects: <|system|>{system}<|endoftext|><|user|>{user}<|endoftext|><|assistant|>{char}:
-                system_prompt = "You are a helpful AI assistant that analyzes character cards and generates creative, contextual questions for roleplay scenarios."
-                danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{current_prompt}<|endoftext|><|assistant|>Assistant:"
+                system_prompt = "You are a helpful assistant who creates engaging roleplay questions for character interactions."
+                danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{current_prompt}<|endoftext|><|assistant|>I'll help you create some engaging questions for {char_name}:\n\n"
 
                 response = await self._generate_text(
                     prompt=danschat_prompt,  # Use properly formatted DanChat prompt
-                    max_tokens=600,  # Reduced to avoid CUDA memory issues
-                    temperature=1.0,  # Slightly higher for creativity
+                    max_tokens=300,  # Reduced for simpler responses
+                    temperature=0.9,  # Slightly lower for more focused responses
                     top_p=0.9,       # Less restrictive sampling
                     character_name=None,  # Don't add character name for analytical task
                     custom_stop_tokens=reduced_stop_tokens
@@ -1536,8 +1524,41 @@ Format as JSON list:
                             f"⚡ LLM generated empty responses after {max_retries} attempts, using static prompts")
                     continue
 
-                # Try to parse JSON response
-                import json
+                # ✅ NEW: Parse simple numbered list format instead of JSON
+                questions = []
+                lines = response.split('\n')
+                for line in lines:
+                    line = line.strip()
+                    # Look for numbered questions (1., 2., etc.) or bullet points
+                    if re.match(r'^[\d\-\*\.\s]*(.+\?)\s*$', line):
+                        # Extract the question part
+                        question = re.sub(r'^[\d\-\*\.\s]+', '', line).strip()
+                        if len(question) > 10 and question.endswith('?'):
+                            questions.append(question)
+
+                if questions:
+                    # Convert to expected format
+                    parsed_prompts = []
+                    for question in questions:
+                        if temporal_context == "past":
+                            parsed_prompts.append({
+                                "relationship_type": "unknown",
+                                "relationship_name": "Someone from the past",
+                                "question": question,
+                                "context": "reflecting on your past"
+                            })
+                        else:  # future
+                            parsed_prompts.append({
+                                "question": question,
+                                "intimacy_level": "emotional",
+                                "context": "reflecting on your relationship"
+                            })
+
+                    logger.info(
+                        f"🧠 Generated {len(parsed_prompts)} intelligent {temporal_context} prompts for {char_name} (attempt {attempt + 1})")
+                    return parsed_prompts
+
+                # Legacy JSON parsing as fallback
                 try:
                     # Clean the response - sometimes LLMs add extra text
                     response_clean = response.strip()
@@ -1564,7 +1585,7 @@ Format as JSON list:
                     logger.info(
                         f"🛑 JSON parsing failed (attempt {attempt + 1}): {e}")
 
-                # Fallback: extract questions from raw text
+                # Final fallback: extract questions from raw text
                 lines = response.split('\n')
                 fallback_prompts = []
                 for line in lines:
@@ -1803,64 +1824,69 @@ Format as JSON list:
             self.enable_intelligent_generation and
                 temporal_context in ["past", "future"]):
 
-            # Check if we have cached intelligent prompts for this character
-            char_id = self._get_character_id(character)
-            cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
+            # ✅ FIX: Use global lock to prevent concurrent temporal generation
+            async with self._global_temporal_lock:
+                # Check if we have cached intelligent prompts for this character
+                char_id = self._get_character_id(character)
+                cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
 
-            # Get or generate intelligent prompts (with serialization)
-            if not hasattr(self, '_intelligent_prompt_cache'):
-                self._intelligent_prompt_cache = {}
-                self._intelligent_generation_locks = {}
+                # Get or generate intelligent prompts (with serialization)
+                if not hasattr(self, '_intelligent_prompt_cache'):
+                    self._intelligent_prompt_cache = {}
+                    self._intelligent_generation_locks = {}
 
-            # Use a lock to prevent concurrent generation for the same cache key
-            if cache_key not in self._intelligent_generation_locks:
-                self._intelligent_generation_locks[cache_key] = asyncio.Lock()
+                # Use a lock to prevent concurrent generation for the same cache key
+                if cache_key not in self._intelligent_generation_locks:
+                    self._intelligent_generation_locks[cache_key] = asyncio.Lock()
 
-            async with self._intelligent_generation_locks[cache_key]:
-                if cache_key not in self._intelligent_prompt_cache:
-                    logger.info(
-                        f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
-                    try:
-                        intelligent_prompts = await self._generate_intelligent_temporal_prompts(
-                            character, temporal_context, num_prompts=6  # Reduced to be more reliable
-                        )
-                        self._intelligent_prompt_cache[cache_key] = intelligent_prompts
+                async with self._intelligent_generation_locks[cache_key]:
+                    if cache_key not in self._intelligent_prompt_cache:
+                        logger.info(
+                            f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
+                        try:
+                            # ✅ FIX: Add delay to prevent vLLM concurrent batch conflicts
+                            await asyncio.sleep(0.5)  # Give vLLM time between different contexts
+                            
+                            intelligent_prompts = await self._generate_intelligent_temporal_prompts(
+                                character, temporal_context, num_prompts=6  # Reduced to be more reliable
+                            )
+                            self._intelligent_prompt_cache[cache_key] = intelligent_prompts
 
-                        if intelligent_prompts:
-                            logger.info(
-                                f"✅ Successfully generated {len(intelligent_prompts)} intelligent {temporal_context} prompts")
-                        else:
-                            logger.info(
-                                f"🔄 No intelligent prompts generated, will use static prompts")
+                            if intelligent_prompts:
+                                logger.info(
+                                    f"✅ Successfully generated {len(intelligent_prompts)} intelligent {temporal_context} prompts")
+                            else:
+                                logger.info(
+                                    f"🔄 No intelligent prompts generated, will use static prompts")
 
-                        # Small delay to give vLLM time to process
-                        await asyncio.sleep(0.1)
-                    except Exception as e:
+                            # Small delay to give vLLM time to process
+                            await asyncio.sleep(0.1)
+                        except Exception as e:
+                            logger.debug(
+                                f"Intelligent prompt generation error: {e}")
+                            # Cache empty result
+                            self._intelligent_prompt_cache[cache_key] = []
+                    else:
+                        intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+
+                # Use intelligent prompt if available
+                if intelligent_prompts:
+                    intelligent_prompt_data = random.choice(intelligent_prompts)
+                    prompt = intelligent_prompt_data.get('question', '')
+
+                    if temporal_context == "past":
+                        relationship_context = intelligent_prompt_data.get('relationship_name',
+                                                                           intelligent_prompt_data.get('relationship_type', 'unknown'))
+
+                    if prompt:
                         logger.debug(
-                            f"Intelligent prompt generation error: {e}")
-                        # Cache empty result
-                        self._intelligent_prompt_cache[cache_key] = []
-                else:
-                    intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+                            f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
+                        # Add noise and processing (keeping existing functionality)
+                        prompt = self._add_noise(prompt.strip())
+                        prompt = self._paraphrase(prompt)
+                        prompt = self._backtranslate(prompt)
 
-            # Use intelligent prompt if available
-            if intelligent_prompts:
-                intelligent_prompt_data = random.choice(intelligent_prompts)
-                prompt = intelligent_prompt_data.get('question', '')
-
-                if temporal_context == "past":
-                    relationship_context = intelligent_prompt_data.get('relationship_name',
-                                                                       intelligent_prompt_data.get('relationship_type', 'unknown'))
-
-                if prompt:
-                    logger.debug(
-                        f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
-                    # Add noise and processing (keeping existing functionality)
-                    prompt = self._add_noise(prompt.strip())
-                    prompt = self._paraphrase(prompt)
-                    prompt = self._backtranslate(prompt)
-
-                    return prompt, temporal_context, relationship_context, intelligent_prompt_data
+                        return prompt, temporal_context, relationship_context, intelligent_prompt_data
 
         # Fallback to static prompts (original system)
         if temporal_context == "past":
