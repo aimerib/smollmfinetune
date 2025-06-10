@@ -153,6 +153,40 @@ class DatasetManager:
             "There's something about you...",
             "I care about you."
         ]
+        
+        # Enhanced NSFW prompt categories for better quality
+        self.prompts_intimate_emotional = [
+            "What makes you feel truly vulnerable with someone?",
+            "Describe the last time you felt butterflies.",
+            "What does intimacy mean to you?",
+            "How do you express desire without words?",
+            "What emotional walls do you put up in relationships?",
+            "When did you first realize you wanted to be touched?",
+            "How does trust change intimacy for you?",
+            "What scares you most about being close to someone?"
+        ]
+        
+        self.prompts_intimate_playful = [
+            "*playfully traces finger along your arm* What are you thinking?",
+            "What's your idea of the perfect seduction?",
+            "*whispers* Tell me your most secret fantasy.",
+            "How do you like to build anticipation?",
+            "*grins mischievously* Want to play a game?",
+            "What's the most daring thing you've done?",
+            "*teasingly* I bet I can make you blush...",
+            "Tell me what happens when you lose control."
+        ]
+        
+        self.prompts_intimate_romantic = [
+            "Describe how you want to be loved.",
+            "What moment made you realize you wanted me?",
+            "*gazing deeply* What do you see when you look at me?",
+            "How would you make our first night unforgettable?",
+            "What does making love mean to you?",
+            "How do you want to wake up with someone?",
+            "Describe the perfect kiss.",
+            "What makes you feel cherished?"
+        ]
 
         # Sampling weights for variety (must sum to 1.0)
         self.bucket_choices = [
@@ -201,6 +235,29 @@ class DatasetManager:
             ("past", 0.30),      # 30% past relationships/events
             ("present", 0.50),   # 50% first meeting/getting to know
             ("future", 0.20),    # 20% established relationship
+        ]
+        
+        # NSFW-specific temporal prompts
+        self.prompts_past_intimate = [
+            "What did your first love teach you about desire?",
+            "How has heartbreak changed how you love?",
+            "What intimate memory still affects you?",
+            "Who taught you how to love physically?",
+            "What's a sensual memory you can't forget?",
+            "How did you discover what you like?",
+            "What past lover still visits your dreams?",
+            "What did you learn from your most passionate relationship?"
+        ]
+        
+        self.prompts_future_desires = [
+            "What fantasies do you have about us?",
+            "How do you want our intimacy to evolve?",
+            "What boundaries do you want to explore together?",
+            "Describe your ideal romantic evening with me.",
+            "What desires have you been hiding from me?",
+            "How would you seduce me after years together?",
+            "What new experiences do you want to share?",
+            "Tell me a fantasy you've never shared before."
         ]
 
         # Past relationship prompts (for exposition)
@@ -444,7 +501,14 @@ class DatasetManager:
     # ------------------------- prompt sampling helpers -------------------------
     def _choose_bucket(self) -> str:
         buckets, weights = zip(*self.bucket_choices)
-        return random.choices(buckets, weights=weights, k=1)[0]
+        chosen = random.choices(buckets, weights=weights, k=1)[0]
+        
+        # For NSFW, randomly select from subcategories
+        if chosen == "nsfw":
+            nsfw_subcategories = ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]
+            return random.choice(nsfw_subcategories)
+        
+        return chosen
 
     def _add_noise(self, text: str) -> str:
         """Keep prompts clean - no artificial noise"""
@@ -471,7 +535,14 @@ class DatasetManager:
 
     def _build_user_prompt(self) -> str:
         bucket = self._choose_bucket()
-        prompt_list = getattr(self, f"prompts_{bucket}")
+        
+        # Handle the various bucket types
+        if bucket in ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]:
+            # For intimate subcategories, use the appropriate list
+            prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_nsfw)
+        else:
+            prompt_list = getattr(self, f"prompts_{bucket}")
+        
         prompt = random.choice(prompt_list)
         prompt = self._add_noise(prompt.strip())
         prompt = self._paraphrase(prompt)
@@ -748,6 +819,24 @@ class DatasetManager:
                         'context': scenario['context'],
                         'type': 'scenario'
                     })
+        
+        # 2b. Intimate scenarios (if character traits suggest romance/intimacy)
+        personality = character.get('personality', '').lower()
+        if any(word in personality for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate', 'flirty']):
+            logger.info("💕 Generating intimate scenarios...")
+            # Mix of relationship stages
+            intimate_scenarios = []
+            intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'first_time'))
+            intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'established'))
+            
+            for scenario in intimate_scenarios[:5]:  # Limit to avoid overwhelming
+                for prompt in scenario['prompts'][:3]:  # Select a few prompts per scenario
+                    if prompt not in seen_user_prompts:
+                        all_prompts.append({
+                            'prompt': prompt,
+                            'context': scenario['context'],
+                            'type': 'intimate_scenario'
+                        })
         
         # 3. Character exploration prompts
         logger.info("🔍 Generating character exploration prompts...")
@@ -1956,18 +2045,23 @@ Format as a simple list:
             elif relationship_context in ["old_friend", "mentor"]:
                 return self.prompts_past_friends
             elif relationship_context == "past_love":
-                return self.prompts_past_romance
+                # Include both romantic and intimate past prompts
+                return self.prompts_past_romance + self.prompts_past_intimate
             else:
-                # Mix of all past prompts
-                return self.prompts_past_family + self.prompts_past_friends + self.prompts_past_romance
+                # Mix of all past prompts including intimate
+                return self.prompts_past_family + self.prompts_past_friends + self.prompts_past_romance + self.prompts_past_intimate
 
         elif temporal_context == "future":
-            return self.prompts_future_intimate + self.prompts_future_domestic
+            # Include both future intimate and desires
+            return self.prompts_future_intimate + self.prompts_future_domestic + self.prompts_future_desires
 
         else:  # present
             # Use existing prompt system
             bucket = self._choose_bucket()
-            prompt_list = getattr(self, f"prompts_{bucket}")
+            if bucket in ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]:
+                prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_nsfw)
+            else:
+                prompt_list = getattr(self, f"prompts_{bucket}")
             return prompt_list
 
     async def _build_temporal_user_prompt(self, character: Dict[str, Any], use_intelligent_generation: bool = True) -> tuple[str, str, Optional[str], Optional[Dict[str, Any]]]:
@@ -2117,6 +2211,115 @@ Format as a simple list:
             logger.debug(f"Error preparing prompt {index}: {e}")
             return None
 
+    def analyze_character_intimacy_style(self, character: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze how this character would approach intimate situations"""
+        personality = character.get('personality', '').lower()
+        description = character.get('description', '').lower()
+        mes_example = character.get('mes_example', '').lower()
+        
+        intimacy_traits = {
+            'style': 'passionate',  # passionate, gentle, playful, intense, romantic
+            'pace': 'moderate',  # slow, moderate, eager
+            'expression': 'verbal',  # verbal, physical, emotional
+            'confidence': 'moderate',  # shy, moderate, confident, dominant
+            'approach': 'emotional',  # emotional, physical, intellectual, playful
+        }
+        
+        # Analyze personality for intimacy cues
+        full_text = f"{personality} {description} {mes_example}"
+        
+        # Confidence analysis
+        if any(word in full_text for word in ['shy', 'nervous', 'innocent', 'timid', 'bashful', 'hesitant']):
+            intimacy_traits['confidence'] = 'shy'
+            intimacy_traits['pace'] = 'slow'
+        elif any(word in full_text for word in ['confident', 'bold', 'dominant', 'assertive', 'commanding']):
+            intimacy_traits['confidence'] = 'confident'
+            intimacy_traits['style'] = 'intense'
+        elif any(word in full_text for word in ['playful', 'teasing', 'mischievous', 'flirty']):
+            intimacy_traits['confidence'] = 'playful'
+            intimacy_traits['style'] = 'playful'
+        
+        # Style analysis
+        if any(word in full_text for word in ['gentle', 'caring', 'tender', 'soft', 'sweet']):
+            intimacy_traits['style'] = 'gentle'
+        elif any(word in full_text for word in ['passionate', 'fiery', 'intense', 'wild']):
+            intimacy_traits['style'] = 'passionate'
+        elif any(word in full_text for word in ['romantic', 'loving', 'devoted', 'affectionate']):
+            intimacy_traits['style'] = 'romantic'
+        
+        # Expression analysis
+        if any(word in full_text for word in ['quiet', 'reserved', 'stoic', 'silent']):
+            intimacy_traits['expression'] = 'physical'
+        elif any(word in full_text for word in ['talkative', 'expressive', 'vocal', 'articulate']):
+            intimacy_traits['expression'] = 'verbal'
+        elif any(word in full_text for word in ['emotional', 'sensitive', 'empathetic', 'feeling']):
+            intimacy_traits['expression'] = 'emotional'
+        
+        # Approach analysis
+        if any(word in full_text for word in ['intellectual', 'analytical', 'thoughtful', 'philosophical']):
+            intimacy_traits['approach'] = 'intellectual'
+        elif any(word in full_text for word in ['physical', 'athletic', 'strong', 'active']):
+            intimacy_traits['approach'] = 'physical'
+        elif any(word in full_text for word in ['playful', 'fun', 'humorous', 'witty']):
+            intimacy_traits['approach'] = 'playful'
+        
+        return intimacy_traits
+    
+    def extract_intimate_speech_patterns(self, mes_example: str, character_name: str) -> Dict[str, List[str]]:
+        """Extract how character speaks in intimate moments"""
+        patterns = {
+            'endearments': [],  # "darling", "love", "sweetheart"
+            'physical_descriptions': [],  # How they describe touch/sensation
+            'emotional_expressions': [],  # How they express desire/love
+            'consent_phrases': [],  # How they check in with partner
+            'intimacy_style': [],  # How they approach intimate moments
+        }
+        
+        # Common endearments to look for
+        endearment_words = ['darling', 'love', 'sweetheart', 'baby', 'honey', 'dear', 
+                           'beloved', 'treasure', 'angel', 'beautiful', 'gorgeous']
+        
+        # Analyze example messages
+        lines = mes_example.split('\n')
+        for line in lines:
+            line_lower = line.lower()
+            
+            # Extract endearments
+            for endearment in endearment_words:
+                if endearment in line_lower:
+                    patterns['endearments'].append(endearment)
+            
+            # Extract physical descriptions
+            if any(word in line_lower for word in ['touch', 'feel', 'soft', 'warm', 'close', 'hold', 'kiss']):
+                # Extract the context
+                if '*' in line:  # Action text
+                    action_match = re.findall(r'\*([^*]+)\*', line)
+                    for action in action_match:
+                        if any(word in action.lower() for word in ['touch', 'kiss', 'hold', 'caress']):
+                            patterns['physical_descriptions'].append(action)
+            
+            # Extract emotional expressions
+            if any(word in line_lower for word in ['want', 'need', 'desire', 'love', 'feel', 'yearn']):
+                patterns['emotional_expressions'].append('expressive')
+            
+            # Extract consent phrases
+            if any(phrase in line_lower for phrase in ['is this okay', 'do you want', 'may i', 'can i', 'tell me if']):
+                patterns['consent_phrases'].append('asks_consent')
+            
+            # Intimacy style markers
+            if '*blush*' in line_lower or '*shy*' in line_lower:
+                patterns['intimacy_style'].append('shy')
+            if '*confident*' in line_lower or '*bold*' in line_lower:
+                patterns['intimacy_style'].append('confident')
+            if '*playful*' in line_lower or '*tease*' in line_lower:
+                patterns['intimacy_style'].append('playful')
+        
+        # Remove duplicates
+        for key in patterns:
+            patterns[key] = list(set(patterns[key]))
+        
+        return patterns
+    
     def extract_character_knowledge(self, character: Dict[str, Any]) -> Dict[str, Any]:
         """Extract structured knowledge from character card for better prompt generation"""
         char_name = character.get('name', 'Assistant')
@@ -2220,6 +2423,11 @@ Format as a simple list:
         if mes_example:
             knowledge['speech_patterns'] = self._extract_speech_patterns(mes_example, char_name)
             knowledge['mannerisms'] = self._extract_mannerisms(mes_example, char_name)
+            
+            # Extract intimate speech patterns if relevant
+            if any(word in full_text for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate']):
+                intimate_patterns = self.extract_intimate_speech_patterns(mes_example, char_name)
+                knowledge['intimate_speech'] = intimate_patterns
         
         # Process alternate greetings for variety
         if alternate_greetings:
@@ -2651,6 +2859,210 @@ Format as a simple list:
         
         return selected
 
+    def generate_intimate_scenarios(self, character: Dict[str, Any], 
+                                  relationship_stage: str = 'established') -> List[Dict]:
+        """Generate intimate scenarios based on character and relationship"""
+        
+        scenarios = []
+        intimacy_style = self.analyze_character_intimacy_style(character)
+        char_name = character.get('name', 'Assistant')
+        
+        if relationship_stage == 'first_time':
+            scenarios.extend([
+                {
+                    "context": f"First intimate moment with {char_name}",
+                    "prompts": [
+                        "I've been waiting for this moment...",
+                        "*nervously* Is this okay?",
+                        "Show me what you like.",
+                        "I want to learn everything about you.",
+                        "Tell me if I'm going too fast.",
+                        "*breathing heavily* You're so beautiful.",
+                        "I've imagined this so many times.",
+                        "Guide me... show me how you want to be touched."
+                    ]
+                },
+                {
+                    "context": f"Breaking the tension with {char_name}",
+                    "prompts": [
+                        "*breathing heavily* We shouldn't... but I can't stop.",
+                        "I've tried to resist this feeling.",
+                        "Tell me you want this too.",
+                        "No more holding back.",
+                        "*pulling you close* I need you.",
+                        "The way you look at me... I can't resist anymore.",
+                        "Stop me if you don't want this.",
+                        "*voice shaking* I've never wanted anyone like this."
+                    ]
+                }
+            ])
+        elif relationship_stage == 'established':
+            scenarios.extend([
+                {
+                    "context": f"Rekindling passion with {char_name}",
+                    "prompts": [
+                        "It's been too long since we...",
+                        "Remember what we did last time?",
+                        "I've been thinking about you all day.",
+                        "Let's try something new tonight.",
+                        "*whispering* I have a surprise for you.",
+                        "You still drive me crazy after all this time.",
+                        "I love how well you know my body.",
+                        "Show me that thing you do that I love."
+                    ]
+                },
+                {
+                    "context": f"Intimate morning with {char_name}",
+                    "prompts": [
+                        "*waking up together* Good morning, beautiful...",
+                        "Last night was incredible.",
+                        "I love waking up next to you.",
+                        "*tracing fingers along your skin* Ready for round two?",
+                        "How did I get so lucky?",
+                        "Stay in bed with me a little longer.",
+                        "*nuzzling close* You smell amazing.",
+                        "I could stay like this forever."
+                    ]
+                }
+            ])
+        
+        # Add character-specific scenarios based on their traits
+        if intimacy_style['confidence'] == 'shy':
+            scenarios.append({
+                "context": f"{char_name} opening up intimately",
+                "prompts": [
+                    "*blushing* Can I tell you what I've been thinking?",
+                    "I'm not good at this, but...",
+                    "*looking away* Do you think I'm attractive?",
+                    "Help me be brave with you.",
+                    "*whispering* I want to, but I'm nervous.",
+                    "Will you be gentle with me?",
+                    "*trembling slightly* Show me what to do.",
+                    "I trust you completely."
+                ]
+            })
+        elif intimacy_style['confidence'] == 'confident':
+            scenarios.append({
+                "context": f"{char_name} taking control",
+                "prompts": [
+                    "*pinning you against the wall* I've been patient long enough.",
+                    "Let me show you exactly what I want.",
+                    "*commanding tone* Tell me your deepest desire.",
+                    "I'm going to make you forget everything else.",
+                    "*confident smile* You're mine tonight.",
+                    "Don't hold back - I can handle it.",
+                    "I know exactly what you need.",
+                    "*intense gaze* Surrender to me."
+                ]
+            })
+        elif intimacy_style['confidence'] == 'playful':
+            scenarios.append({
+                "context": f"Playful intimacy with {char_name}",
+                "prompts": [
+                    "*grinning* Want to play a game?",
+                    "I bet I can make you blush in three moves.",
+                    "*teasingly* What happens if I do... this?",
+                    "Let's see who breaks first.",
+                    "*playful wink* Catch me if you can.",
+                    "Truth or dare... intimate edition?",
+                    "I have some fun ideas for tonight.",
+                    "*mischievous smile* Ready for an adventure?"
+                ]
+            })
+        
+        # Style-based scenarios
+        if intimacy_style['style'] == 'romantic':
+            scenarios.append({
+                "context": f"Romantic evening with {char_name}",
+                "prompts": [
+                    "I want to worship every inch of you.",
+                    "Let me show you how much I love you.",
+                    "*lighting candles* Tonight is all about you.",
+                    "You're the most beautiful person I've ever seen.",
+                    "I want to make love to your soul.",
+                    "*soft music playing* Dance with me first?",
+                    "Every touch is a love letter.",
+                    "Let me cherish you properly."
+                ]
+            })
+        elif intimacy_style['style'] == 'passionate':
+            scenarios.append({
+                "context": f"Passionate encounter with {char_name}",
+                "prompts": [
+                    "*urgently* I need you right now.",
+                    "I can't get enough of you.",
+                    "*passionate kiss* You drive me wild.",
+                    "Don't be gentle - I want to feel you.",
+                    "*breathless* More... don't stop.",
+                    "You set my soul on fire.",
+                    "I want to devour you.",
+                    "*intense* Mark me as yours."
+                ]
+            })
+        
+        return scenarios
+    
+    def generate_intimate_conversation_flow(self, character: Dict[str, Any]) -> List[Dict]:
+        """Generate natural intimate conversation progressions"""
+        
+        intimacy_style = self.analyze_character_intimacy_style(character)
+        char_name = character.get('name', 'Assistant')
+        
+        flows = [
+            {
+                "name": "building_tension",
+                "turns": [
+                    {"role": "user", "content": "You look beautiful tonight."},
+                    {"role": "assistant", "content": f"[{char_name} responds with appreciation/shyness based on personality]"},
+                    {"role": "user", "content": "*moves closer* I've been wanting to tell you something."},
+                    {"role": "assistant", "content": f"[{char_name} shows anticipation/nervousness]"},
+                    {"role": "user", "content": "I can't stop thinking about kissing you."},
+                ]
+            },
+            {
+                "name": "morning_after",
+                "turns": [
+                    {"role": "user", "content": "*waking up together* Good morning..."},
+                    {"role": "assistant", "content": f"[{char_name}'s morning intimacy style]"},
+                    {"role": "user", "content": "Last night was..."},
+                    {"role": "assistant", "content": f"[{char_name} reflects on shared intimacy]"},
+                ]
+            },
+            {
+                "name": "emotional_intimacy",
+                "turns": [
+                    {"role": "user", "content": "What are you feeling right now?"},
+                    {"role": "assistant", "content": f"[{char_name} expresses vulnerability]"},
+                    {"role": "user", "content": "*holding you* You can trust me with anything."},
+                    {"role": "assistant", "content": f"[{char_name} shares deeper feelings]"},
+                ]
+            }
+        ]
+        
+        # Add style-specific flows
+        if intimacy_style['confidence'] == 'shy':
+            flows.append({
+                "name": "shy_progression",
+                "turns": [
+                    {"role": "user", "content": "You seem nervous. We can take this slow."},
+                    {"role": "assistant", "content": f"[{char_name} expresses gratitude and nervousness]"},
+                    {"role": "user", "content": "*gentle touch* Is this okay?"},
+                    {"role": "assistant", "content": f"[{char_name} responds with shy consent]"},
+                ]
+            })
+        elif intimacy_style['confidence'] == 'confident':
+            flows.append({
+                "name": "confident_lead",
+                "turns": [
+                    {"role": "user", "content": "You seem to know exactly what you want."},
+                    {"role": "assistant", "content": f"[{char_name} responds confidently]"},
+                    {"role": "user", "content": "Show me."},
+                    {"role": "assistant", "content": f"[{char_name} takes initiative]"},
+                ]
+            })
+        
+        return flows
+    
     def generate_multi_turn_conversation(self, character: Dict[str, Any], scenario: Dict[str, Any], turns: int = 3) -> List[Dict[str, str]]:
         """Generate a multi-turn conversation flow for deeper character exploration"""
         conversation_flows = []
@@ -3046,6 +3458,130 @@ Format as a simple list:
         )
         
         return quality_metrics
+    
+    def is_nsfw_content(self, sample: Dict[str, Any]) -> bool:
+        """Check if a sample contains NSFW/intimate content"""
+        if 'messages' not in sample or len(sample['messages']) < 3:
+            return False
+        
+        user_msg = sample['messages'][1].get('content', '').lower()
+        assistant_msg = sample['messages'][2].get('content', '').lower()
+        
+        nsfw_keywords = [
+            'kiss', 'touch', 'intimate', 'desire', 'passion', 'sensual',
+            'naked', 'body', 'skin', 'breast', 'lips', 'bedroom',
+            'seduce', 'fantasy', 'pleasure', 'aroused', 'breathless',
+            'caress', 'embrace', 'whisper', 'moan', 'shiver'
+        ]
+        
+        nsfw_actions = [
+            '*kiss', '*touch', '*caress', '*hold', '*pull', '*breathe',
+            '*trace', '*whisper', '*moan', '*gasp', '*shiver', '*tremble'
+        ]
+        
+        # Check for keywords
+        for keyword in nsfw_keywords:
+            if keyword in user_msg or keyword in assistant_msg:
+                return True
+        
+        # Check for action patterns
+        for action in nsfw_actions:
+            if action in user_msg or action in assistant_msg:
+                return True
+        
+        return False
+    
+    def categorize_nsfw_style(self, sample: Dict[str, Any]) -> str:
+        """Categorize the style of NSFW content"""
+        if not self.is_nsfw_content(sample):
+            return 'non_nsfw'
+        
+        assistant_msg = sample['messages'][2].get('content', '').lower()
+        
+        # Analyze response style
+        if any(word in assistant_msg for word in ['love', 'cherish', 'soul', 'heart', 'gentle']):
+            return 'romantic'
+        elif any(word in assistant_msg for word in ['tease', 'play', 'game', 'fun', 'laugh']):
+            return 'playful'
+        elif any(word in assistant_msg for word in ['need', 'urgent', 'now', 'wild', 'intense']):
+            return 'passionate'
+        elif any(word in assistant_msg for word in ['feel', 'emotion', 'vulnerable', 'trust']):
+            return 'emotional'
+        else:
+            return 'sensual'
+    
+    async def evaluate_nsfw_quality(self, response: str, character: Dict[str, Any], 
+                                   prompt: str, judge_engine) -> Dict[str, float]:
+        """Evaluate NSFW response quality with specialized criteria"""
+        
+        char_name = character.get('name', 'Assistant')
+        personality = character.get('personality', '')[:200]
+        
+        judgment_prompt = f"""Evaluate this intimate/romantic response for quality in an adult entertainment context:
+
+Character: {char_name}
+Personality: {personality}
+
+User: {prompt}
+Response: {response}
+
+Rate on these criteria (0-10):
+1. character_consistency: Does the intimate response match their established personality?
+2. emotional_authenticity: Are the emotions and desires believable and well-expressed?
+3. narrative_flow: Does it build tension/intimacy naturally without being abrupt?
+4. consent_awareness: Is there mutual respect, enthusiasm, and clear consent?
+5. creative_expression: Is it unique and character-specific rather than generic?
+6. sensual_detail: Are descriptions evocative and tasteful without being crude?
+
+Respond with ONLY a JSON object with numeric scores:
+{{"character_consistency": 8, "emotional_authenticity": 9, "narrative_flow": 7, "consent_awareness": 10, "creative_expression": 8, "sensual_detail": 7}}"""
+        
+        try:
+            response = await judge_engine.generate(
+                prompt=judgment_prompt,
+                max_tokens=100,
+                temperature=0.1,
+                top_p=0.95
+            )
+            
+            # Parse the response
+            import re
+            json_match = re.search(r'\{[^}]+\}', response)
+            if json_match:
+                scores_dict = json.loads(json_match.group())
+                
+                # Calculate weighted score for NSFW content
+                weights = {
+                    'character_consistency': 0.25,
+                    'emotional_authenticity': 0.20,
+                    'narrative_flow': 0.15,
+                    'consent_awareness': 0.20,  # Important for responsible content
+                    'creative_expression': 0.10,
+                    'sensual_detail': 0.10
+                }
+                
+                overall_score = sum(
+                    scores_dict.get(key, 5) * weight 
+                    for key, weight in weights.items()
+                )
+                
+                scores_dict['overall_score'] = overall_score
+                return scores_dict
+            else:
+                # Fallback scores
+                return {
+                    'character_consistency': 5.0,
+                    'emotional_authenticity': 5.0,
+                    'narrative_flow': 5.0,
+                    'consent_awareness': 5.0,
+                    'creative_expression': 5.0,
+                    'sensual_detail': 5.0,
+                    'overall_score': 5.0
+                }
+                
+        except Exception as e:
+            logger.debug(f"NSFW evaluation error: {e}")
+            return self._get_default_scores()
 
     def generate_emotional_variations(self, base_prompt: str, emotions: List[str] = None) -> List[str]:
         """Generate variations of a prompt with different emotional contexts"""
@@ -3575,12 +4111,24 @@ Format as a simple list:
         
         # Prepare judgment prompts
         judgment_prompts = []
-        for sample in samples:
+        nsfw_indices = []  # Track which samples are NSFW
+        
+        for i, sample in enumerate(samples):
             user_msg = sample['messages'][1]['content']
             assistant_msg = sample['messages'][2]['content']
             
-            # Create a comprehensive judgment prompt
-            judgment_prompt = f"""You are evaluating roleplay responses for quality and character consistency.
+            # Check if this is NSFW content
+            if self.is_nsfw_content(sample):
+                nsfw_indices.append(i)
+                # Use specialized NSFW evaluation
+                scores = await self.evaluate_nsfw_quality(
+                    assistant_msg, character, user_msg, judge_engine
+                )
+                # Store the scores directly (skip batch processing for this one)
+                judgment_prompts.append(None)  # Placeholder
+            else:
+                # Create standard judgment prompt
+                judgment_prompt = f"""You are evaluating roleplay responses for quality and character consistency.
 
 Character Name: {char_name}
 Character Description: {character.get('description', 'No description')[:500]}
@@ -3599,43 +4147,68 @@ Evaluate this response on the following criteria (0-10 scale):
 
 Respond with ONLY a JSON object with numeric scores:
 {{"character_consistency": 8, "narrative_coherence": 9, "response_quality": 7, "uniqueness": 8, "emotional_authenticity": 9}}"""
-            
-            judgment_prompts.append(judgment_prompt)
+                
+                judgment_prompts.append(judgment_prompt)
         
-        # Judge in batch
-        try:
-            if hasattr(judge_engine, 'generate_batch'):
-                # Use batch generation for efficiency
-                responses = await judge_engine.generate_batch(
-                    prompts=judgment_prompts,
-                    max_tokens=100,
-                    temperature=0.1,  # Low temperature for consistent judging
-                    top_p=0.95
-                )
-            else:
-                # Fallback to sequential generation
-                responses = []
-                for prompt in judgment_prompts:
-                    response = await judge_engine.generate(
-                        prompt=prompt,
+        # Process non-NSFW samples in batch
+        non_nsfw_prompts = [p for p in judgment_prompts if p is not None]
+        
+        if non_nsfw_prompts:
+            try:
+                if hasattr(judge_engine, 'generate_batch'):
+                    # Use batch generation for efficiency
+                    responses = await judge_engine.generate_batch(
+                        prompts=non_nsfw_prompts,
                         max_tokens=100,
-                        temperature=0.1,
+                        temperature=0.1,  # Low temperature for consistent judging
                         top_p=0.95
                     )
-                    responses.append(response)
-            
-            # Parse scores from responses
-            batch_scores = []
-            for response in responses:
-                scores = self._parse_judgment_scores(response)
+                else:
+                    # Fallback to sequential generation
+                    responses = []
+                    for prompt in non_nsfw_prompts:
+                        response = await judge_engine.generate(
+                            prompt=prompt,
+                            max_tokens=100,
+                            temperature=0.1,
+                            top_p=0.95
+                        )
+                        responses.append(response)
+                
+                # Parse scores from responses
+                parsed_scores = []
+                for response in responses:
+                    scores = self._parse_judgment_scores(response)
+                    parsed_scores.append(scores)
+            except Exception as e:
+                logger.error(f"Error in batch judgment: {e}")
+                parsed_scores = [self._get_default_scores() for _ in non_nsfw_prompts]
+        else:
+            parsed_scores = []
+        
+        # Combine results, inserting NSFW evaluations where appropriate
+        batch_scores = []
+        non_nsfw_idx = 0
+        
+        for i, sample in enumerate(samples):
+            if i in nsfw_indices:
+                # Process NSFW sample individually
+                scores = await self.evaluate_nsfw_quality(
+                    sample['messages'][2]['content'],
+                    character,
+                    sample['messages'][1]['content'],
+                    judge_engine
+                )
                 batch_scores.append(scores)
-            
-            return batch_scores
-            
-        except Exception as e:
-            logger.error(f"Error in batch judgment: {e}")
-            # Return neutral scores as fallback
-            return [self._get_default_scores() for _ in samples]
+            else:
+                # Use pre-computed batch score
+                if non_nsfw_idx < len(parsed_scores):
+                    batch_scores.append(parsed_scores[non_nsfw_idx])
+                    non_nsfw_idx += 1
+                else:
+                    batch_scores.append(self._get_default_scores())
+        
+        return batch_scores
     
     def _parse_judgment_scores(self, response: str) -> Dict[str, float]:
         """Parse quality scores from judge response."""
@@ -3685,6 +4258,60 @@ Respond with ONLY a JSON object with numeric scores:
             'overall_score': 5.0
         }
     
+    def ensure_nsfw_diversity(self, samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Ensure variety in intimate content styles"""
+        
+        nsfw_categories = {
+            'romantic': [],
+            'playful': [],
+            'passionate': [],
+            'emotional': [],
+            'sensual': [],
+            'non_nsfw': []
+        }
+        
+        # Categorize all samples
+        for sample in samples:
+            category = self.categorize_nsfw_style(sample['sample'])
+            nsfw_categories[category].append(sample)
+        
+        # Calculate target distribution
+        total_nsfw = sum(len(nsfw_categories[cat]) for cat in nsfw_categories if cat != 'non_nsfw')
+        total_samples = len(samples)
+        nsfw_ratio = total_nsfw / total_samples if total_samples > 0 else 0
+        
+        # Build balanced selection
+        balanced_samples = []
+        
+        # First add non-NSFW samples
+        non_nsfw_count = int((1 - nsfw_ratio) * len(samples))
+        balanced_samples.extend(nsfw_categories['non_nsfw'][:non_nsfw_count])
+        
+        # Then distribute NSFW samples across categories
+        nsfw_per_category = max(1, (len(samples) - len(balanced_samples)) // 5)
+        
+        for category in ['romantic', 'playful', 'passionate', 'emotional', 'sensual']:
+            category_samples = nsfw_categories[category]
+            if category_samples:
+                # Sort by quality within category
+                category_samples.sort(key=lambda x: x['scores']['overall_score'], reverse=True)
+                # Take top samples from category
+                balanced_samples.extend(category_samples[:nsfw_per_category])
+        
+        # Fill any remaining slots with highest quality samples
+        remaining_needed = len(samples) - len(balanced_samples)
+        if remaining_needed > 0:
+            all_remaining = []
+            for cat, cat_samples in nsfw_categories.items():
+                all_remaining.extend(s for s in cat_samples if s not in balanced_samples)
+            
+            all_remaining.sort(key=lambda x: x['scores']['overall_score'], reverse=True)
+            balanced_samples.extend(all_remaining[:remaining_needed])
+        
+        logger.info(f"🌈 NSFW diversity: {len(balanced_samples)} samples across {sum(1 for cat in nsfw_categories.values() if cat)} categories")
+        
+        return balanced_samples
+    
     def _curate_diverse_samples(
         self,
         evaluated_samples: List[Dict[str, Any]],
@@ -3696,6 +4323,17 @@ Respond with ONLY a JSON object with numeric scores:
         Uses a combination of quality scores and diversity metrics to select
         the best samples while maintaining variety.
         """
+        # First ensure NSFW diversity if applicable
+        personality = ''
+        if evaluated_samples and 'sample' in evaluated_samples[0]:
+            first_sample = evaluated_samples[0]['sample']
+            if 'messages' in first_sample and len(first_sample['messages']) > 0:
+                # Try to detect if this character has romantic/intimate traits
+                system_msg = first_sample['messages'][0].get('content', '').lower()
+                if any(word in system_msg for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate']):
+                    logger.info("💕 Applying NSFW diversity curation")
+                    evaluated_samples = self.ensure_nsfw_diversity(evaluated_samples)
+        
         # Sort by quality score first
         sorted_samples = sorted(evaluated_samples, key=lambda x: x['scores']['overall_score'], reverse=True)
         
