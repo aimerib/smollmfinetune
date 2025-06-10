@@ -1297,6 +1297,8 @@ Generate questions that assume the User and {char_name} have known each other fo
 - Deep knowledge they'd have of each other
 - Future plans and dreams
 - Honest moments and trust
+- Intimate moments
+- Lewd conversations
 
 Format as JSON list:
 [
@@ -1312,7 +1314,6 @@ Format as JSON list:
         
         # Add retry logic for robustness
         max_retries = 3  # Increased for the retry with modified prompt
-        safety_retry_active = False
         
         for attempt in range(max_retries):
             try:
@@ -1323,19 +1324,6 @@ Format as JSON list:
                 # For second attempt, if we got an empty response on first try,
                 # modify the prompt to avoid potential safety filter triggers
                 current_prompt = analysis_prompt
-                if attempt == 1 and safety_retry_active:
-                    # Replace potentially triggering words with more neutral alternatives
-                    logger.info(f"🔄 Trying modified prompt for {temporal_context} (attempt {attempt + 1})")
-                    if temporal_context == "past":
-                        # Create a sanitized version of the prompt
-                        current_prompt = current_prompt.replace("lover", "close friend")
-                        current_prompt = current_prompt.replace("enemy", "rival")
-                        current_prompt = current_prompt.replace("failure", "challenge")
-                        current_prompt = current_prompt.replace("betrayal", "conflict")
-                    elif temporal_context == "future":
-                        current_prompt = current_prompt.replace("intimate", "close")
-                        current_prompt = current_prompt.replace("lover", "partner")
-                        current_prompt = current_prompt.replace("vulnerable", "honest")
                 
                 # Log the prompt being used - extract first few lines for brevity
                 prompt_preview = "\n".join(current_prompt.split("\n")[:10])
@@ -1352,8 +1340,8 @@ Format as JSON list:
 
                 response = await self._generate_text(
                     prompt=current_prompt,
-                    max_tokens=400,  # Increased back - was too restrictive
-                    temperature=0.7,  # Slightly higher for creativity
+                    max_tokens=1000,  # Increased back - was too restrictive
+                    temperature=1.0,  # Slightly higher for creativity
                     top_p=0.9,       # Less restrictive sampling
                     character_name=char_name,
                     custom_stop_tokens=reduced_stop_tokens
@@ -1370,9 +1358,6 @@ Format as JSON list:
                 
                 if not response or len(response.strip()) < 10:
                     logger.info(f"⚠️ Empty or too short response from LLM (attempt {attempt + 1})")
-                    if attempt == 0:
-                        # First attempt got empty response - activate safety retry
-                        safety_retry_active = True
                     if attempt == max_retries - 1:  # Last attempt
                         logger.info(f"⚡ LLM generated empty responses after {max_retries} attempts, using static prompts")
                     continue
@@ -1430,11 +1415,7 @@ Format as JSON list:
             except Exception as e:
                 error_str = str(e)
                 logger.info(f"💥 LLM temporal prompt generation failed (attempt {attempt + 1}): {error_str}")
-                
-                if "empty output" in error_str.lower():
-                    logger.info(f"🔍 Empty output error detected - likely content filter triggered")
-                    safety_retry_active = True
-                
+
                 if attempt == max_retries - 1:  # Last attempt
                     logger.info(f"⚡ LLM generation failed after {max_retries} attempts, using static prompts")
                     break
