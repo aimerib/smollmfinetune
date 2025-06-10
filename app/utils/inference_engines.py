@@ -5,13 +5,11 @@ Automatically selects the best engine based on available resources.
 
 import os
 import asyncio
-import importlib
 from abc import ABC, abstractmethod
 import secrets
 from typing import Optional, List
 import logging
 import torch  # For memory management
-import gc
 
 
 logger = logging.getLogger(__name__)
@@ -56,7 +54,7 @@ class LMStudioEngine(InferenceEngine):
         try:
             import lmstudio as lms
             # Try to connect to LM Studio
-            model = lms.llm()
+            _ = lms.llm()
             self._available = True
             logger.info("LM Studio detected and available")
         except Exception as e:
@@ -201,121 +199,22 @@ class VLLMEngine(InferenceEngine):
     async def generate(self, prompt: str, max_tokens: int = 160,
                        temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                        custom_stop_tokens: Optional[List[str]] = None) -> str:
-        """Generate using vLLM with smart batching"""
-        async with VLLMEngine._generation_lock:
-            try:
-                # Validate input
-                if not prompt or not isinstance(prompt, str):
-                    logger.warning("⚠️ Invalid prompt passed to generate")
-                    return ""
+        """Generate a single prompt by delegating to `generate_batch` for consistency.
 
-                # Initialize model if needed (only happens once)
-                self._initialize_model()
-
-                if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
-                    raise RuntimeError("vLLM model failed to load")
-
-                from vllm import SamplingParams
-            except Exception as e:
-                import traceback
-                traceback.print_exc()
-
-            # Base stop tokens (robust defaults for normal dialogue)
-            stop_tokens = ["\n\n", "<|endoftext|>",
-                           "User:", "###", "<|endofcard|>", "<|user|>"]
-
-            # Allow caller to override stop tokens for special generation modes
-            if custom_stop_tokens is not None:
-                # Use a *copy* so that downstream modifications do not affect caller list
-                stop_tokens = list(custom_stop_tokens)
-
-            # Add character name as stop token to prevent speaking for other characters
-            if character_name:
-                stop_tokens.extend(
-                    [f"{character_name}:", f"\n{character_name}:"])
-
-            # Use a really random seed every time using the gpu seed
-            seed = secrets.randbits(64)
-
-            # Create sampling parameters (optimized for character generation)
-            sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=top_p,
-                max_tokens=max_tokens,
-                stop=stop_tokens,
-                # Character-optimized settings
-                repetition_penalty=1.05,  # Slight penalty to reduce repetition
-                frequency_penalty=0.1,    # Light penalty for frequent tokens
-                presence_penalty=0.05,    # Encourage topic diversity
-                top_k=-1,                # Disabled (use top_p)
-                min_p=0.0,               # Disabled (use top_p)
-                logprobs=None,           # Disabled for performance
-                min_tokens=1,            # Ensure non-empty responses
-                seed=seed,
-            )
-
-            # Generate using the singleton model instance
-            loop = asyncio.get_event_loop()
-            try:
-                outputs = await loop.run_in_executor(
-                    None,
-                    lambda: VLLMEngine._llm.generate([prompt], sampling_params)
-                )
-            except RuntimeError as e:
-                import traceback
-                traceback.print_exc()
-                
-        #         error_str = str(e)
-        #         if any(err in error_str for err in ["index", "out of bounds", "size", "dimension", "shape", "CUDA"]):
-        #             logger.error(f"⚠️ vLLM tensor/CUDA error: {error_str}")
-        #             logger.info(
-        #                 "🔄 Attempting generation with minimal parameters")
-
-        #             # Try again with more conservative settings
-        #             min_sampling_params = SamplingParams(
-        #                 temperature=temperature,
-        #                 top_p=top_p,
-        #                 max_tokens=min(max_tokens, 100),  # Limit token count
-        #                 stop=stop_tokens,
-        #             )
-
-        #             try:
-        #                 # Force garbage collection
-        #                 if torch.cuda.is_available():
-        #                     torch.cuda.empty_cache()
-        #                 gc.collect()
-
-        #                 # Retry with minimal parameters
-        #                 outputs = await loop.run_in_executor(
-        #                     None,
-        #                     lambda: VLLMEngine._llm.generate(
-        #                         [prompt], min_sampling_params)
-        #                 )
-        #             except Exception as retry_e:
-        #                 logger.error(f"💥 Retry also failed: {retry_e}")
-        #                 return ""  # Give up and return empty string
-        #         else:
-        #             # Re-raise other errors
-        #             raise
-
-        #     # Force CUDA cache cleanup after generation to prevent memory fragmentation
-        #     if torch.cuda.is_available():
-        #         try:
-        #             # Clear cache
-        #             torch.cuda.empty_cache()
-        #         except Exception as e:
-        #             logger.debug(f"Failed to clear CUDA cache: {e}")
-
-        #     if outputs and len(outputs) > 0 and hasattr(outputs[0], 'outputs') and outputs[0].outputs:
-        #         return outputs[0].outputs[0].text.strip()
-        #     else:
-        #         raise RuntimeError("vLLM returned empty output")
-
-        # except Exception as e:
-        #     import traceback
-        #     traceback.print_exc()
-        #     logger.error(f"💥 vLLM generation failed: {str(e)}")
-        #     return ""  # Return empty string instead of raising exception
+        Delegating avoids code duplication, keeps validation/stop-token logic in
+        one place, and ensures any future fixes in `generate_batch` automatically
+        apply here.
+        """
+        results = await self.generate_batch(
+            prompts=[prompt],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            character_name=character_name,
+            custom_stop_tokens=custom_stop_tokens,
+        )
+        # `generate_batch` returns one result per input prompt
+        return results[0] if results else ""
 
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
