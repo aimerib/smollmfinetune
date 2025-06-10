@@ -812,6 +812,19 @@ class DatasetManager:
             
             # Apply chat template
             chat_text = tokenizer.apply_chat_template(messages, tokenize=False)
+
+            # NEW: Ensure **no** system prompt or role tokens remain after templating.
+            # Some tokenizer chat templates automatically prepend a default system prompt
+            # (e.g. "You are a helpful assistant.").  We explicitly remove any such
+            # blocks so that LoRA training is not influenced by external system
+            # instructions – the goal is to let the adapter learn the character
+            # persona without relying on a system prompt.
+            #
+            # Pattern 1 – ChatML style: "<|im_start|>system ... <|im_end|>" (optional newline)
+            chat_text = re.sub(r"<\|im_start\|>\s*system[\s\S]*?<\|im_end\|>\n?", "", chat_text, flags=re.IGNORECASE)
+            # Pattern 2 – DanChat style: "<|system|> ... <|endoftext|>"
+            chat_text = re.sub(r"<\|system\|>[\s\S]*?<\|endoftext\|>", "", chat_text, flags=re.IGNORECASE)
+            chat_text = chat_text.lstrip()  # Remove leading whitespace/newlines
             
             # Tokenize
             tokenized = tokenizer(
@@ -969,4 +982,31 @@ class DatasetManager:
             return True
         except Exception as e:
             logger.error(f"❌ Failed to import dataset: {e}")
+            return False 
+
+    def delete_samples(self, character: Dict[str, Any], indices: List[int]) -> bool:
+        """Delete specific samples (by index) from a character's dataset.
+
+        This enables fine-grained dataset curation from the UI.  Indices are
+        interpreted w.r.t. the current on-disk dataset ordering.
+        Returns ``True`` when at least one sample was removed.
+        """
+        try:
+            dataset = self.load_dataset(character) or []
+            if not dataset:
+                return False
+
+            # Sanitize: unique, in-range, descending so pop() is safe
+            unique_indices = sorted({i for i in indices if 0 <= i < len(dataset)}, reverse=True)
+            if not unique_indices:
+                return False
+
+            for idx in unique_indices:
+                dataset.pop(idx)
+
+            self.save_dataset(character, dataset)
+            logger.info(f"🗑️ Removed {len(unique_indices)} samples from dataset (remaining: {len(dataset)})")
+            return True
+        except Exception as e:
+            logger.error(f"❌ Failed to delete samples: {e}")
             return False 

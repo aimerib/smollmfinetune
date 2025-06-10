@@ -235,8 +235,8 @@ def render_sidebar():
         # Navigation menu
         selected = option_menu(
             menu_title=None,
-            options=["📁 Character Upload", "🔍 Dataset Preview", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing"],
-            icons=["upload", "search", "gear", "graph-up", "flask"],
+            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing"],
+            icons=["upload", "search", "table", "gear", "graph-up", "flask"],
             menu_icon="cast",
             default_index=0,
             styles={
@@ -1207,6 +1207,78 @@ def page_model_testing():
         else:
             st.info("Train multiple checkpoints to enable model comparison.")
 
+def page_dataset_explorer():
+    """Dataset explorer page"""
+    st.markdown('<h2 class="gradient-text">📚 Dataset Explorer</h2>', unsafe_allow_html=True)
+    
+    if not st.session_state.dataset_preview:
+        st.warning("⚠️ Please generate a dataset first.")
+        return
+    
+    dataset = st.session_state.dataset_preview
+    dataset_size = len(dataset)
+    
+    if dataset_size == 0:
+        st.info("Dataset is empty. Generate samples first.")
+        return
+    
+    # Pagination
+    page_size = st.selectbox("Samples per page", [10, 25, 50, 100], index=1)
+    page_number = st.session_state.get('dataset_page', 1)
+    total_pages = (dataset_size + page_size - 1) // page_size
+    
+    # Pagination controls
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col1:
+        if st.button("⏮️ First"):
+            page_number = 1
+    with col2:
+        page_number = st.number_input("Page", min_value=1, max_value=total_pages, value=page_number)
+    page_number = int(page_number)
+    with col3:
+        if st.button("⏭️ Last"):
+            page_number = total_pages
+    
+    # Update session state
+    st.session_state.dataset_page = page_number
+    
+    # Display dataset stats
+    st.markdown(f"""
+        <div class="metric-card">
+            <h4 style="margin: 0 0 1rem 0;">📊 Dataset Stats</h4>
+            <p><strong>Total Samples:</strong> {dataset_size}</p>
+            <p><strong>Page Size:</strong> {page_size}</p>
+            <p><strong>Total Pages:</strong> {total_pages}</p>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Display current page of dataset
+    start_idx = (page_number - 1) * page_size
+    end_idx = start_idx + page_size
+    page_data = dataset[start_idx:end_idx]
+    
+    delete_selection = []
+    for local_i, sample in enumerate(page_data):
+        global_idx = start_idx + local_i
+        with st.expander(f"Sample {global_idx + 1}"):
+            st.markdown(f"**👤 User:** {sample['messages'][1]['content']}")
+            st.markdown(f"**🎭 Assistant:** {sample['messages'][2]['content']}")
+            if st.checkbox("Mark for deletion", key=f"del_{global_idx}"):
+                delete_selection.append(global_idx)
+    
+    if delete_selection and st.button("🗑️ Delete Selected Samples"):
+        if st.session_state.dataset_manager.delete_samples(st.session_state.current_character, delete_selection):
+            # Reload dataset preview
+            st.session_state.dataset_preview = st.session_state.dataset_manager.load_dataset(st.session_state.current_character)
+            st.success(f"Deleted {len(delete_selection)} samples.")
+            st.rerun()
+    
+    # Quality analysis block
+    if st.checkbox("Show quality analysis", value=False):
+        stats = st.session_state.dataset_manager.analyze_dataset_quality(dataset)
+        if stats:
+            st.json(stats)
+
 def main():
     """Main app function"""
     init_session_state()
@@ -1220,6 +1292,8 @@ def main():
         page_character_upload()
     elif selected_page == "🔍 Dataset Preview":
         page_dataset_preview()
+    elif selected_page == "📚 Dataset Explorer":
+        page_dataset_explorer()
     elif selected_page == "⚙️ Training Config":
         page_training_config()
     elif selected_page == "📊 Training Dashboard":
