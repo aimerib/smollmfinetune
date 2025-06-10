@@ -20,13 +20,18 @@ logger = logging.getLogger(__name__)
 class DatasetManager:
     """Manages synthetic dataset generation and processing"""
     
-    def __init__(self, preferred_engine: Optional[str] = None):
+    def __init__(self, preferred_engine: Optional[str] = None, enable_intelligent_generation: bool = True):
         logger.info(f"DatasetManager initializing with preferred_engine: {preferred_engine}")
         self.inference_engine = get_inference_engine(preferred_engine)
         logger.info(f"DatasetManager created with engine: {self.inference_engine.name}")
         # For DanChat-2 we only need a *single* chat template – the chat
         # wrapper (<|user|> …) is added later by vLLM/HF tokenizer.
         self.templates = [("chat", "{user_prompt}")]
+        
+        # Configuration for intelligent prompt generation
+        self.enable_intelligent_generation = enable_intelligent_generation
+        if not enable_intelligent_generation:
+            logger.info("🔧 Intelligent prompt generation is DISABLED - using static prompts only")
 
         # Natural conversation starters (how users actually talk) ----------------
         self.prompts_casual = [
@@ -270,6 +275,12 @@ class DatasetManager:
         # Dataset persistence
         self.datasets_dir = "app/training_output/datasets"
         os.makedirs(self.datasets_dir, exist_ok=True)
+    
+    @classmethod
+    def create_with_conservative_settings(cls, preferred_engine: Optional[str] = None):
+        """Create DatasetManager with conservative settings for stability"""
+        logger.info("🛡️ Creating DatasetManager with conservative settings (intelligent generation disabled)")
+        return cls(preferred_engine=preferred_engine, enable_intelligent_generation=False)
     
     async def _generate_text(self, prompt: str, max_tokens: int = 160, 
                            temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
@@ -1206,6 +1217,26 @@ class DatasetManager:
         personality = character.get('personality', '')
         scenario = character.get('scenario', '')
         
+        # Check if inference engine is properly available
+        if not self.inference_engine:
+            logger.warning(f"No inference engine available for intelligent prompt generation")
+            return []
+        
+        # Quick health check - try a simple generation first
+        try:
+            health_check = await self._generate_text(
+                prompt="Hello", 
+                max_tokens=5, 
+                temperature=0.1, 
+                top_p=0.9
+            )
+            if not health_check or len(health_check.strip()) == 0:
+                logger.warning(f"Inference engine health check failed - empty response")
+                return []
+        except Exception as e:
+            logger.warning(f"Inference engine health check failed: {e}")
+            return []
+        
         # Build character analysis prompt
         card_info = f"Character: {char_name}\nDescription: {description}\nPersonality: {personality}\nScenario: {scenario}"
         
@@ -1255,69 +1286,84 @@ Format as JSON list:
         else:  # present
             return []  # Use existing present-context system
         
-        try:
-            # Generate using the inference engine
-            response = await self._generate_text(
-                prompt=analysis_prompt,
-                max_tokens=400,
-                temperature=0.7,
-                top_p=0.9,
-                character_name=char_name
-            )
-            
-            # Try to parse JSON response
-            import json
+        # Add retry logic for robustness
+        max_retries = 2
+        for attempt in range(max_retries):
             try:
-                # Clean the response - sometimes LLMs add extra text
-                response_clean = response.strip()
-                if '```json' in response_clean:
-                    response_clean = response_clean.split('```json')[1].split('```')[0]
-                elif '```' in response_clean:
-                    response_clean = response_clean.split('```')[1].split('```')[0]
+                # Add small delay to avoid overwhelming vLLM
+                if attempt > 0:
+                    await asyncio.sleep(0.5)
                 
-                # Find JSON array
-                start_idx = response_clean.find('[')
-                end_idx = response_clean.rfind(']') + 1
-                if start_idx != -1 and end_idx != -1:
-                    json_str = response_clean[start_idx:end_idx]
-                    parsed_prompts = json.loads(json_str)
-                    
-                    if isinstance(parsed_prompts, list) and len(parsed_prompts) > 0:
-                        logger.info(f"🧠 Generated {len(parsed_prompts)} intelligent {temporal_context} prompts for {char_name}")
-                        return parsed_prompts
-                    
-            except json.JSONDecodeError as e:
-                logger.warning(f"Failed to parse LLM JSON response: {e}")
+                # Generate using the inference engine with conservative settings
+                response = await self._generate_text(
+                    prompt=analysis_prompt,
+                    max_tokens=300,  # Reduced for more reliable generation
+                    temperature=0.6,  # Lower temperature for more consistent output
+                    top_p=0.8,       # More focused sampling
+                    character_name=char_name
+                )
                 
-            # Fallback: extract questions from raw text
-            lines = response.split('\n')
-            fallback_prompts = []
-            for line in lines:
-                if '?' in line and len(line.strip()) > 10:
-                    question = line.strip().strip('"').strip("'").strip()
-                    if temporal_context == "past":
-                        fallback_prompts.append({
-                            "relationship_type": "unknown",
-                            "relationship_name": "Someone from the past",
-                            "question": question,
-                            "context": "reflecting on your past"
-                        })
-                    else:
-                        fallback_prompts.append({
-                            "question": question,
-                            "intimacy_level": "emotional",
-                            "context": "reflecting on your relationship"
-                        })
+                if not response or len(response.strip()) < 10:
+                    logger.warning(f"Empty or too short response from LLM (attempt {attempt + 1})")
+                    continue
+                
+                # Try to parse JSON response
+                import json
+                try:
+                    # Clean the response - sometimes LLMs add extra text
+                    response_clean = response.strip()
+                    if '```json' in response_clean:
+                        response_clean = response_clean.split('```json')[1].split('```')[0]
+                    elif '```' in response_clean:
+                        response_clean = response_clean.split('```')[1].split('```')[0]
+                    
+                    # Find JSON array
+                    start_idx = response_clean.find('[')
+                    end_idx = response_clean.rfind(']') + 1
+                    if start_idx != -1 and end_idx != -1:
+                        json_str = response_clean[start_idx:end_idx]
+                        parsed_prompts = json.loads(json_str)
                         
-            if fallback_prompts:
-                logger.info(f"🔄 Used fallback parsing for {len(fallback_prompts)} {temporal_context} prompts")
-                return fallback_prompts[:num_prompts]
-                
-        except Exception as e:
-            logger.warning(f"LLM temporal prompt generation failed: {e}")
+                        if isinstance(parsed_prompts, list) and len(parsed_prompts) > 0:
+                            logger.info(f"🧠 Generated {len(parsed_prompts)} intelligent {temporal_context} prompts for {char_name} (attempt {attempt + 1})")
+                            return parsed_prompts
+                        
+                except json.JSONDecodeError as e:
+                    logger.debug(f"JSON parsing failed (attempt {attempt + 1}): {e}")
+                    
+                # Fallback: extract questions from raw text
+                lines = response.split('\n')
+                fallback_prompts = []
+                for line in lines:
+                    if '?' in line and len(line.strip()) > 10:
+                        question = line.strip().strip('"').strip("'").strip()
+                        # Remove leading numbers/bullets
+                        question = re.sub(r'^[\d\-\*\.\s]+', '', question)
+                        if temporal_context == "past":
+                            fallback_prompts.append({
+                                "relationship_type": "unknown",
+                                "relationship_name": "Someone from the past",
+                                "question": question,
+                                "context": "reflecting on your past"
+                            })
+                        else:
+                            fallback_prompts.append({
+                                "question": question,
+                                "intimacy_level": "emotional",
+                                "context": "reflecting on your relationship"
+                            })
+                            
+                if fallback_prompts:
+                    logger.info(f"🔄 Used fallback parsing for {len(fallback_prompts)} {temporal_context} prompts (attempt {attempt + 1})")
+                    return fallback_prompts[:num_prompts]
+                    
+            except Exception as e:
+                logger.warning(f"LLM temporal prompt generation failed (attempt {attempt + 1}): {e}")
+                if attempt == max_retries - 1:  # Last attempt
+                    break
         
         # Final fallback to static prompts
-        logger.info(f"⚡ Falling back to static {temporal_context} prompts")
+        logger.info(f"⚡ Falling back to static {temporal_context} prompts after {max_retries} attempts")
         return []
     
     def _extract_relationships_from_card(self, character: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -1508,25 +1554,36 @@ Format as JSON list:
         relationship_context = None
         intelligent_prompt_data = None
         
-        # Try intelligent LLM generation first for past/future contexts
-        if use_intelligent_generation and temporal_context in ["past", "future"]:
+        # Try intelligent LLM generation first for past/future contexts (if enabled)
+        if (use_intelligent_generation and 
+            self.enable_intelligent_generation and 
+            temporal_context in ["past", "future"]):
             try:
                 # Check if we have cached intelligent prompts for this character
                 char_id = self._get_character_id(character)
                 cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
                 
-                # Get or generate intelligent prompts
+                # Get or generate intelligent prompts (with serialization)
                 if not hasattr(self, '_intelligent_prompt_cache'):
                     self._intelligent_prompt_cache = {}
+                    self._intelligent_generation_locks = {}
                 
-                if cache_key not in self._intelligent_prompt_cache:
-                    logger.info(f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
-                    intelligent_prompts = await self._generate_intelligent_temporal_prompts(
-                        character, temporal_context, num_prompts=8
-                    )
-                    self._intelligent_prompt_cache[cache_key] = intelligent_prompts
-                else:
-                    intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+                # Use a lock to prevent concurrent generation for the same cache key
+                if cache_key not in self._intelligent_generation_locks:
+                    self._intelligent_generation_locks[cache_key] = asyncio.Lock()
+                
+                async with self._intelligent_generation_locks[cache_key]:
+                    if cache_key not in self._intelligent_prompt_cache:
+                        logger.info(f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
+                        intelligent_prompts = await self._generate_intelligent_temporal_prompts(
+                            character, temporal_context, num_prompts=6  # Reduced to be more reliable
+                        )
+                        self._intelligent_prompt_cache[cache_key] = intelligent_prompts
+                        
+                        # Small delay to give vLLM time to process
+                        await asyncio.sleep(0.1)
+                    else:
+                        intelligent_prompts = self._intelligent_prompt_cache[cache_key]
                 
                 # Use intelligent prompt if available
                 if intelligent_prompts:
