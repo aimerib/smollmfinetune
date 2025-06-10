@@ -476,9 +476,14 @@ def page_dataset_preview():
     # Check for existing dataset
     dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
     
-    col1, col2 = st.columns([2, 1])
+    # Generation mode tabs
+    generation_tab, standard_tab, quality_tab = st.tabs([
+        "📊 Overview", 
+        "🚀 Standard Generation", 
+        "⭐ Quality-First Generation"
+    ])
     
-    with col1:
+    with generation_tab:
         # Show existing dataset info if available
         if dataset_info['exists']:
             st.markdown("### 📂 Existing Dataset Found")
@@ -501,6 +506,41 @@ def page_dataset_preview():
                         st.rerun()
             
             st.markdown("---")
+        
+        # Dataset statistics
+        if st.session_state.dataset_preview:
+            st.markdown("### Dataset Statistics")
+            dataset = st.session_state.dataset_preview
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            # Stats
+            avg_length = sum(len(sample['messages'][2]['content'].split()) for sample in dataset) / len(dataset)
+            unique_responses = len(set(sample['messages'][2]['content'] for sample in dataset))
+            
+            with col1:
+                st.metric("Total Samples", len(dataset))
+            with col2:
+                st.metric("Avg Response Length", f"{avg_length:.1f} words")
+            with col3:
+                st.metric("Unique Responses", f"{unique_responses}/{len(dataset)}")
+            with col4:
+                # Quality score
+                quality_score = min(100, (unique_responses / len(dataset)) * 100)
+                st.metric("Quality Score", f"{quality_score:.1f}%")
+        
+        # Info about generation modes
+        st.markdown("""
+        ### 🎯 Generation Methods
+        
+        **Standard Generation**: Fast, direct generation with basic quality filtering.
+        - Good for: Quick datasets, testing, small characters
+        - Speed: ~1-2 samples per second
+        
+        **Quality-First Generation**: Generate many samples, then use AI to select the best.
+        - Good for: Production models, complex characters, best quality
+        - Speed: Slower but much higher quality
+        """)
         
         # ----------------------------
         # ✨ Augment Baseline Questions
@@ -612,10 +652,9 @@ def page_dataset_preview():
                         st.rerun()
                     else:
                         st.error("Failed to import dataset. Check file format.")
-
-        # ------------------------------------------------------------
-        
-        st.markdown("### Dataset Generation Settings")
+    
+    with standard_tab:
+        st.markdown("### 🚀 Standard Dataset Generation")
         
         # Show current inference engine with model info
         if st.session_state.selected_engine == "vLLM":
@@ -633,7 +672,7 @@ def page_dataset_preview():
                 num_samples = st.slider(
                     "Total samples target",
                     min_value=20,
-                    max_value=20000,
+                    max_value=2000,
                     value=80,
                     step=20,
                     help="Desired total size of the synthetic dataset. Research shows 20-100 samples is optimal for character LoRAs, with 200-500 for more complex characters. Larger datasets risk overfitting."
@@ -664,43 +703,24 @@ def page_dataset_preview():
             def update_progress(p: float):
                 """Update status text for current chunk progress."""
                 status_text.text(
-                    f"Chunk {chunk_idx+1}: {p*100:.1f}% • Total so far: {current_total}/{target_total} samples"
+                    f"Generating samples... {p*100:.1f}%"
                 )
             
             try:
-                # Run generation in smaller logical chunks (>100 → 50-sample blocks)
+                # Run generation
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    existing_count = dataset_info['sample_count'] if dataset_info['exists'] else 0
-                    target_total = num_samples
-                    current_total = existing_count
-                    dataset = None
-                    chunk_idx = 0
-                    
-                    # For vLLM, use larger chunks
-                    chunk_size = 100 if st.session_state.selected_engine == "vLLM" else 50
-                    
-                    while current_total < target_total:
-                        step_target = min(
-                            current_total + chunk_size,
-                            target_total,
+                    dataset = loop.run_until_complete(
+                        st.session_state.dataset_manager.generate_dataset(
+                            st.session_state.current_character,
+                            num_samples=num_samples,
+                            temperature=temperature,
+                            top_p=top_p,
+                            progress_callback=lambda p: progress_bar.progress(p),
+                            append_to_existing=True
                         )
-                        dataset = loop.run_until_complete(
-                            st.session_state.dataset_manager.generate_dataset(
-                                st.session_state.current_character,
-                                num_samples=step_target,
-                                temperature=temperature,
-                                top_p=top_p,
-                                progress_callback=update_progress,
-                                append_to_existing=True
-                            )
-                        )
-                        current_total = len(dataset)
-                        global_fraction = min(current_total / target_total, 1.0)  # Clamp to [0,1]
-                        progress_bar.progress(global_fraction)
-                        status_text.text(f"Total progress: {min(current_total, target_total)}/{target_total} samples")
-                        chunk_idx += 1
+                    )
                 finally:
                     loop.close()
                 
@@ -713,26 +733,160 @@ def page_dataset_preview():
             except Exception as e:
                 st.error(f"❌ Error generating dataset: {str(e)}")
     
-    with col2:
-        if st.session_state.dataset_preview:
-            st.markdown("### Dataset Statistics")
-            dataset = st.session_state.dataset_preview
+    with quality_tab:
+        st.markdown("### ⭐ Quality-First Dataset Generation")
+        
+        st.info("""
+        🎯 **How it works:**
+        1. Generate a large number of diverse samples (e.g., 10,000)
+        2. Use AI to evaluate each sample for quality and character consistency
+        3. Curate the best samples while maintaining diversity
+        
+        This produces much higher quality datasets but takes more time.
+        """)
+        
+        # Quality generation settings
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            raw_samples = st.number_input(
+                "Samples to Generate",
+                min_value=1000,
+                max_value=50000,
+                value=10000,
+                step=1000,
+                help="More samples = better final quality but longer generation time"
+            )
             
-            # Stats
-            avg_length = sum(len(sample['messages'][2]['content'].split()) for sample in dataset) / len(dataset)
-            unique_responses = len(set(sample['messages'][2]['content'] for sample in dataset))
+            final_size = st.number_input(
+                "Final Dataset Size",
+                min_value=50,
+                max_value=1000,
+                value=200,
+                help="Number of high-quality samples to keep"
+            )
             
-            st.metric("Total Samples", len(dataset))
-            st.metric("Avg Response Length", f"{avg_length:.1f} words")
-            st.metric("Unique Responses", f"{unique_responses}/{len(dataset)}")
+            quality_threshold = st.slider(
+                "Quality Threshold (0-10)",
+                min_value=0.0,
+                max_value=10.0,
+                value=7.0,
+                step=0.5,
+                help="Minimum quality score to keep a sample"
+            )
+        
+        with col2:
+            diversity_weight = st.slider(
+                "Diversity Weight",
+                min_value=0.0,
+                max_value=1.0,
+                value=0.3,
+                step=0.1,
+                help="Balance between pure quality (0) and diversity (1)"
+            )
             
-            # Quality score
-            quality_score = min(100, (unique_responses / len(dataset)) * 100)
-            st.metric("Quality Score", f"{quality_score:.1f}%")
+            temperature = st.slider(
+                "Generation Temperature",
+                min_value=0.5,
+                max_value=1.5,
+                value=0.9,
+                step=0.1,
+                help="Higher = more diverse initial samples",
+                key="quality_temp"
+            )
+            
+            judgment_batch_size = st.selectbox(
+                "Judgment Batch Size",
+                [10, 25, 50, 100],
+                index=2,
+                help="Larger batches are more efficient with vLLM"
+            )
+        
+        # Judge model selection
+        with st.expander("🧑‍⚖️ Judge Model Configuration", expanded=False):
+            use_custom_judge = st.checkbox("Use custom judge model", value=False)
+            
+            if use_custom_judge:
+                judge_model = st.text_input(
+                    "HuggingFace Model ID",
+                    placeholder="e.g., meta-llama/Llama-3.1-70B-Instruct",
+                    help="vLLM will automatically download and use this model as judge"
+                )
+            else:
+                judge_model = None
+                st.info("Using the same model for generation and judging (PersonalityEngine-24B)")
+        
+        # Estimated time
+        samples_per_sec = 2 if st.session_state.selected_engine == "vLLM" else 0.5
+        judge_per_sec = 5 if st.session_state.selected_engine == "vLLM" else 1
+        est_gen_time = raw_samples / samples_per_sec / 60
+        est_judge_time = raw_samples / judge_per_sec / 60
+        est_total_time = est_gen_time + est_judge_time
+        
+        st.info(f"""
+        📊 **Estimated Processing Time**: ~{est_total_time:.1f} minutes
+        - Generation: ~{est_gen_time:.1f} minutes
+        - Evaluation: ~{est_judge_time:.1f} minutes
+        """)
+        
+        # Quality generation button
+        if st.button("⭐ Start Quality-First Generation", use_container_width=True, type="primary"):
+            # Create placeholders for progress tracking
+            stage_text = st.empty()
+            progress_bar = st.progress(0)
+            stats_placeholder = st.empty()
+            
+            # Callbacks
+            def update_progress(current_progress):
+                progress_bar.progress(current_progress)
+            
+            def update_stage(stage_info):
+                stage_text.info(f"**Stage**: {stage_info['message']}")
+            
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                
+                # Run quality-first generation
+                dataset = loop.run_until_complete(
+                    st.session_state.dataset_manager.generate_with_quality_curation(
+                        character=st.session_state.current_character,
+                        raw_samples_target=raw_samples,
+                        final_dataset_size=final_size,
+                        quality_threshold=quality_threshold,
+                        diversity_weight=diversity_weight,
+                        judgment_batch_size=judgment_batch_size,
+                        judge_model=judge_model,
+                        temperature=temperature,
+                        progress_callback=update_progress,
+                        stage_callback=update_stage
+                    )
+                )
+                
+                st.session_state.dataset_preview = dataset
+                progress_bar.progress(1.0)
+                stage_text.success("✅ Quality-first generation complete!")
+                
+                # Show final stats
+                st.success(f"""
+                🎉 **Generation Complete!**
+                - Generated: {raw_samples} raw samples
+                - Curated: {len(dataset)} high-quality samples
+                - Acceptance rate: {(len(dataset)/raw_samples)*100:.1f}%
+                """)
+                
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error in quality-first generation: {str(e)}")
+                logger.error(f"Quality generation error: {e}", exc_info=True)
+            finally:
+                loop.close()
     
-    # Dataset preview
+    # Dataset preview (shown in all tabs)
     if st.session_state.dataset_preview:
-        st.markdown("### Sample Preview")
+        st.markdown("---")
+        st.markdown("### 📋 Sample Preview")
         
         # Sample selector
         sample_idx = st.selectbox("Select sample to preview", range(min(20, len(st.session_state.dataset_preview))))

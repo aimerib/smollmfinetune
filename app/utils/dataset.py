@@ -15,6 +15,7 @@ import time as _time
 import tempfile
 import warnings
 import gc
+from collections import defaultdict
 
 logger = logging.getLogger(__name__)
 
@@ -3177,3 +3178,378 @@ Format as a simple list:
             return "Unexpected visitor scenario"
         else:
             return "Alternative meeting scenario"
+
+    # ======================= QUALITY-FIRST GENERATION WITH LLM JUDGE =======================
+    
+    async def generate_with_quality_curation(
+        self,
+        character: Dict[str, Any],
+        raw_samples_target: int = 10000,
+        final_dataset_size: int = 200,
+        quality_threshold: float = 7.0,
+        diversity_weight: float = 0.3,
+        judgment_batch_size: int = 50,
+        judge_model: Optional[str] = None,
+        temperature: float = 0.9,
+        top_p: float = 0.95,
+        progress_callback: Optional[Callable] = None,
+        stage_callback: Optional[Callable] = None
+    ) -> List[Dict[str, Any]]:
+        """Generate a large dataset then curate the highest quality samples using LLM-as-judge.
+        
+        Args:
+            character: Character card dictionary
+            raw_samples_target: Number of samples to generate before curation
+            final_dataset_size: Target size of curated dataset
+            quality_threshold: Minimum quality score (0-10) to keep a sample
+            diversity_weight: How much to weight diversity vs pure quality (0-1)
+            judgment_batch_size: Number of samples to judge in one batch
+            judge_model: Optional HuggingFace model ID for judge (defaults to generation model)
+            temperature: Temperature for generation (higher = more diverse)
+            top_p: Top-p sampling for generation
+            progress_callback: Called with (current, total) for progress updates
+            stage_callback: Called with stage info {'stage': 'generation'|'evaluation'|'curation', 'message': str}
+        
+        Returns:
+            List of curated high-quality dataset samples
+        """
+        import tempfile
+        import shutil
+        
+        # Initialize judge model if different from generation model
+        judge_engine = self.inference_engine
+        current_model_name = getattr(self.inference_engine, 'model_name', None)
+        
+        if judge_model and judge_model != current_model_name:
+            logger.info(f"🎭 Initializing separate judge model: {judge_model}")
+            if stage_callback:
+                stage_callback({'stage': 'setup', 'message': f'Loading judge model: {judge_model}'})
+            
+            # Create a new vLLM engine instance for the judge model
+            from .inference_engines import VLLMEngine
+            judge_engine = VLLMEngine(model_name=judge_model)
+            if not judge_engine.is_available():
+                logger.warning(f"Judge model {judge_model} not available, falling back to generation model")
+                judge_engine = self.inference_engine
+        
+        # Create temporary directory for streaming large datasets
+        temp_dir = tempfile.mkdtemp(prefix="dataset_quality_")
+        logger.info(f"📁 Using temporary directory: {temp_dir}")
+        
+        try:
+            # ================== STAGE 1: Mass Generation ==================
+            if stage_callback:
+                stage_callback({'stage': 'generation', 'message': f'Generating {raw_samples_target} diverse samples...'})
+            
+            logger.info(f"🚀 Starting quality-first generation: {raw_samples_target} raw samples → {final_dataset_size} curated")
+            
+            # Generate in chunks to manage memory
+            chunk_size = 500 if self.inference_engine.name == "vLLM" else 100
+            generated_samples = []
+            chunk_files = []
+            
+            for chunk_start in range(0, raw_samples_target, chunk_size):
+                chunk_end = min(chunk_start + chunk_size, raw_samples_target)
+                chunk_target = chunk_end - chunk_start
+                
+                logger.info(f"📊 Generating chunk {chunk_start//chunk_size + 1}: samples {chunk_start}-{chunk_end}")
+                
+                # Generate chunk with higher temperature for diversity
+                chunk_samples = await self.generate_dataset(
+                    character=character,
+                    num_samples=chunk_target,
+                    temperature=temperature,
+                    top_p=top_p,
+                    progress_callback=lambda p: progress_callback((chunk_start + p * chunk_target) / raw_samples_target) if progress_callback else None,
+                    append_to_existing=False  # Don't save to disk yet
+                )
+                
+                # Save chunk to disk to free memory
+                chunk_file = os.path.join(temp_dir, f"chunk_{len(chunk_files)}.json")
+                with open(chunk_file, 'w', encoding='utf-8') as f:
+                    json.dump(chunk_samples, f)
+                chunk_files.append(chunk_file)
+                
+                # Keep a small sample in memory for quick stats
+                if len(generated_samples) < 100:
+                    generated_samples.extend(chunk_samples[:10])
+                
+                logger.info(f"✅ Chunk saved: {len(chunk_samples)} samples")
+                
+                # Clear CUDA cache between chunks
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
+            
+            # ================== STAGE 2: Quality Evaluation ==================
+            if stage_callback:
+                stage_callback({'stage': 'evaluation', 'message': f'Evaluating {raw_samples_target} samples for quality...'})
+            
+            evaluated_samples = []
+            total_evaluated = 0
+            
+            # Process each chunk file
+            for chunk_idx, chunk_file in enumerate(chunk_files):
+                logger.info(f"📊 Evaluating chunk {chunk_idx + 1}/{len(chunk_files)}")
+                
+                with open(chunk_file, 'r', encoding='utf-8') as f:
+                    chunk_samples = json.load(f)
+                
+                # Evaluate in batches
+                for batch_start in range(0, len(chunk_samples), judgment_batch_size):
+                    batch_end = min(batch_start + judgment_batch_size, len(chunk_samples))
+                    batch = chunk_samples[batch_start:batch_end]
+                    
+                    # Judge this batch
+                    batch_scores = await self._judge_sample_batch(
+                        samples=batch,
+                        character=character,
+                        judge_engine=judge_engine
+                    )
+                    
+                    # Store samples with their scores
+                    for sample, scores in zip(batch, batch_scores):
+                        if scores['overall_score'] >= quality_threshold:
+                            evaluated_samples.append({
+                                'sample': sample,
+                                'scores': scores,
+                                'user_prompt': sample['messages'][1]['content'],
+                                'response': sample['messages'][2]['content']
+                            })
+                    
+                    total_evaluated += len(batch)
+                    if progress_callback:
+                        progress_callback(total_evaluated / raw_samples_target)
+                    
+                    # Log acceptance rate
+                    if total_evaluated % 500 == 0:
+                        acceptance_rate = len(evaluated_samples) / total_evaluated * 100
+                        logger.info(f"📈 Evaluated: {total_evaluated}, Accepted: {len(evaluated_samples)} ({acceptance_rate:.1f}%)")
+            
+            logger.info(f"✅ Evaluation complete: {len(evaluated_samples)}/{raw_samples_target} samples passed quality threshold")
+            
+            # ================== STAGE 3: Diversity-Aware Curation ==================
+            if stage_callback:
+                stage_callback({'stage': 'curation', 'message': f'Curating {final_dataset_size} best samples with diversity...'})
+            
+            # If we have fewer samples than target, just return what we have
+            if len(evaluated_samples) <= final_dataset_size:
+                logger.warning(f"⚠️ Only {len(evaluated_samples)} samples passed quality threshold")
+                return [s['sample'] for s in evaluated_samples]
+            
+            # Curate with diversity
+            curated_samples = self._curate_diverse_samples(
+                evaluated_samples=evaluated_samples,
+                target_size=final_dataset_size,
+                diversity_weight=diversity_weight
+            )
+            
+            logger.info(f"🎉 Curation complete: {len(curated_samples)} high-quality diverse samples")
+            
+            # Save the curated dataset
+            self.save_dataset(character, curated_samples)
+            
+            return curated_samples
+            
+        finally:
+            # Cleanup temporary directory
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
+                logger.info("🧹 Cleaned up temporary files")
+    
+    async def _judge_sample_batch(
+        self,
+        samples: List[Dict[str, Any]],
+        character: Dict[str, Any],
+        judge_engine: Any = None
+    ) -> List[Dict[str, float]]:
+        """Judge a batch of samples for quality using LLM-as-judge.
+        
+        Returns a list of score dictionaries for each sample.
+        """
+        if not judge_engine:
+            judge_engine = self.inference_engine
+        
+        char_name = character.get('name', 'Assistant')
+        
+        # Prepare judgment prompts
+        judgment_prompts = []
+        for sample in samples:
+            user_msg = sample['messages'][1]['content']
+            assistant_msg = sample['messages'][2]['content']
+            
+            # Create a comprehensive judgment prompt
+            judgment_prompt = f"""You are evaluating roleplay responses for quality and character consistency.
+
+Character Name: {char_name}
+Character Description: {character.get('description', 'No description')[:500]}
+Character Personality: {character.get('personality', 'No personality')[:300]}
+
+User Question: {user_msg}
+Character Response: {assistant_msg}
+
+Evaluate this response on the following criteria (0-10 scale):
+
+1. Character Consistency: Does this response match the character's established personality, mannerisms, and knowledge?
+2. Narrative Coherence: Does this response make sense within the character's story and maintain internal consistency?
+3. Response Quality: Is this engaging, detailed, and appropriately addresses the user's question?
+4. Uniqueness: Does this response feel specific to this character rather than generic?
+5. Emotional Authenticity: Does the emotional tone match what we'd expect from this character in this situation?
+
+Respond with ONLY a JSON object with numeric scores:
+{{"character_consistency": 8, "narrative_coherence": 9, "response_quality": 7, "uniqueness": 8, "emotional_authenticity": 9}}"""
+            
+            judgment_prompts.append(judgment_prompt)
+        
+        # Judge in batch
+        try:
+            if hasattr(judge_engine, 'generate_batch'):
+                # Use batch generation for efficiency
+                responses = await judge_engine.generate_batch(
+                    prompts=judgment_prompts,
+                    max_tokens=100,
+                    temperature=0.1,  # Low temperature for consistent judging
+                    top_p=0.95
+                )
+            else:
+                # Fallback to sequential generation
+                responses = []
+                for prompt in judgment_prompts:
+                    response = await judge_engine.generate(
+                        prompt=prompt,
+                        max_tokens=100,
+                        temperature=0.1,
+                        top_p=0.95
+                    )
+                    responses.append(response)
+            
+            # Parse scores from responses
+            batch_scores = []
+            for response in responses:
+                scores = self._parse_judgment_scores(response)
+                batch_scores.append(scores)
+            
+            return batch_scores
+            
+        except Exception as e:
+            logger.error(f"Error in batch judgment: {e}")
+            # Return neutral scores as fallback
+            return [self._get_default_scores() for _ in samples]
+    
+    def _parse_judgment_scores(self, response: str) -> Dict[str, float]:
+        """Parse quality scores from judge response."""
+        try:
+            # Try to extract JSON from response
+            import re
+            json_match = re.search(r'\{[^}]+\}', response)
+            if json_match:
+                scores_dict = json.loads(json_match.group())
+                
+                # Calculate overall score
+                score_values = [
+                    scores_dict.get('character_consistency', 5),
+                    scores_dict.get('narrative_coherence', 5),
+                    scores_dict.get('response_quality', 5),
+                    scores_dict.get('uniqueness', 5),
+                    scores_dict.get('emotional_authenticity', 5)
+                ]
+                
+                # Weighted average (character consistency and narrative coherence weighted higher)
+                weights = [0.3, 0.25, 0.2, 0.15, 0.1]
+                overall_score = sum(s * w for s, w in zip(score_values, weights))
+                
+                return {
+                    'character_consistency': scores_dict.get('character_consistency', 5),
+                    'narrative_coherence': scores_dict.get('narrative_coherence', 5),
+                    'response_quality': scores_dict.get('response_quality', 5),
+                    'uniqueness': scores_dict.get('uniqueness', 5),
+                    'emotional_authenticity': scores_dict.get('emotional_authenticity', 5),
+                    'overall_score': overall_score
+                }
+            else:
+                return self._get_default_scores()
+                
+        except Exception as e:
+            logger.debug(f"Failed to parse judgment scores: {e}")
+            return self._get_default_scores()
+    
+    def _get_default_scores(self) -> Dict[str, float]:
+        """Return neutral default scores."""
+        return {
+            'character_consistency': 5.0,
+            'narrative_coherence': 5.0,
+            'response_quality': 5.0,
+            'uniqueness': 5.0,
+            'emotional_authenticity': 5.0,
+            'overall_score': 5.0
+        }
+    
+    def _curate_diverse_samples(
+        self,
+        evaluated_samples: List[Dict[str, Any]],
+        target_size: int,
+        diversity_weight: float = 0.3
+    ) -> List[Dict[str, Any]]:
+        """Curate a diverse set of high-quality samples.
+        
+        Uses a combination of quality scores and diversity metrics to select
+        the best samples while maintaining variety.
+        """
+        # Sort by quality score first
+        sorted_samples = sorted(evaluated_samples, key=lambda x: x['scores']['overall_score'], reverse=True)
+        
+        # If diversity weight is 0, just return top samples
+        if diversity_weight == 0:
+            return [s['sample'] for s in sorted_samples[:target_size]]
+        
+        # Otherwise, use diversity-aware selection
+        selected_samples = []
+        selected_prompts = set()
+        selected_responses = set()
+        
+        # Group samples by prompt similarity
+        prompt_groups = defaultdict(list)
+        for sample in sorted_samples:
+            # Simple grouping by first few words of prompt
+            prompt_key = ' '.join(sample['user_prompt'].lower().split()[:3])
+            prompt_groups[prompt_key].append(sample)
+        
+        # First pass: Take best from each prompt group
+        for prompt_key, group_samples in prompt_groups.items():
+            if len(selected_samples) >= target_size:
+                break
+            
+            # Take the best sample from this group
+            best_sample = group_samples[0]
+            selected_samples.append(best_sample['sample'])
+            selected_prompts.add(best_sample['user_prompt'])
+            selected_responses.add(best_sample['response'][:100])  # First 100 chars for similarity
+        
+        # Second pass: Fill remaining slots with high-quality diverse samples
+        for sample in sorted_samples:
+            if len(selected_samples) >= target_size:
+                break
+            
+            # Skip if too similar to already selected
+            if sample['sample'] in selected_samples:
+                continue
+            
+            # Check diversity
+            prompt_similarity = any(
+                self.calculate_prompt_similarity(sample['user_prompt'], p) > 0.8 
+                for p in selected_prompts
+            )
+            
+            response_similarity = any(
+                sample['response'][:100] == r 
+                for r in selected_responses
+            )
+            
+            # Add if diverse enough
+            if not (prompt_similarity and response_similarity):
+                selected_samples.append(sample['sample'])
+                selected_prompts.add(sample['user_prompt'])
+                selected_responses.add(sample['response'][:100])
+        
+        logger.info(f"📊 Curated {len(selected_samples)} samples with diversity weight {diversity_weight}")
+        
+        return selected_samples
