@@ -824,11 +824,11 @@ class DatasetManager:
                 variations = self.generate_emotional_variations(prompt_text, emotions)
                 for var in variations[:1]:  # Just one variation per prompt
                     enhanced_prompt = self.enhance_prompt_with_context(var, character, prompt_context)
-                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens(), custom_system_prompt=custom_system_prompt))
+                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
             else:
                 # Regular prompt with possible context enhancement
                 enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
-                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens(), custom_system_prompt=custom_system_prompt))
+                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
         
         # Add multi-turn conversations
         for convo in multi_turn_convos[:5]:  # Limit multi-turn to avoid overwhelming
@@ -844,8 +844,7 @@ class DatasetManager:
                 turns[0]['content'],  # Use first turn as main prompt
                 character, 
                 _sample_max_tokens() * len(turns),  # Longer response for multi-turn
-                context=context,
-                custom_system_prompt=custom_system_prompt
+                context=context
             ))
 
         # Use existing batch generation logic but with quality filtering
@@ -915,18 +914,13 @@ class DatasetManager:
                                 logger.debug(f"❌ Response filtered (score: {quality_metrics['overall_score']:.2f}): {quality_metrics['issues']}")
                                 continue
                             
-                            # Create sample with custom or temporal system prompt
-                            if custom_system_prompt is not None:
-                                # Use custom system prompt (empty string means no system prompt)
-                                system_prompt = custom_system_prompt
-                            else:
-                                # Use temporal system prompt
-                                system_prompt = self._generate_temporal_system_prompt(
-                                    character,
-                                    prompt_data.get('temporal_context', 'present'),
-                                    prompt_data.get('relationship_context'),
-                                    prompt_data.get('intelligent_prompt_data')
-                                )
+                            # Always use temporal system prompt during generation
+                            system_prompt = self._generate_temporal_system_prompt(
+                                character,
+                                prompt_data.get('temporal_context', 'present'),
+                                prompt_data.get('relationship_context'),
+                                prompt_data.get('intelligent_prompt_data')
+                            )
                             
                             sample = {
                                 "messages": [
@@ -1000,18 +994,13 @@ class DatasetManager:
                                             reply_str, character, prompt_data['prompt']
                                         )
                                         if quality_metrics['overall_score'] >= 0.5:
-                                            # Create sample with custom or temporal system prompt
-                                            if custom_system_prompt is not None:
-                                                # Use custom system prompt (empty string means no system prompt)
-                                                system_prompt = custom_system_prompt
-                                            else:
-                                                # Use temporal system prompt
-                                                system_prompt = self._generate_temporal_system_prompt(
-                                                    character,
-                                                    prompt_data.get('temporal_context', 'present'),
-                                                    prompt_data.get('relationship_context'),
-                                                    prompt_data.get('intelligent_prompt_data')
-                                                )
+                                            # Always use temporal system prompt during generation
+                                            system_prompt = self._generate_temporal_system_prompt(
+                                                character,
+                                                prompt_data.get('temporal_context', 'present'),
+                                                prompt_data.get('relationship_context'),
+                                                prompt_data.get('intelligent_prompt_data')
+                                            )
                                             sample = {
                                                 "messages": [
                                                     {"role": "system", "content": system_prompt},
@@ -1104,13 +1093,36 @@ class DatasetManager:
 
             logger.info(f"   Character consistency check: {sample_chars}")
 
+        # If custom system prompt is provided, replace all temporal prompts with it
+        if custom_system_prompt is not None:
+            if custom_system_prompt == "":
+                # Empty string means remove system prompts entirely
+                logger.info(f"🔄 Removing all system prompts from dataset (empty custom prompt)")
+                for sample in samples:
+                    if 'messages' in sample and len(sample['messages']) > 0 and sample['messages'][0].get('role') == 'system':
+                        # Remove the system message
+                        sample['messages'].pop(0)
+            else:
+                # Replace with the custom prompt
+                logger.info(f"🔄 Replacing temporal system prompts with custom prompt for training consistency")
+                for sample in samples:
+                    if 'messages' in sample and len(sample['messages']) > 0:
+                        # Replace the system prompt with the custom one
+                        sample['messages'][0]['content'] = custom_system_prompt
+        
         # 💾 Auto-save dataset with metadata
         metadata = {}
         if custom_system_prompt is not None:
-            metadata['system_prompt_config'] = {
-                'type': 'custom',
-                'prompt': custom_system_prompt
-            }
+            if custom_system_prompt == "":
+                metadata['system_prompt_config'] = {
+                    'type': 'none',
+                    'prompt': ''
+                }
+            else:
+                metadata['system_prompt_config'] = {
+                    'type': 'custom',
+                    'prompt': custom_system_prompt
+                }
         else:
             metadata['system_prompt_config'] = {
                 'type': 'temporal',
@@ -1123,25 +1135,17 @@ class DatasetManager:
             f"Generated {len(samples)} total samples ({new_generated} new) using {self.inference_engine.name}")
         return samples
 
-    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None, custom_system_prompt: Optional[str] = None) -> Dict[str, Any]:
+    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None) -> Dict[str, Any]:
         """Helper to create prompt data structure"""
         temporal_context = self._choose_temporal_bucket()
         char_name = character.get('name', 'Assistant')
         
-        # Use custom system prompt if provided, otherwise generate temporal
-        if custom_system_prompt is not None:
-            system_prompt = custom_system_prompt
-        else:
-            system_prompt = self._generate_temporal_system_prompt(
-                character, temporal_context
-            )
+        # Always generate temporal system prompt during generation
+        temporal_system_prompt = self._generate_temporal_system_prompt(
+            character, temporal_context
+        )
         
-        # Build the full prompt with proper formatting
-        if system_prompt:
-            danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
-        else:
-            # No system prompt - start directly with user
-            danschat_prompt = f"<|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+        danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
         
         return {
             'prompt': prompt,
@@ -3508,13 +3512,36 @@ Format as a simple list:
             
             logger.info(f"🎉 Curation complete: {len(curated_samples)} high-quality diverse samples")
             
+            # If custom system prompt is provided, replace all temporal prompts with it
+            if custom_system_prompt is not None:
+                if custom_system_prompt == "":
+                    # Empty string means remove system prompts entirely
+                    logger.info(f"🔄 Removing all system prompts from dataset (empty custom prompt)")
+                    for sample in curated_samples:
+                        if 'messages' in sample and len(sample['messages']) > 0 and sample['messages'][0].get('role') == 'system':
+                            # Remove the system message
+                            sample['messages'].pop(0)
+                else:
+                    # Replace with the custom prompt
+                    logger.info(f"🔄 Replacing temporal system prompts with custom prompt for training consistency")
+                    for sample in curated_samples:
+                        if 'messages' in sample and len(sample['messages']) > 0:
+                            # Replace the system prompt with the custom one
+                            sample['messages'][0]['content'] = custom_system_prompt
+            
             # Save the curated dataset with metadata
             metadata = {}
             if custom_system_prompt is not None:
-                metadata['system_prompt_config'] = {
-                    'type': 'custom',
-                    'prompt': custom_system_prompt
-                }
+                if custom_system_prompt == "":
+                    metadata['system_prompt_config'] = {
+                        'type': 'none',
+                        'prompt': ''
+                    }
+                else:
+                    metadata['system_prompt_config'] = {
+                        'type': 'custom',
+                        'prompt': custom_system_prompt
+                    }
             else:
                 metadata['system_prompt_config'] = {
                     'type': 'temporal',

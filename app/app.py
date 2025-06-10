@@ -1,4 +1,5 @@
 import asyncio
+from asyncio.log import logger
 import os
 # Disable Streamlit's autoreload file-watcher early to avoid PyTorch inspection
 # errors. Must be set before importing Streamlit so that Streamlit reads the
@@ -516,14 +517,13 @@ def page_dataset_preview():
             # Show system prompt configuration
             system_config = dataset_info.get('system_prompt_config', {})
             if system_config:
-                if system_config.get('type') == 'custom':
+                if system_config.get('type') == 'none':
+                    st.info("💡 Dataset has no system prompts (removed after generation)")
+                elif system_config.get('type') == 'custom':
                     prompt_text = system_config.get('prompt', '')
-                    if prompt_text:
-                        st.info(f"💡 Dataset was generated with custom system prompt: \"{prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}\"")
-                    else:
-                        st.info("💡 Dataset was generated with no system prompt")
+                    st.info(f"💡 Dataset uses custom system prompt: \"{prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}\"")
                 elif system_config.get('type') == 'temporal':
-                    st.info("💡 Dataset was generated with temporal context system prompts (varying per sample)")
+                    st.info("💡 Dataset uses temporal context system prompts (varying per sample)")
                     
             st.markdown("---")
         
@@ -685,19 +685,30 @@ def page_dataset_preview():
         st.info(engine_info)
         
         # System prompt configuration
-        st.markdown("### System Prompt Configuration")
-        use_custom_system = st.checkbox("Use custom system prompt", value=False, help="Define a custom system prompt for dataset generation")
+        st.markdown("### System Prompt Configuration for Training")
+        
+        with st.expander("ℹ️ How System Prompts Work", expanded=False):
+            st.markdown("""
+            **During Generation**: The dataset uses diverse temporal prompts (past/present/future relationships) to generate varied, contextual responses.
+            
+            **For Training**: You can optionally replace all these temporal prompts with a single custom prompt. This gives you:
+            - Temporal diversity during generation
+            - Consistent system prompt during training
+            - Perfect for scenario-specific or multi-character setups
+            """)
+        
+        use_custom_system = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation")
         
         if use_custom_system:
             system_prompt = st.text_area(
-                "System Prompt",
+                "System Prompt for Training",
                 placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
                 height=100,
-                help="This system prompt will be used for all generated samples. Empty = no system prompt."
+                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training."
             )
         else:
             system_prompt = None
-            st.info("Using default temporal context system prompts (varies per sample)")
+            st.info("Dataset will keep temporal context system prompts (varies per sample)")
         
         with st.form("dataset_generation"):
             col_a, col_b = st.columns(2)
@@ -854,20 +865,20 @@ def page_dataset_preview():
             )
         
         # System prompt configuration for quality generation
-        st.markdown("### System Prompt Configuration")
-        use_custom_system_quality = st.checkbox("Use custom system prompt", value=False, help="Define a custom system prompt for dataset generation", key="quality_custom_system")
+        st.markdown("### System Prompt Configuration for Training")
+        use_custom_system_quality = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation", key="quality_custom_system")
         
         if use_custom_system_quality:
             system_prompt_quality = st.text_area(
-                "System Prompt",
+                "System Prompt for Training",
                 placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
                 height=100,
-                help="This system prompt will be used for all generated samples. Empty = no system prompt.",
+                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training.",
                 key="quality_system_prompt"
             )
         else:
             system_prompt_quality = None
-            st.info("Using default temporal context system prompts (varies per sample)")
+            st.info("Dataset will keep temporal context system prompts (varies per sample)")
         
         # Judge model selection
         with st.expander("🧑‍⚖️ Judge Model Configuration", expanded=False):
@@ -1364,6 +1375,9 @@ def page_model_testing():
         if system_prompt_config.get('type') == 'custom':
             default_option = "Dataset System Prompt"
             options = ["Dataset System Prompt", "Default (Tokenizer's built-in)", "Empty (No system prompt)", "Roleplay Director", "Custom"]
+        elif system_prompt_config.get('type') == 'none':
+            default_option = "Empty (No system prompt)"
+            options = ["Empty (No system prompt)", "Default (Tokenizer's built-in)", "Roleplay Director", "Custom"]
         else:
             default_option = "Default (Tokenizer's built-in)"
             options = ["Default (Tokenizer's built-in)", "Empty (No system prompt)", "Roleplay Director", "Custom"]
