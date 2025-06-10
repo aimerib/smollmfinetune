@@ -1335,9 +1335,10 @@ Format as JSON list:
                 
                 # ————————————————————————  NEW DIAGNOSTIC LOGGING  ————————————————————————
                 preview_len = min(len(response), 400)
+                response_preview = response[:preview_len].replace('\n', ' ')[:400]
                 logger.info(
                     f"📝 Raw intelligent-prompt response (context={temporal_context}, attempt={attempt + 1}, chars={len(response)}):\n"
-                    f"{response[:preview_len].replace('\n', ' ')[:400]}{'…' if len(response) > preview_len else ''}"
+                    f"{response_preview}{'…' if len(response) > preview_len else ''}"
                 )
                 # ——————————————————————————————————————————————————————————————————————
                 
