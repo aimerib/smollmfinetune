@@ -26,6 +26,8 @@ class InferenceManager:
         logger.info(f"InferenceManager initialized with device: {self.device}")
         
         self.loaded_models = {}  # Cache for loaded models
+        self.max_cached_models = 2  # Limit cache size to prevent memory issues
+        self.cache_access_count = {}  # Track model usage for LRU eviction
         self.project_dir = Path("training_output")
     
     def _load_base_model(self):
@@ -92,7 +94,23 @@ class InferenceManager:
         """Load a specific model (base, LoRA, or checkpoint)"""
         if model_path in self.loaded_models:
             logger.info(f"Using cached model: {model_path}")
+            # Update access count for LRU
+            self.cache_access_count[model_path] = self.cache_access_count.get(model_path, 0) + 1
             return self.loaded_models[model_path]
+        
+        # Check if cache is full and evict least recently used if needed
+        if len(self.loaded_models) >= self.max_cached_models:
+            # Find least recently used model (lowest access count)
+            lru_model = min(self.cache_access_count.items(), key=lambda x: x[1])[0]
+            logger.info(f"Cache full - evicting least used model: {lru_model}")
+            
+            # Remove from cache
+            del self.loaded_models[lru_model]
+            del self.cache_access_count[lru_model]
+            
+            # Clear GPU memory if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
         
         logger.info(f"Loading model: {model_path}")
         
@@ -125,7 +143,8 @@ class InferenceManager:
         
         # Cache the loaded model
         self.loaded_models[model_path] = (model, tokenizer)
-        logger.info(f"Model loaded and cached: {model_path}")
+        self.cache_access_count[model_path] = 1  # Initialize access count
+        logger.info(f"Model loaded and cached: {model_path} (cache size: {len(self.loaded_models)}/{self.max_cached_models})")
         
         return model, tokenizer
     
@@ -401,4 +420,6 @@ class InferenceManager:
     def clear_model_cache(self):
         """Clear the model cache to free up memory"""
         self.loaded_models.clear()
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None 
+        self.cache_access_count.clear()
+        torch.cuda.empty_cache() if torch.cuda.is_available() else None
+        logger.info("Model cache cleared") 

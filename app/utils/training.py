@@ -144,10 +144,10 @@ class TrainingManager:
         """Setup LoRA configuration for the model"""
         model = prepare_model_for_kbit_training(model)
         
-        # Apply guideline-driven defaults
-        r_val = config.get('lora_r', 8)
-        alpha_val = config.get('lora_alpha', r_val)  # Use α ≈ r if not provided
-        dropout_val = config.get('lora_dropout', 0.05)
+        # Apply guideline-driven defaults for character LoRA
+        r_val = config.get('lora_r', 16)  # Changed from 8 to 16 for better character capture
+        alpha_val = config.get('lora_alpha', r_val)  # Use α = r for character training
+        dropout_val = config.get('lora_dropout', 0.1)  # Increased from 0.05 for regularization
         target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
         
         lora_config = LoraConfig(
@@ -244,7 +244,7 @@ class TrainingManager:
                 per_device_train_batch_size=batch_size,
                 gradient_accumulation_steps=gradient_accumulation,
                 max_steps=total_steps,
-                learning_rate=config.get('learning_rate', 3e-4),  # 1e-4–5e-4 recommended
+                learning_rate=config.get('learning_rate', 2e-4),  # 1e-4–5e-4 recommended, default 2e-4
                 fp16=use_fp16,
                 optim="adamw_torch",
                 logging_steps=config.get('logging_steps', 10),

@@ -636,7 +636,7 @@ def page_dataset_preview():
                     max_value=20000,
                     value=80,
                     step=20,
-                    help="Desired total size of the synthetic dataset. 20-100 samples is usually enough for a single character LoRA."
+                    help="Desired total size of the synthetic dataset. Research shows 20-100 samples is optimal for character LoRAs, with 200-500 for more complex characters. Larger datasets risk overfitting."
                 )
                 temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
             
@@ -668,7 +668,7 @@ def page_dataset_preview():
                 )
             
             try:
-                # Run generation in smaller logical chunks (>500 → 100-sample blocks)
+                # Run generation in smaller logical chunks (>100 → 50-sample blocks)
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
@@ -677,9 +677,13 @@ def page_dataset_preview():
                     current_total = existing_count
                     dataset = None
                     chunk_idx = 0
+                    
+                    # For vLLM, use larger chunks
+                    chunk_size = 100 if st.session_state.selected_engine == "vLLM" else 50
+                    
                     while current_total < target_total:
                         step_target = min(
-                            current_total + (100 if target_total - current_total > 500 else target_total - current_total),
+                            current_total + chunk_size,
                             target_total,
                         )
                         dataset = loop.run_until_complete(
@@ -777,41 +781,47 @@ def page_training_config():
             
             with col_a:
                 # Dynamically pick a sensible default epoch count based on dataset size
-                if dataset_size >= 2000:
-                    optimal_epochs = 1  # Large datasets usually need only a single pass
+                if dataset_size >= 200:
+                    optimal_epochs = 3  # Reduced for larger datasets
                 else:
-                    optimal_epochs = min(5, max(2, 600 // dataset_size))
-                epochs = st.slider("Epochs", 1, 10, optimal_epochs)
+                    optimal_epochs = min(6, max(3, 600 // dataset_size))  # 3-6 epochs for smaller datasets
+                epochs = st.slider("Epochs", 1, 10, optimal_epochs, help="5-10 epochs recommended by research for character LoRA")
                 lr_options = [1e-4, 2e-4, 3e-4, 5e-4]
-                default_lr = 3e-4
+                default_lr = 2e-4  # More conservative default
                 learning_rate = st.select_slider(
                     "Learning Rate",
                     options=lr_options,
                     value=default_lr,
-                    format_func=lambda x: f"{x:.0e}"
+                    format_func=lambda x: f"{x:.0e}",
+                    help="1e-4 to 5e-4 recommended for character LoRA training"
                 )
                 batch_size = st.selectbox("Batch Size", [1, 2, 4, 8], index=1)
             
             with col_b:
-                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=2)  # Default to 4
-                warmup_steps = st.slider("Warmup Steps", 0, 100, 20)  # More warmup for stability
-                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 0.5, step=0.1)  # Lower for stability
+                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=1)  # Default to 2
+                warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
+                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 1.0, step=0.1, help="1.0 is standard")
             
             # LoRA settings optimized for character training
             st.markdown("#### LoRA Configuration (Character-Optimized)")
             col_c, col_d = st.columns(2)
             
             with col_c:
-                default_r = 32 if dataset_size >= 2000 else 16
-                lora_r = st.slider("LoRA Rank (r)", 4, 128, default_r, step=4, help="Higher rank captures more nuance but uses more VRAM.")
-                lora_alpha = st.slider("LoRA Alpha", 8, 128, 32, step=8)  # Keep scaling factor
+                default_r = 16  # Optimal for character LoRA per research
+                lora_r = st.slider("LoRA Rank (r)", 4, 64, default_r, step=4, 
+                                   help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
+                # Alpha = rank for character training (not 2x)
+                lora_alpha = st.slider("LoRA Alpha", 8, 64, default_r, step=8, 
+                                       help="Set equal to rank (α = r) for character training")
             
             with col_d:
-                lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01)  # Slightly higher for regularization
+                lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01, 
+                                         help="0.05-0.1 for regularization")
                 target_modules = st.multiselect(
                     "Target Modules",
                     ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-                    default=["q_proj", "k_proj", "v_proj", "o_proj"]  # Focus on attention layers
+                    default=["q_proj", "k_proj", "v_proj", "o_proj"],  # Focus on attention layers
+                    help="Attention layers (q,k,v,o) are most important for character behavior"
                 )
             
             # --------------------------------------------------------------
@@ -852,34 +862,65 @@ def page_training_config():
         
         # Calculate training recommendations
         total_steps = (dataset_size * epochs) // (batch_size * gradient_accumulation)
-        overfitting_risk = "High" if total_steps > 500 else "Medium" if total_steps > 200 else "Low"
+        effective_batch_size = batch_size * gradient_accumulation
+        
+        # More nuanced overfitting risk calculation
+        if dataset_size < 50:
+            if total_steps > 300:
+                overfitting_risk = "Very High"
+            elif total_steps > 200:
+                overfitting_risk = "High"
+            else:
+                overfitting_risk = "Medium"
+        elif dataset_size < 100:
+            if total_steps > 500:
+                overfitting_risk = "High"
+            elif total_steps > 300:
+                overfitting_risk = "Medium"
+            else:
+                overfitting_risk = "Low"
+        else:  # dataset_size >= 100
+            if total_steps > 1000:
+                overfitting_risk = "Medium"
+            else:
+                overfitting_risk = "Low"
         
         # Display recommendations
         st.markdown(f"""
             <div class="metric-card">
                 <h4 style="margin: 0 0 1rem 0;">📊 Training Analysis</h4>
+                <p><strong>Dataset Size:</strong> {dataset_size} samples</p>
                 <p><strong>Total Steps:</strong> {total_steps}</p>
-                <p><strong>Overfitting Risk:</strong> <span style="color: {'#ef4444' if overfitting_risk == 'High' else '#f59e0b' if overfitting_risk == 'Medium' else '#10b981'}">{overfitting_risk}</span></p>
-                <p><strong>Est. Time:</strong> {total_steps * 2 // 60} minutes</p>
+                <p><strong>Effective Batch Size:</strong> {effective_batch_size}</p>
+                <p><strong>Overfitting Risk:</strong> <span style="color: {'#dc2626' if overfitting_risk == 'Very High' else '#ef4444' if overfitting_risk == 'High' else '#f59e0b' if overfitting_risk == 'Medium' else '#10b981'}">{overfitting_risk}</span></p>
+                <p><strong>Est. Time:</strong> ~{max(1, total_steps * 2 // 60)} minutes</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Warnings
-        if overfitting_risk == "High":
-            st.warning("⚠️ High overfitting risk! Consider reducing epochs or increasing dataset size.")
+        # Warnings based on configuration
+        if overfitting_risk in ["High", "Very High"]:
+            st.warning(f"⚠️ {overfitting_risk} overfitting risk! Consider: reducing epochs to {max(1, epochs-2)}, increasing dataset size, or lowering learning rate.")
         
-        if learning_rate > 5e-4:
-            st.warning("⚠️ High learning rate may cause instability.")
+        if dataset_size > 300:
+            st.info("💡 Large dataset detected. Consider using rank 32 for more model capacity.")
+        
+        if learning_rate >= 5e-4:
+            st.warning("⚠️ High learning rate may cause training instability. Consider 2e-4 for safer training.")
+            
+        if epochs > 8:
+            st.warning("⚠️ High epoch count increases overfitting risk. 5-6 epochs is usually sufficient.")
         
         # Tips
         st.markdown("""
             <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; border-left: 4px solid #10b981;">
-                <h4 style="color: #10b981; margin-top: 0;">💡 Tips</h4>
+                <h4 style="color: #10b981; margin-top: 0;">💡 Character LoRA Best Practices</h4>
                 <ul style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 0;">
-                    <li>Start with lower learning rates for stability</li>
-                    <li>Monitor loss curves for overfitting</li>
-                    <li>Use gradient accumulation for larger effective batch sizes</li>
-                    <li>Higher LoRA rank = more parameters but slower training</li>
+                    <li><strong>Dataset:</strong> 50-100 samples optimal, 200-300 max</li>
+                    <li><strong>Learning Rate:</strong> Start with 2e-4, use 1e-4 if unstable</li>
+                    <li><strong>LoRA Rank:</strong> 8-16 for most characters, 32 for complex ones</li>
+                    <li><strong>LoRA Alpha:</strong> Set equal to rank (α = r)</li>
+                    <li><strong>Epochs:</strong> 5-6 for small datasets, 3-4 for larger ones</li>
+                    <li><strong>Monitor:</strong> Stop if loss plateaus or increases</li>
                 </ul>
             </div>
         """, unsafe_allow_html=True)

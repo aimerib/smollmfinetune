@@ -633,6 +633,11 @@ class DatasetManager:
                 self.enable_intelligent_generation = False
 
         card_block = self._make_card_block(character)
+        
+        # Extract character knowledge for better prompt generation
+        logger.info("🧠 Extracting character knowledge...")
+        character_knowledge = self.extract_character_knowledge(character)
+        logger.info(f"📊 Extracted: {len(character_knowledge['traits'])} traits, {len(character_knowledge['skills'])} skills, {len(character_knowledge['goals'])} goals")
 
         # Load existing dataset if append_to_existing is True
         existing_samples = []
@@ -656,23 +661,72 @@ class DatasetManager:
 
         samples = existing_samples.copy()
 
-        # ------------------------------------------------------------------
-        # Determine which baseline prompts still need coverage.  We collect
-        # *unique* user messages already present to avoid duplicates, then
-        # enqueue any new questions that were added (e.g. via UI augmentation)
-        # for the next generation run – even when the dataset already exists.
-        # ------------------------------------------------------------------
-
+        # Extract existing prompts to avoid duplication
         seen_user_prompts: set[str] = {
             sample['messages'][1]['content'] for sample in existing_samples
             if isinstance(sample, dict) and 'messages' in sample and len(sample['messages']) > 1
         }
 
-        baseline_prompts: list[str] = [
-            q for q in self.default_user_prompts if q not in seen_user_prompts]
-
-        # Length buckets following 2024-2025 best-practice distribution
-        # (40% short 1-200 tok, 45% medium 200-500 tok, 15% long 500-800 tok)
+        # Generate diverse prompts using multiple strategies
+        all_prompts = []
+        
+        # 1. Baseline prompts (ensure coverage)
+        baseline_prompts = [q for q in self.default_user_prompts if q not in seen_user_prompts]
+        all_prompts.extend(baseline_prompts)
+        
+        # 2. Scenario-based prompts
+        logger.info("🎭 Generating scenario-based prompts...")
+        scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=10)
+        for scenario in scenarios:
+            for prompt in scenario['prompts']:
+                if prompt not in seen_user_prompts:
+                    all_prompts.append({
+                        'prompt': prompt,
+                        'context': scenario['context'],
+                        'type': 'scenario'
+                    })
+        
+        # 3. Character exploration prompts
+        logger.info("🔍 Generating character exploration prompts...")
+        exploration_prompts = self.generate_exploration_prompts(character, character_knowledge)
+        for prompt in exploration_prompts:
+            if prompt not in seen_user_prompts:
+                all_prompts.append({
+                    'prompt': prompt,
+                    'type': 'exploration'
+                })
+        
+        # 4. Greeting-based prompts
+        logger.info("🎭 Generating prompts from greetings...")
+        greeting_scenarios = self.generate_prompts_from_greetings(character, character_knowledge)
+        for scenario in greeting_scenarios:
+            for prompt in scenario['prompts']:
+                if prompt not in seen_user_prompts:
+                    all_prompts.append({
+                        'prompt': prompt,
+                        'context': scenario['context'],
+                        'type': 'greeting_based'
+                    })
+        
+        # 5. Multi-turn conversations (select a few scenarios for depth)
+        logger.info("💬 Generating multi-turn conversation flows...")
+        selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
+        multi_turn_convos = []
+        for scenario in selected_scenarios:
+            convos = self.generate_multi_turn_conversation(character, scenario, turns=3)
+            multi_turn_convos.extend(convos)
+        
+        # 6. Deduplicate all prompts
+        logger.info("🔄 Deduplicating prompts...")
+        if isinstance(all_prompts[0], dict):
+            prompt_texts = [p.get('prompt', p) if isinstance(p, dict) else p for p in all_prompts]
+        else:
+            prompt_texts = all_prompts
+        
+        unique_prompts = self.deduplicate_prompts(prompt_texts, similarity_threshold=0.7)
+        logger.info(f"📊 Reduced from {len(prompt_texts)} to {len(unique_prompts)} unique prompts")
+        
+        # Length buckets following best practices
         length_buckets = [
             ("short", 0.40, 200),
             ("medium", 0.45, 500),
@@ -680,250 +734,141 @@ class DatasetManager:
         ]
 
         def _sample_max_tokens() -> int:
-            names, probs, toks = zip(*[(n, p, t)
-                                     for n, p, t in length_buckets])
+            names, probs, toks = zip(*[(n, p, t) for n, p, t in length_buckets])
             bucket_name = random.choices(names, weights=probs, k=1)[0]
-            # Map name -> token limit
             token_map = {n: t for n, _, t in length_buckets}
             return token_map[bucket_name]
 
-        # ------------------------------------------------------------------
-        # Build the prompt metadata list (baseline first, then random samples)
-        # ------------------------------------------------------------------
-
-        # Pre-populate with baseline prompts so they are guaranteed inclusion
+        # Build prompt metadata list
         prompts_data: list[Dict[str, Any]] = []
-
         char_name_for_prompts = character.get('name', 'Assistant')
-
-        for bp in baseline_prompts:
-            # Use present context for baseline prompts (default behavior)
-            temporal_system_prompt = self._generate_temporal_system_prompt(
-                character, "present")
-            danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{bp}<|endoftext|><|assistant|>{char_name_for_prompts}:"
-            prompts_data.append({
-                'prompt': bp,
-                'full_prompt': danschat_prompt,
-                'template_mode': 'baseline',
-                'temporal_context': 'present',
-                'relationship_context': None,
-                'char_name': char_name_for_prompts,
-                'max_tokens': _sample_max_tokens(),
-            })
-
-        # Pre-generate prompts for the remaining samples we still need
-        new_samples_needed_after_baseline = max(
-            0, new_samples_needed - len(baseline_prompts))
-
-        # Generate up to 1.5× the remaining need (for filtering margin)
-        random_prompt_target = int(new_samples_needed_after_baseline * 1.5)
-
-        # ------------------------------------------------------------------
-        # Random prompt generation loop (same logic as before, but uses the new
-        # target size so we don't waste time over-generating when baseline is
-        # large).
-        # ------------------------------------------------------------------
-
-        generated_random = 0  # Counter for random prompts added
-
-        # Generate random prompts with intelligent temporal contexts
-        random_prompt_tasks = []
-        for i in range(random_prompt_target * 2):  # keep safety margin
-            if generated_random >= random_prompt_target:
+        
+        # Process unique prompts with emotional variations and context enhancement
+        for prompt in unique_prompts[:new_samples_needed * 2]:  # Generate extra for quality filtering
+            # Skip if we already have enough
+            if len(prompts_data) >= new_samples_needed * 1.5:
                 break
-            # Collect coroutines to execute in batches - DO NOT await here
-            random_prompt_tasks.append(
-                self._generate_single_random_prompt(character, i))
+                
+            # Add emotional variations (30% chance)
+            if random.random() < 0.3:
+                emotions = random.sample(['happy', 'sad', 'angry', 'worried', 'excited', 'curious'], k=2)
+                variations = self.generate_emotional_variations(prompt, emotions)
+                for var in variations[:1]:  # Just one variation per prompt
+                    enhanced_prompt = self.enhance_prompt_with_context(var, character)
+                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
+            else:
+                # Regular prompt with possible context enhancement
+                enhanced_prompt = self.enhance_prompt_with_context(prompt, character)
+                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
+        
+        # Add multi-turn conversations
+        for convo in multi_turn_convos[:5]:  # Limit multi-turn to avoid overwhelming
+            context = convo['context']
+            turns = convo['turns']
+            
+            # Create a combined prompt from the conversation
+            combined_prompt = f"[Context: {context}]\n"
+            for turn in turns:
+                combined_prompt += f"User: {turn['content']}\n"
+            
+            prompts_data.append(self._create_prompt_data(
+                turns[0]['content'],  # Use first turn as main prompt
+                character, 
+                _sample_max_tokens() * len(turns),  # Longer response for multi-turn
+                context=context
+            ))
 
-        # Process random prompts in batches to avoid overwhelming the system
-        batch_size = 10
-        for batch_start in range(0, len(random_prompt_tasks), batch_size):
-            batch_tasks = random_prompt_tasks[batch_start:batch_start + batch_size]
-            batch_results = await asyncio.gather(*batch_tasks, return_exceptions=True)
-
-            for result in batch_results:
-                if isinstance(result, Exception):
-                    logger.debug(
-                        f"Error in random prompt generation: {result}")
-                    continue
-                elif result:  # Valid prompt data
-                    prompts_data.append(result)
-                    generated_random += 1
-
-                    if generated_random >= random_prompt_target:
-                        break
-
-            if generated_random >= random_prompt_target:
-                break
-
-        # Group prompts by desired max_tokens so that batched generation obeys
-        # length distribution without sacrificing speed
+        # Use existing batch generation logic but with quality filtering
         prompts_grouped: Dict[int, List[Dict[str, Any]]] = {}
         for item in prompts_data:
             prompts_grouped.setdefault(item['max_tokens'], []).append(item)
 
-        # Use smaller batch sizes to avoid CUDA memory issues
-        base_batch_size = 16 if hasattr(
-            self.inference_engine, 'generate_batch') else 1
-
+        # Determine optimal batch size based on inference engine
+        if hasattr(self.inference_engine, 'name') and self.inference_engine.name == "vLLM":
+            # vLLM excels with large batches - use entire groups at once
+            base_batch_size = 500  # Can handle much larger batches
+            logger.info("🚀 Using vLLM optimized batch size: 500")
+        else:
+            # Other engines (LM Studio, etc.) work better with smaller batches
+            base_batch_size = 16 if hasattr(self.inference_engine, 'generate_batch') else 1
+            logger.info(f"📦 Using standard batch size: {base_batch_size}")
+        
         processed_count = 0
-        logger.info(
-            f"📊 Starting batch processing: {len(prompts_data)} prompts prepared, batch_size={base_batch_size}")
+        quality_filtered_count = 0
+        
+        logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared")
 
         for bucket_max_tokens, bucket_prompts in prompts_grouped.items():
-            logger.info(
-                f"📊 Processing {len(bucket_prompts)} prompts with max_tokens={bucket_max_tokens}")
+            logger.info(f"📊 Processing {len(bucket_prompts)} prompts with max_tokens={bucket_max_tokens}")
             batch_size = base_batch_size
-            # Ensure available for logging/validation
             char_name = character.get('name', 'Assistant')
+            
             for batch_start in range(0, len(bucket_prompts), batch_size):
                 batch_end = min(batch_start + batch_size, len(bucket_prompts))
-                batch_prompts = bucket_prompts[batch_start:batch_end]
-                full_prompts = [item['full_prompt'] for item in batch_prompts]
+                batch_prompts_slice = bucket_prompts[batch_start:batch_end]
+                full_prompts = [item['full_prompt'] for item in batch_prompts_slice]
 
-                # Generate the replies with robust error handling
                 try:
-                    # First try batch processing (most efficient)
+                    # Generate responses
                     if batch_size > 1:
+                        replies = await self._generate_text_batch(
+                            prompts=full_prompts,
+                            max_tokens=bucket_max_tokens,
+                            temperature=temperature,
+                            top_p=top_p,
+                            character_name=character.get('name')
+                        )
+                    else:
+                        replies = [await self._generate_text(
+                            prompt=full_prompts[0],
+                            max_tokens=bucket_max_tokens,
+                            temperature=temperature,
+                            top_p=top_p,
+                            character_name=character.get('name')
+                        )]
+
+                    # Process batch results with quality filtering
+                    for i, (prompt_data, reply) in enumerate(zip(batch_prompts_slice, replies)):
                         try:
-                            replies = await self._generate_text_batch(
-                                prompts=full_prompts,
-                                max_tokens=bucket_max_tokens,
-                                temperature=temperature,
-                                top_p=top_p,
-                                character_name=character.get('name')
-                            )
-                        except Exception as e:
-                            # If batch processing fails with CUDA error, retry with smaller batch
-                            if "CUDA error" in str(e) and batch_size > 4:
-                                logger.warning(
-                                    f"⚠️ CUDA error in batch processing - reducing batch size and retrying")
-                                # Reduce batch size for this run and all future batches
-                                batch_size = max(4, batch_size // 2)
-                                batch_end = min(
-                                    batch_start + batch_size, len(bucket_prompts))
-                                batch_prompts = bucket_prompts[batch_start:batch_end]
-                                full_prompts = [item['full_prompt']
-                                                for item in batch_prompts]
-
-                                # Try again with smaller batch
-                                replies = await self._generate_text_batch(
-                                    prompts=full_prompts,
-                                    max_tokens=bucket_max_tokens,
-                                    temperature=temperature,
-                                    top_p=top_p,
-                                    character_name=character.get('name')
-                                )
-                            else:
-                                # For other errors or if batch is already small, fall back to sequential processing
-                                logger.warning(
-                                    f"⚠️ Batch processing failed - falling back to sequential processing: {str(e)}")
-                                # Process each prompt individually
-                                replies = []
-                                for prompt in full_prompts:
-                                    try:
-                                        reply = await self._generate_text(
-                                            prompt=prompt,
-                                            max_tokens=bucket_max_tokens,
-                                            temperature=temperature,
-                                            top_p=top_p,
-                                            character_name=character.get(
-                                                'name')
-                                        )
-                                        replies.append(reply)
-                                        # Small delay between prompts to let GPU recover
-                                        await asyncio.sleep(0.1)
-                                    except Exception as inner_e:
-                                        logger.warning(
-                                            f"❌ Individual prompt generation failed: {str(inner_e)}")
-                                        # Empty placeholder for failed generations
-                                        replies.append("")
-                        else:
-                            # Single prompt mode
-                            replies = [await self._generate_text(
-                                prompt=full_prompts[0],
-                                max_tokens=bucket_max_tokens,
-                                temperature=temperature,
-                                top_p=top_p,
-                                character_name=character.get('name')
-                            )]
-
-                    logger.info(
-                        f"🔥 Got {len(replies)} replies from {self.inference_engine.name}")
-
-                    # Process batch results
-                    for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
-                        try:
-                            # ✅ VALIDATE REPLY QUALITY AND FORMAT
                             reply_str = str(reply).strip()
-
-                            # Check for obvious prompt formatting leakage
-                            format_issues = []
-                            if '<|system|>' in reply_str:
-                                format_issues.append(
-                                    "Contains <|system|> token")
-                            if '<|user|>' in reply_str:
-                                format_issues.append("Contains <|user|> token")
-                            if '<|assistant|>' in reply_str:
-                                format_issues.append(
-                                    "Contains <|assistant|> token")
-                            if '<|endoftext|>' in reply_str:
-                                format_issues.append(
-                                    "Contains <|endoftext|> token")
-
-                            if format_issues:
-                                logger.warning(
-                                    f"🔴 Reply {batch_start+i} has format leakage: {', '.join(format_issues)}")
-                                logger.warning(
-                                    f"   Reply preview: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
-
-                            # Quality filters
-                            word_count = len(reply_str.split())
-                            if word_count < 1:
-                                logger.warning(
-                                    f"❌ Reply {batch_start+i} filtered: too short (word_count={word_count})")
+                            
+                            # Evaluate response quality
+                            quality_metrics = self.evaluate_response_quality(
+                                reply_str, 
+                                character, 
+                                prompt_data['prompt']
+                            )
+                            
+                            # Only accept high-quality responses
+                            if quality_metrics['overall_score'] < 0.5:
+                                quality_filtered_count += 1
+                                logger.debug(f"❌ Response filtered (score: {quality_metrics['overall_score']:.2f}): {quality_metrics['issues']}")
                                 continue
-                            if word_count > bucket_max_tokens * 1.5:  # generous upper bound
-                                logger.warning(
-                                    f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count} > {bucket_max_tokens * 1.5})")
-                                continue
-
-                            # Log sample replies for first few batches
-                            if batch_start < 24 and i == 0:  # First 3 batches, first reply each
-                                logger.info(
-                                    f"📤 SAMPLE REPLY from batch {batch_start}, reply {i}:")
-                                logger.info(
-                                    f"   User: '{prompt_data['prompt'][:80]}{'...' if len(prompt_data['prompt']) > 80 else ''}'")
-                                logger.info(
-                                    f"   {char_name}: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
-                                logger.info(f"   (Word count: {word_count})")
-
-                            # Create ChatML sample with temporal system prompt
+                            
+                            # Create sample with temporal system prompt
                             temporal_system_prompt = self._generate_temporal_system_prompt(
                                 character,
                                 prompt_data.get('temporal_context', 'present'),
                                 prompt_data.get('relationship_context'),
                                 prompt_data.get('intelligent_prompt_data')
                             )
+                            
                             sample = {
                                 "messages": [
-                                    {"role": "system",
-                                        "content": temporal_system_prompt},
-                                    {"role": "user",
-                                        "content": prompt_data['prompt']},
+                                    {"role": "system", "content": temporal_system_prompt},
+                                    {"role": "user", "content": prompt_data['prompt']},
                                     {"role": "assistant", "content": reply_str},
                                 ]
                             }
                             samples.append(sample)
                             processed_count += 1
 
-                            # Update progress (account for existing samples)
+                            # Update progress
                             if progress_callback:
                                 total_current = len(samples)
-                                progress_callback(
-                                    min(total_current / num_samples, 1.0))
+                                progress_callback(min(total_current / num_samples, 1.0))
 
-                            # Stop if we have enough total samples
+                            # Stop if we have enough samples
                             if len(samples) >= num_samples:
                                 break
 
@@ -931,53 +876,88 @@ class DatasetManager:
                             logger.debug(f"Error processing sample: {e}")
                             continue
 
-                    # Stop if we have enough total samples
                     if len(samples) >= num_samples:
                         break
 
-                    # Small delay between different length buckets for stability
                     await asyncio.sleep(0.2)
-
-                    # Clear CUDA cache between length buckets to reduce memory fragmentation
+                    
+                    # Clear CUDA cache periodically
                     try:
                         import torch
                         if torch.cuda.is_available():
                             torch.cuda.empty_cache()
                     except Exception:
                         pass
+                        
                 except Exception as outer_e:
-                    # Ultimate fallback - return empty responses if everything fails
-                    logger.error(
-                        f"💥 Critical generation error: {str(outer_e)}")
-                    replies = [""] * len(full_prompts)
-                # End inner batch loop
-
-                # Validate prompt structure to catch template errors early
-                invalid_prompts = []
-                for idx, prompt in enumerate(full_prompts):
-                    if not prompt.startswith('<|system|>'):
-                        invalid_prompts.append(
-                            f"Prompt {idx}: Missing <|system|> start")
-                    if '<|endoftext|><|user|>' not in prompt:
-                        invalid_prompts.append(
-                            f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
-                    if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
-                        invalid_prompts.append(
-                            f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
-                    if prompt.count('<|system|>') != 1:
-                        invalid_prompts.append(
-                            f"Prompt {idx}: Multiple or missing <|system|> tags")
-                    if prompt.count('<|endoftext|>') != 2:
-                        invalid_prompts.append(
-                            f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
-                if invalid_prompts:
-                    logger.error(
-                        f"🚨 BATCH VALIDATION FAILURE ({batch_start}-{batch_end}): {len(invalid_prompts)} issues")
-                    for issue in invalid_prompts[:5]:
-                        logger.error(f"  ❌ {issue}")
-                    if len(invalid_prompts) > 5:
-                        logger.error(
-                            f"  ... and {len(invalid_prompts) - 5} more issues")
+                    # Handle CUDA/memory errors with appropriate batch size reduction
+                    error_str = str(outer_e)
+                    if "CUDA" in error_str or "memory" in error_str.lower():
+                        logger.warning(f"⚠️ Memory error in batch processing: {error_str}")
+                        
+                        # Reduce batch size based on engine type
+                        if self.inference_engine.name == "vLLM" and batch_size > 100:
+                            # For vLLM, try cutting in half but keep it large
+                            new_batch_size = max(100, batch_size // 2)
+                            logger.info(f"🔄 Reducing vLLM batch size: {batch_size} → {new_batch_size}")
+                            batch_size = new_batch_size
+                            
+                            # Retry with smaller batch
+                            batch_end = min(batch_start + batch_size, len(bucket_prompts))
+                            batch_prompts_slice = bucket_prompts[batch_start:batch_end]
+                            full_prompts = [item['full_prompt'] for item in batch_prompts_slice]
+                            
+                            # Retry the batch
+                            try:
+                                replies = await self._generate_text_batch(
+                                    prompts=full_prompts,
+                                    max_tokens=bucket_max_tokens,
+                                    temperature=temperature,
+                                    top_p=top_p,
+                                    character_name=character.get('name')
+                                )
+                                
+                                # Process results (same logic as above)
+                                for i, (prompt_data, reply) in enumerate(zip(batch_prompts_slice, replies)):
+                                    try:
+                                        reply_str = str(reply).strip()
+                                        quality_metrics = self.evaluate_response_quality(
+                                            reply_str, character, prompt_data['prompt']
+                                        )
+                                        if quality_metrics['overall_score'] >= 0.5:
+                                            temporal_system_prompt = self._generate_temporal_system_prompt(
+                                                character,
+                                                prompt_data.get('temporal_context', 'present'),
+                                                prompt_data.get('relationship_context'),
+                                                prompt_data.get('intelligent_prompt_data')
+                                            )
+                                            sample = {
+                                                "messages": [
+                                                    {"role": "system", "content": temporal_system_prompt},
+                                                    {"role": "user", "content": prompt_data['prompt']},
+                                                    {"role": "assistant", "content": reply_str},
+                                                ]
+                                            }
+                                            samples.append(sample)
+                                            processed_count += 1
+                                            if progress_callback:
+                                                progress_callback(min(len(samples) / num_samples, 1.0))
+                                            if len(samples) >= num_samples:
+                                                break
+                                    except Exception:
+                                        continue
+                                        
+                            except Exception as retry_error:
+                                logger.error(f"💥 Retry with smaller batch also failed: {retry_error}")
+                                # Skip this batch
+                                continue
+                        else:
+                            # For other engines or if batch is already small, skip the batch
+                            logger.error(f"💥 Skipping batch due to error: {error_str}")
+                            continue
+                    else:
+                        logger.error(f"💥 Batch generation error: {error_str}")
+                        continue
 
             # End grouped processing
 
@@ -1049,6 +1029,28 @@ class DatasetManager:
         logger.info(
             f"Generated {len(samples)} total samples ({new_generated} new) using {self.inference_engine.name}")
         return samples
+
+    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None) -> Dict[str, Any]:
+        """Helper to create prompt data structure"""
+        temporal_context = self._choose_temporal_bucket()
+        char_name = character.get('name', 'Assistant')
+        
+        # Generate temporal system prompt
+        temporal_system_prompt = self._generate_temporal_system_prompt(
+            character, temporal_context
+        )
+        
+        danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+        
+        return {
+            'prompt': prompt,
+            'full_prompt': danschat_prompt,
+            'template_mode': 'enhanced',
+            'temporal_context': temporal_context,
+            'relationship_context': context,
+            'char_name': char_name,
+            'max_tokens': max_tokens,
+        }
 
     def analyze_dataset_quality(self, dataset: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze dataset quality metrics"""
@@ -1957,3 +1959,1211 @@ Format as a simple list:
         except Exception as e:
             logger.debug(f"Error preparing prompt {index}: {e}")
             return None
+
+    def extract_character_knowledge(self, character: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract structured knowledge from character card for better prompt generation"""
+        char_name = character.get('name', 'Assistant')
+        description = character.get('description', '')
+        personality = character.get('personality', '')
+        scenario = character.get('scenario', '')
+        mes_example = character.get('mes_example', '')
+        first_mes = character.get('first_mes', '')
+        alternate_greetings = character.get('alternate_greetings', [])
+        
+        knowledge = {
+            'name': char_name,
+            'traits': [],
+            'skills': [],
+            'relationships': [],
+            'backstory_elements': [],
+            'goals': [],
+            'fears': [],
+            'likes': [],
+            'dislikes': [],
+            'speech_patterns': [],
+            'emotional_triggers': [],
+            'mannerisms': [],
+            'locations': [],
+            'occupation': None,
+            'species': None,
+            'appearance': [],
+            'equipment': [],
+            'known_spells': [],
+            'current_situation': None,
+            'world_info': []
+        }
+        
+        # Parse structured format (Type:, Species:, etc.)
+        structured_info = self._parse_structured_format(description)
+        knowledge.update(structured_info)
+        
+        # Combine all text for additional analysis
+        full_text = f"{description} {personality} {scenario}".lower()
+        
+        # Extract from structured fields if not already found
+        if not knowledge['occupation']:
+            occ_match = re.search(r'occupation:\s*([^,\n]+)', full_text, re.IGNORECASE)
+            if occ_match:
+                knowledge['occupation'] = occ_match.group(1).strip()
+        
+        # Extract personality traits more comprehensively
+        if 'personality:' in full_text:
+            pers_match = re.search(r'personality:\s*([^,\n]+(?:,\s*[^,\n]+)*)', full_text, re.IGNORECASE)
+            if pers_match:
+                traits = [t.strip() for t in pers_match.group(1).split(',')]
+                knowledge['traits'].extend(traits)
+        
+        # Extract skills and abilities
+        skill_patterns = [
+            r'(?:skills?|abilities):\s*([^,\n]+(?:,\s*[^,\n]+)*)',
+            r'(?:skilled\s+in|expert\s+at|master\s+of|proficient\s+in)\s+([^.,]+)',
+            r'(?:can|able\s+to|capable\s+of)\s+([^.,]+)',
+        ]
+        
+        for pattern in skill_patterns:
+            matches = re.findall(pattern, full_text, re.IGNORECASE)
+            for match in matches:
+                if ',' in match:
+                    skills = [s.strip() for s in match.split(',')]
+                    knowledge['skills'].extend(skills)
+                else:
+                    knowledge['skills'].append(match.strip())
+        
+        # Extract goals
+        goal_patterns = [
+            r'goal:\s*([^,\n]+)',
+            r'(?:wants\s+to|seeks\s+to|aims\s+to|desires\s+to)\s+([^.,]+)',
+            r'(?:determined\s+to|passionate\s+about)\s+([^.,]+)',
+        ]
+        
+        for pattern in goal_patterns:
+            matches = re.findall(pattern, full_text, re.IGNORECASE)
+            knowledge['goals'].extend([m.strip() for m in matches])
+        
+        # Extract backstory elements
+        backstory_keywords = ['born in', 'grew up', 'childhood', 'expelled', 'survived', 'refugee', 
+                              'moved to', 'rejected', 'army', 'academy', 'war', 'crash']
+        backstory_sentences = []
+        for sentence in full_text.split('.'):
+            if any(keyword in sentence for keyword in backstory_keywords):
+                backstory_sentences.append(sentence.strip())
+        knowledge['backstory_elements'] = backstory_sentences[:5]  # Top 5 most relevant
+        
+        # Extract from first message for current situation
+        if first_mes:
+            knowledge['current_situation'] = self._extract_situation_from_greeting(first_mes)
+            # Extract locations mentioned
+            location_patterns = [r'\b(?:at|in|on)\s+(?:the\s+)?([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*)', 
+                                r'(?:warehouse|tavern|guild|shop|city|street|room|office|desk|door)']
+            for pattern in location_patterns:
+                locs = re.findall(pattern, first_mes)
+                knowledge['locations'].extend([l for l in locs if isinstance(l, str)])
+        
+        # Enhanced speech pattern extraction from mes_example
+        if mes_example:
+            knowledge['speech_patterns'] = self._extract_speech_patterns(mes_example, char_name)
+            knowledge['mannerisms'] = self._extract_mannerisms(mes_example, char_name)
+        
+        # Process alternate greetings for variety
+        if alternate_greetings:
+            for greeting in alternate_greetings[:3]:  # Process up to 3
+                if greeting:
+                    # Extract emotional states and scenarios
+                    if 'screwed' in greeting or 'desperate' in greeting:
+                        knowledge['emotional_triggers'].append('financial_stress')
+                    if 'celebrate' in greeting or 'cheers' in greeting:
+                        knowledge['emotional_triggers'].append('success_celebration')
+        
+        # Extract character book / world info if present
+        char_book = character.get('character_book', {})
+        if char_book and 'entries' in char_book:
+            for entry in char_book.get('entries', []):
+                if entry.get('enabled', True):
+                    knowledge['world_info'].append({
+                        'name': entry.get('name', 'Unknown'),
+                        'content': entry.get('content', ''),
+                        'keys': entry.get('keys', [])
+                    })
+        
+        # Remove duplicates and empty entries
+        for key in knowledge:
+            if isinstance(knowledge[key], list):
+                knowledge[key] = list(set([item for item in knowledge[key] if item]))
+        
+        return knowledge
+
+    def _parse_structured_format(self, text: str) -> Dict[str, Any]:
+        """Parse structured character format (Type:, Species:, etc.)"""
+        result = {}
+        
+        # Common structured fields
+        field_patterns = {
+            'species': r'(?:species|race):\s*([^,\n]+)',
+            'appearance': r'appearance:\s*([^,\n]+(?:,\s*[^,\n]+)*)',
+            'equipment': r'equipment:\s*([^,\n]+(?:,\s*[^,\n]+)*)',
+            'known_spells': r'known\s+spells?:\s*([^,\n]+(?:,\s*[^,\n]+)*)',
+            'occupation': r'occupation:\s*([^,\n]+)',
+            'traits': r'traits?:\s*([^,\n]+(?:,\s*[^,\n]+)*)',
+        }
+        
+        for field, pattern in field_patterns.items():
+            match = re.search(pattern, text, re.IGNORECASE)
+            if match:
+                value = match.group(1).strip()
+                if field in ['appearance', 'equipment', 'known_spells', 'traits']:
+                    # These are lists
+                    result[field] = [v.strip() for v in value.split(',')]
+                else:
+                    result[field] = value
+        
+        return result
+
+    def _extract_situation_from_greeting(self, greeting: str) -> str:
+        """Extract the current situation/context from greeting"""
+        # Look for scene-setting elements
+        situation_parts = []
+        
+        # Time indicators
+        if 'dead day' in greeting or 'another day' in greeting:
+            situation_parts.append("struggling with business")
+        if 'knock at the door' in greeting:
+            situation_parts.append("receiving unexpected visitor")
+        if 'rent' in greeting and 'due' in greeting:
+            situation_parts.append("facing financial pressure")
+        
+        # Emotional state
+        if '*groan*' in greeting or 'RGGHH' in greeting:
+            situation_parts.append("frustrated")
+        if '!!' in greeting or 'almost falls' in greeting:
+            situation_parts.append("excited by opportunity")
+        
+        return "; ".join(situation_parts) if situation_parts else "starting new interaction"
+
+    def _extract_speech_patterns(self, mes_example: str, char_name: str) -> List[str]:
+        """Extract detailed speech patterns from example messages"""
+        patterns = []
+        
+        # Split into character's lines
+        char_lines = []
+        lines = mes_example.split('\n')
+        for i, line in enumerate(lines):
+            if f'{char_name}:' in line or (i > 0 and '{{char}}:' in lines[i-1]):
+                # Extract just the speech part
+                speech = line.split(':', 1)[-1].strip() if ':' in line else line
+                # Remove action text in asterisks
+                speech_only = re.sub(r'\*[^*]+\*', '', speech).strip()
+                if speech_only:
+                    char_lines.append(speech_only)
+        
+        # Analyze speech characteristics
+        # Repetition patterns
+        for line in char_lines:
+            if 'haha' in line.lower():
+                patterns.append('nervous_laughter')
+            if '...' in line:
+                patterns.append('trailing_off')
+            if '!' in line and line.count('!') >= 2:
+                patterns.append('multiple_exclamations')
+            if '?' in line and line.count('?') >= 2:
+                patterns.append('multiple_questions')
+            if 'uh' in line.lower() or 'um' in line.lower():
+                patterns.append('verbal_hesitation')
+            if re.search(r'\b(\w+)\s+\1\b', line):  # Repeated words
+                patterns.append('word_repetition')
+        
+        # Sentence structure patterns
+        short_sentences = sum(1 for line in char_lines if len(line.split()) < 5)
+        if short_sentences > len(char_lines) / 3:
+            patterns.append('short_sentences')
+        
+        # Specific speech quirks
+        if any('!' in line and '?' in line for line in char_lines):
+            patterns.append('excited_questions')
+        
+        return list(set(patterns))
+
+    def _extract_mannerisms(self, mes_example: str, char_name: str) -> List[str]:
+        """Extract action patterns and mannerisms from example messages"""
+        mannerisms = []
+        
+        # Extract all action text (between asterisks)
+        actions = re.findall(r'\*([^*]+)\*', mes_example)
+        
+        # Categorize actions
+        for action in actions:
+            action_lower = action.lower()
+            if any(word in action_lower for word in ['jump', 'shoot up', 'scrambl']):
+                mannerisms.append('physically_reactive')
+            if any(word in action_lower for word in ['grin', 'smile', 'laugh']):
+                mannerisms.append('expressive_smiling')
+            if any(word in action_lower for word in ['wince', 'swallow', 'choke']):
+                mannerisms.append('shows_discomfort')
+            if any(word in action_lower for word in ['look away', 'glance', 'stare']):
+                mannerisms.append('expressive_eyes')
+            if 'clear' in action_lower and 'throat' in action_lower:
+                mannerisms.append('clears_throat_when_nervous')
+        
+        return list(set(mannerisms))
+
+    def generate_scenario_based_prompts(self, character: Dict[str, Any], knowledge: Dict[str, Any], num_scenarios: int = 5) -> List[Dict[str, Any]]:
+        """Generate scenario-based prompts that explore character in specific situations"""
+        scenarios = []
+        char_name = character.get('name', 'Assistant')
+        
+        # Base scenarios that work for most characters
+        base_scenarios = [
+            {
+                "context": f"{char_name} encounters an unexpected obstacle",
+                "prompts": [
+                    "What's blocking our path?",
+                    "How should we handle this?",
+                    "Have you dealt with something like this before?",
+                    "What are our options here?"
+                ]
+            },
+            {
+                "context": f"{char_name} is in a moment of vulnerability",
+                "prompts": [
+                    "Are you okay?",
+                    "What's really bothering you?",
+                    "You can trust me with this.",
+                    "How can I help?"
+                ]
+            },
+            {
+                "context": f"{char_name} is asked about their expertise",
+                "prompts": [
+                    "How did you learn to do that?",
+                    "Can you teach me?",
+                    "What's the most important thing to know?",
+                    "When did you first discover this talent?"
+                ]
+            },
+            {
+                "context": f"{char_name} faces a moral dilemma",
+                "prompts": [
+                    "What's the right thing to do here?",
+                    "How do you decide in situations like this?",
+                    "What would happen if we chose differently?",
+                    "Have you ever regretted a similar choice?"
+                ]
+            },
+            {
+                "context": f"{char_name} shares a quiet moment",
+                "prompts": [
+                    "What are you thinking about?",
+                    "Do you ever wonder what could have been?",
+                    "What makes you happy?",
+                    "Tell me something I don't know about you."
+                ]
+            }
+        ]
+        
+        # Add occupation-specific scenarios
+        if knowledge['occupation']:
+            scenarios.append({
+                "context": f"{char_name} dealing with {knowledge['occupation']} responsibilities",
+                "prompts": [
+                    f"What's the hardest part about being {knowledge['occupation']}?",
+                    f"Why did you become {knowledge['occupation']}?",
+                    f"What does a typical day as {knowledge['occupation']} look like?",
+                    f"Any interesting stories from your work as {knowledge['occupation']}?"
+                ]
+            })
+        
+        # Add current situation scenarios if available
+        if knowledge['current_situation']:
+            scenarios.append({
+                "context": f"{char_name} discusses their current situation: {knowledge['current_situation']}",
+                "prompts": [
+                    "How did things get to this point?",
+                    "What's your plan to deal with this?",
+                    "Who else knows about this situation?",
+                    "What happens if this doesn't work out?"
+                ]
+            })
+        
+        # Character-specific scenarios based on extracted knowledge
+        if knowledge['skills']:
+            for skill in knowledge['skills'][:3]:  # Top 3 skills
+                scenarios.append({
+                    "context": f"{char_name} demonstrates their {skill}",
+                    "prompts": [
+                        f"How did you become so good at {skill}?",
+                        f"What's the hardest part about {skill}?",
+                        f"Can you show me how to {skill}?",
+                        f"What mistakes do beginners make with {skill}?"
+                    ]
+                })
+        
+        # Equipment/spell scenarios
+        if knowledge['equipment']:
+            equipment = knowledge['equipment'][0] if knowledge['equipment'] else "equipment"
+            scenarios.append({
+                "context": f"{char_name} maintains or uses their {equipment}",
+                "prompts": [
+                    f"Where did you get your {equipment}?",
+                    f"Has your {equipment} ever let you down?",
+                    f"What's special about your {equipment}?",
+                    f"Can I see your {equipment}?"
+                ]
+            })
+        
+        if knowledge['known_spells']:
+            spell = knowledge['known_spells'][0] if knowledge['known_spells'] else "magic"
+            scenarios.append({
+                "context": f"{char_name} casts or discusses {spell}",
+                "prompts": [
+                    f"How does {spell} actually work?",
+                    f"When did you first learn {spell}?",
+                    f"What happens if {spell} goes wrong?",
+                    f"Can you teach me {spell}?"
+                ]
+            })
+        
+        # Location-based scenarios from world info
+        if knowledge['locations']:
+            for location in knowledge['locations'][:2]:
+                scenarios.append({
+                    "context": f"At {location} with {char_name}",
+                    "prompts": [
+                        f"What do you think of {location}?",
+                        f"How often do you come to {location}?",
+                        f"Any memories associated with {location}?",
+                        f"Who else might we meet at {location}?"
+                    ]
+                })
+        
+        # World-info based scenarios
+        if knowledge['world_info']:
+            for info in knowledge['world_info'][:2]:
+                info_name = info['name']
+                scenarios.append({
+                    "context": f"Discussing {info_name} with {char_name}",
+                    "prompts": [
+                        f"Tell me more about {info_name}.",
+                        f"How does {info_name} affect you?",
+                        f"What's your opinion on {info_name}?",
+                        f"Any stories about {info_name}?"
+                    ]
+                })
+        
+        # Backstory-based scenarios
+        if knowledge['backstory_elements']:
+            for element in knowledge['backstory_elements'][:2]:
+                # Extract key event from backstory
+                if 'expelled' in element:
+                    scenarios.append({
+                        "context": f"{char_name} reflects on being expelled",
+                        "prompts": [
+                            "Do you regret what led to your expulsion?",
+                            "How did being expelled change your life?",
+                            "Would you go back if you could?",
+                            "What did you learn from that experience?"
+                        ]
+                    })
+                elif 'survived' in element or 'crash' in element:
+                    scenarios.append({
+                        "context": f"{char_name} remembers surviving disaster",
+                        "prompts": [
+                            "How did you survive when others didn't?",
+                            "Do you have survivor's guilt?",
+                            "What kept you going?",
+                            "How has it changed you?"
+                        ]
+                    })
+        
+        # Mannerism-based scenarios
+        if 'physically_reactive' in knowledge['mannerisms']:
+            scenarios.append({
+                "context": f"{char_name} in a tense situation",
+                "prompts": [
+                    "You seem jumpy. What's wrong?",
+                    "Try to stay calm.",
+                    "Take a deep breath.",
+                    "Is something making you nervous?"
+                ]
+            })
+        
+        if knowledge['fears']:
+            for fear in knowledge['fears'][:2]:  # Top 2 fears
+                scenarios.append({
+                    "context": f"{char_name} confronts their fear of {fear}",
+                    "prompts": [
+                        "You seem tense. What's wrong?",
+                        "We can face this together.",
+                        "What happened to make you fear this?",
+                        "How do you usually cope with this?"
+                    ]
+                })
+        
+        if knowledge['goals']:
+            for goal in knowledge['goals'][:2]:  # Top 2 goals
+                scenarios.append({
+                    "context": f"{char_name} discusses their goal to {goal}",
+                    "prompts": [
+                        "What drives you to pursue this?",
+                        "What obstacles stand in your way?",
+                        "How will you know when you've succeeded?",
+                        "What sacrifices have you made for this?"
+                    ]
+                })
+        
+        # Emotional trigger scenarios
+        if knowledge['emotional_triggers']:
+            for trigger in knowledge['emotional_triggers'][:2]:
+                if trigger == 'financial_stress':
+                    scenarios.append({
+                        "context": f"{char_name} dealing with money problems",
+                        "prompts": [
+                            "How bad is the financial situation?",
+                            "What's your plan to make money?",
+                            "Who do you owe money to?",
+                            "What happens if you can't pay?"
+                        ]
+                    })
+                elif trigger == 'success_celebration':
+                    scenarios.append({
+                        "context": f"Celebrating a victory with {char_name}",
+                        "prompts": [
+                            "We did it! How does it feel?",
+                            "What should we do to celebrate?",
+                            "Who else should we tell?",
+                            "What's next after this success?"
+                        ]
+                    })
+        
+        # Relationship-based scenarios
+        relationship_scenarios = [
+            {
+                "context": f"Building trust with {char_name}",
+                "prompts": [
+                    "Why should I trust you?",
+                    "Have you ever betrayed someone's trust?",
+                    "What would you do if I betrayed you?",
+                    "How do you know when to trust someone?"
+                ]
+            },
+            {
+                "context": f"Conflict with {char_name}",
+                "prompts": [
+                    "I think you're wrong about this.",
+                    "Why won't you listen to me?",
+                    "Maybe we should go our separate ways.",
+                    "How can we resolve this?"
+                ]
+            },
+            {
+                "context": f"Celebrating with {char_name}",
+                "prompts": [
+                    "We did it! How should we celebrate?",
+                    "I couldn't have done this without you.",
+                    "What's your idea of a perfect celebration?",
+                    "This calls for a toast!"
+                ]
+            }
+        ]
+        
+        # Mix base, character-specific, and relationship scenarios
+        all_scenarios = base_scenarios + scenarios + relationship_scenarios
+        
+        # Remove duplicates and randomly select
+        unique_scenarios = []
+        seen_contexts = set()
+        for scenario in all_scenarios:
+            if scenario['context'] not in seen_contexts:
+                unique_scenarios.append(scenario)
+                seen_contexts.add(scenario['context'])
+        
+        selected = random.sample(unique_scenarios, min(num_scenarios, len(unique_scenarios)))
+        
+        return selected
+
+    def generate_multi_turn_conversation(self, character: Dict[str, Any], scenario: Dict[str, Any], turns: int = 3) -> List[Dict[str, str]]:
+        """Generate a multi-turn conversation flow for deeper character exploration"""
+        conversation_flows = []
+        
+        # Start with scenario context
+        context = scenario['context']
+        initial_prompts = scenario['prompts']
+        
+        # Create conversation branches
+        for initial_prompt in initial_prompts[:2]:  # Use first 2 prompts
+            flow = [{"role": "user", "content": initial_prompt}]
+            
+            # Generate follow-up questions based on expected response types
+            follow_ups = self._generate_follow_up_questions(initial_prompt, character)
+            
+            for i in range(turns - 1):
+                if i < len(follow_ups):
+                    flow.append({"role": "user", "content": follow_ups[i]})
+            
+            conversation_flows.append({
+                "context": context,
+                "turns": flow
+            })
+        
+        return conversation_flows
+
+    def _generate_follow_up_questions(self, initial_prompt: str, character: Dict[str, Any]) -> List[str]:
+        """Generate contextual follow-up questions"""
+        # Map initial prompt types to follow-up patterns
+        follow_up_patterns = {
+            # For "how" questions
+            "how": [
+                "Can you give me a specific example?",
+                "What was the most challenging part?",
+                "Would you do it differently now?",
+                "Who helped you along the way?"
+            ],
+            # For "what" questions  
+            "what": [
+                "Why is that important to you?",
+                "How does that make you feel?",
+                "Has it always been this way?",
+                "What would change if that were different?"
+            ],
+            # For "why" questions
+            "why": [
+                "When did you first realize this?",
+                "Does everyone see it that way?",
+                "What experiences shaped this view?",
+                "Could there be another explanation?"
+            ],
+            # For emotional/vulnerable moments
+            "feel": [
+                "How long have you felt this way?",
+                "What helps when you feel like this?",
+                "Have you told anyone else?",
+                "What would make it better?"
+            ],
+            # For action/decision questions
+            "should": [
+                "What are the risks?",
+                "What's your gut telling you?",
+                "What would happen if we didn't?",
+                "Who else should we consider?"
+            ]
+        }
+        
+        # Determine prompt type
+        prompt_lower = initial_prompt.lower()
+        prompt_type = None
+        
+        for key in follow_up_patterns:
+            if key in prompt_lower:
+                prompt_type = key
+                break
+        
+        # Default follow-ups if no pattern matched
+        if not prompt_type:
+            return [
+                "Tell me more about that.",
+                "What makes you say that?",
+                "How certain are you?",
+                "What happens next?"
+            ]
+        
+        # Return appropriate follow-ups
+        return follow_up_patterns[prompt_type]
+
+    def generate_exploration_prompts(self, character: Dict[str, Any], knowledge: Dict[str, Any]) -> List[str]:
+        """Generate prompts that explore specific aspects of the character"""
+        prompts = []
+        
+        # Trait exploration - enhanced to use extracted traits
+        if knowledge['traits']:
+            for trait in knowledge['traits'][:5]:
+                prompts.extend([
+                    f"People say you're {trait}. Is that accurate?",
+                    f"When did you first become {trait}?",
+                    f"What made you so {trait}?",
+                    f"Do you ever wish you weren't so {trait}?"
+                ])
+        else:
+            # Fallback trait questions
+            prompts.extend([
+                "What's your most defining trait?",
+                "How would others describe you?",
+                "What part of your personality do you struggle with?",
+                "What trait has helped you most in life?"
+            ])
+        
+        # Skill exploration - using actual extracted skills
+        if knowledge['skills']:
+            for skill in knowledge['skills'][:3]:
+                prompts.extend([
+                    f"Show me your {skill}.",
+                    f"What's your greatest achievement with {skill}?",
+                    f"Who taught you {skill}?",
+                    f"What's the secret to mastering {skill}?"
+                ])
+        
+        # Species-specific questions if not human
+        if knowledge['species'] and knowledge['species'].lower() != 'human':
+            species = knowledge['species']
+            prompts.extend([
+                f"What's it like being a {species}?",
+                f"Are there any misconceptions about {species}?",
+                f"What advantages does being a {species} give you?",
+                f"Do you face any challenges as a {species}?"
+            ])
+        
+        # Appearance-based questions if we have details
+        if knowledge['appearance']:
+            for feature in knowledge['appearance'][:2]:
+                prompts.append(f"Is there a story behind your {feature}?")
+        
+        # Backstory exploration - enhanced with actual backstory elements
+        if knowledge['backstory_elements']:
+            prompts.extend([
+                "Tell me more about your past.",
+                "What event from your past still affects you today?",
+                "If you could change one thing about your past, what would it be?"
+            ])
+            # Add specific questions based on backstory elements
+            for element in knowledge['backstory_elements'][:2]:
+                if 'born' in element:
+                    prompts.append("What was your hometown like?")
+                if 'expelled' in element or 'rejected' in element:
+                    prompts.append("How did that rejection affect you?")
+                if 'war' in element or 'army' in element:
+                    prompts.append("What did you learn from your military experience?")
+        else:
+            # Generic backstory questions
+            prompts.extend([
+                "What's your earliest memory?",
+                "Who influenced you most growing up?",
+                "What was the turning point in your life?",
+                "What's a story from your past that defines who you are?"
+            ])
+        
+        # Emotional exploration - enhanced with speech patterns
+        emotion_prompts = [
+            "What brings you joy?",
+            "What makes you angry?",
+            "When was the last time you cried?",
+            "What's your greatest fear?",
+            "What makes you feel alive?",
+            "When do you feel most vulnerable?",
+            "What emotion do you struggle with most?",
+            "How do you handle stress?"
+        ]
+        
+        # Modify based on speech patterns
+        if 'nervous_laughter' in knowledge['speech_patterns']:
+            emotion_prompts.append("Why do you laugh when you're nervous?")
+        if 'verbal_hesitation' in knowledge['speech_patterns']:
+            emotion_prompts.append("What makes you hesitate when speaking?")
+        if 'trailing_off' in knowledge['speech_patterns']:
+            emotion_prompts.append("What thoughts make you trail off mid-sentence?")
+        
+        prompts.extend(emotion_prompts)
+        
+        # Relationship exploration - enhanced with mannerisms
+        relationship_prompts = [
+            "What do you look for in a friend?",
+            "How do you show someone you care?",
+            "What's your biggest relationship regret?",
+            "Who understands you best?",
+            "What walls do you put up with people?",
+            "How do you handle conflict?",
+            "What makes you trust someone?",
+            "When do you feel most connected to others?"
+        ]
+        
+        # Add mannerism-specific relationship questions
+        if 'physically_reactive' in knowledge['mannerisms']:
+            relationship_prompts.append("Why are you so jumpy around people?")
+        if 'shows_discomfort' in knowledge['mannerisms']:
+            relationship_prompts.append("What makes you uncomfortable in social situations?")
+        
+        prompts.extend(relationship_prompts)
+        
+        # World-specific questions based on world info
+        if knowledge['world_info']:
+            for info in knowledge['world_info'][:3]:
+                content = info['content'].lower()
+                if 'debt' in content:
+                    prompts.extend([
+                        "How did you get into debt?",
+                        "What's your plan to pay it off?",
+                        "Who are you in debt to?"
+                    ])
+                if 'business' in content or 'agency' in content:
+                    prompts.extend([
+                        "How's business going?",
+                        "What made you start this venture?",
+                        "What's your vision for the future?"
+                    ])
+                if 'guild' in content:
+                    prompts.extend([
+                        "What's your relationship with other guilds?",
+                        "Why did other guilds reject you?",
+                        "What makes your guild different?"
+                    ])
+        
+        # Current situation questions
+        if knowledge['current_situation']:
+            prompts.extend([
+                "How are you handling the current situation?",
+                "What's your immediate priority?",
+                "Who can help you with this?",
+                "What's your backup plan?"
+            ])
+        
+        # Goal-specific questions
+        if knowledge['goals']:
+            for goal in knowledge['goals'][:2]:
+                prompts.extend([
+                    f"Why is {goal} so important to you?",
+                    f"What's stopping you from achieving {goal}?",
+                    f"Who supports your goal to {goal}?"
+                ])
+        
+        # Philosophical exploration
+        prompts.extend([
+            "What do you believe happens after death?",
+            "Is there such a thing as destiny?",
+            "What's the meaning of life?",
+            "Do you believe in second chances?",
+            "Is it better to be feared or loved?",
+            "What's worth fighting for?",
+            "Can people truly change?",
+            "What legacy do you want to leave?"
+        ])
+        
+        # Equipment/possession questions
+        if knowledge['equipment']:
+            for item in knowledge['equipment'][:2]:
+                prompts.extend([
+                    f"What's the story behind your {item}?",
+                    f"Would you ever part with your {item}?"
+                ])
+        
+        # Spell/magic questions
+        if knowledge['known_spells']:
+            prompts.extend([
+                "What's your relationship with magic?",
+                "Which spell is most useful to you?",
+                "Have you ever had a spell backfire?",
+                "What spell do you wish you could cast?"
+            ])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_prompts = []
+        for prompt in prompts:
+            if prompt not in seen:
+                seen.add(prompt)
+                unique_prompts.append(prompt)
+        
+        return unique_prompts
+
+    def calculate_prompt_similarity(self, prompt1: str, prompt2: str) -> float:
+        """Calculate semantic similarity between two prompts"""
+        # Simple word overlap similarity (can be enhanced with embeddings)
+        words1 = set(prompt1.lower().split())
+        words2 = set(prompt2.lower().split())
+        
+        if not words1 or not words2:
+            return 0.0
+            
+        intersection = words1.intersection(words2)
+        union = words1.union(words2)
+        
+        return len(intersection) / len(union)
+
+    def deduplicate_prompts(self, prompts: List[str], similarity_threshold: float = 0.7) -> List[str]:
+        """Remove similar prompts to ensure diversity"""
+        if not prompts:
+            return []
+            
+        unique_prompts = [prompts[0]]
+        
+        for prompt in prompts[1:]:
+            is_unique = True
+            for unique_prompt in unique_prompts:
+                similarity = self.calculate_prompt_similarity(prompt, unique_prompt)
+                if similarity > similarity_threshold:
+                    is_unique = False
+                    break
+            
+            if is_unique:
+                unique_prompts.append(prompt)
+                
+        return unique_prompts
+
+    def evaluate_response_quality(self, response: str, character: Dict[str, Any], prompt: str) -> Dict[str, Any]:
+        """Evaluate the quality of a generated response"""
+        quality_metrics = {
+            'length_score': 0.0,
+            'character_consistency': 0.0,
+            'relevance_score': 0.0,
+            'diversity_score': 0.0,
+            'overall_score': 0.0,
+            'issues': []
+        }
+        
+        # Length evaluation
+        word_count = len(response.split())
+        if word_count < 5:
+            quality_metrics['length_score'] = 0.0
+            quality_metrics['issues'].append("Response too short")
+        elif word_count < 20:
+            quality_metrics['length_score'] = 0.5
+        elif word_count < 200:
+            quality_metrics['length_score'] = 1.0
+        else:
+            quality_metrics['length_score'] = 0.8  # Slightly penalize very long responses
+        
+        # Character consistency check
+        char_name = character.get('name', 'Assistant')
+        
+        # Check for character name consistency
+        if char_name.lower() in response.lower():
+            # Character referring to themselves in third person (usually bad)
+            quality_metrics['character_consistency'] -= 0.3
+            quality_metrics['issues'].append("Character refers to self in third person")
+        
+        # Check for prompt leakage
+        if any(token in response for token in ['<|system|>', '<|user|>', '<|assistant|>', '<|endoftext|>']):
+            quality_metrics['character_consistency'] = 0.0
+            quality_metrics['issues'].append("Contains formatting tokens")
+            
+        # Check for meta-commentary
+        meta_phrases = ['as an ai', 'as a language model', 'i cannot', 'i don\'t have', 'my training']
+        if any(phrase in response.lower() for phrase in meta_phrases):
+            quality_metrics['character_consistency'] -= 0.5
+            quality_metrics['issues'].append("Contains meta-commentary")
+        
+        # Base character consistency score
+        if not quality_metrics['issues']:
+            quality_metrics['character_consistency'] = 1.0
+        else:
+            quality_metrics['character_consistency'] = max(0.0, quality_metrics['character_consistency'] + 1.0)
+        
+        # Relevance to prompt
+        prompt_words = set(prompt.lower().split())
+        response_words = set(response.lower().split())
+        
+        # Check if response addresses the prompt
+        common_words = prompt_words.intersection(response_words)
+        if len(common_words) > 2:
+            quality_metrics['relevance_score'] = min(1.0, len(common_words) / 10)
+        else:
+            quality_metrics['relevance_score'] = 0.3
+            quality_metrics['issues'].append("Low relevance to prompt")
+        
+        # Diversity score (vocabulary richness)
+        unique_words = len(set(response.lower().split()))
+        total_words = len(response.split())
+        if total_words > 0:
+            quality_metrics['diversity_score'] = min(1.0, unique_words / total_words * 2)
+        
+        # Calculate overall score
+        quality_metrics['overall_score'] = (
+            quality_metrics['length_score'] * 0.2 +
+            quality_metrics['character_consistency'] * 0.4 +
+            quality_metrics['relevance_score'] * 0.2 +
+            quality_metrics['diversity_score'] * 0.2
+        )
+        
+        return quality_metrics
+
+    def generate_emotional_variations(self, base_prompt: str, emotions: List[str] = None) -> List[str]:
+        """Generate variations of a prompt with different emotional contexts"""
+        if emotions is None:
+            emotions = ['neutral', 'happy', 'sad', 'angry', 'worried', 'excited', 'tired', 'curious']
+        
+        emotional_modifiers = {
+            'happy': [
+                "*smiling* {}",
+                "*laughing* {}",
+                "*excitedly* {}",
+                "I'm in such a good mood! {}"
+            ],
+            'sad': [
+                "*sighs* {}",
+                "*looking down* {}",
+                "*quietly* {}",
+                "I've been feeling down... {}"
+            ],
+            'angry': [
+                "*frustrated* {}",
+                "*raising voice* {}",
+                "*clenching fists* {}",
+                "I can't believe this! {}"
+            ],
+            'worried': [
+                "*nervously* {}",
+                "*biting lip* {}",
+                "*anxiously* {}",
+                "I'm concerned... {}"
+            ],
+            'excited': [
+                "*eyes lighting up* {}",
+                "*bouncing* {}",
+                "*eagerly* {}",
+                "Oh! Oh! {}"
+            ],
+            'tired': [
+                "*yawning* {}",
+                "*rubbing eyes* {}",
+                "*wearily* {}",
+                "Sorry, I'm exhausted... {}"
+            ],
+            'curious': [
+                "*leaning forward* {}",
+                "*tilting head* {}",
+                "*intrigued* {}",
+                "I've been wondering... {}"
+            ],
+            'neutral': ["{}"]  # No modification
+        }
+        
+        variations = []
+        for emotion in emotions:
+            if emotion in emotional_modifiers:
+                modifier = random.choice(emotional_modifiers[emotion])
+                variations.append(modifier.format(base_prompt))
+        
+        return variations
+
+    def enhance_prompt_with_context(self, prompt: str, character: Dict[str, Any], scenario_context: str = None) -> str:
+        """Enhance a prompt with contextual information"""
+        enhanced_prompts = []
+        
+        # Add scenario context if provided
+        if scenario_context:
+            enhanced_prompts.append(f"[Context: {scenario_context}] {prompt}")
+        
+        # Add time-based context
+        time_contexts = [
+            "It's late at night. ",
+            "The sun is setting. ",
+            "It's early morning. ",
+            "In the middle of a storm. ",
+            "During a quiet moment. "
+        ]
+        
+        # Add location-based context (if applicable from character card)
+        scenario = character.get('scenario', '')
+        if 'tavern' in scenario.lower():
+            enhanced_prompts.append(f"*in the tavern* {prompt}")
+        elif 'forest' in scenario.lower():
+            enhanced_prompts.append(f"*in the forest* {prompt}")
+        elif 'city' in scenario.lower():
+            enhanced_prompts.append(f"*in the city* {prompt}")
+        
+        # Add relationship progression
+        relationship_stages = [
+            "*just met* {}",
+            "*getting to know each other* {}",
+            "*as friends* {}",
+            "*as close companions* {}",
+            "*after everything we've been through* {}"
+        ]
+        
+        # Return one enhanced version or original
+        if enhanced_prompts:
+            return random.choice(enhanced_prompts + [prompt])
+        else:
+            # Add a random contextual enhancement
+            if random.random() < 0.3:  # 30% chance
+                time_context = random.choice(time_contexts)
+                return time_context + prompt
+            elif random.random() < 0.5:  # 50% of remaining
+                stage = random.choice(relationship_stages)
+                return stage.format(prompt)
+            else:
+                return prompt
+
+    def analyze_temporal_distribution(self, dataset: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze temporal distribution of dataset samples"""
+        if not dataset:
+            return {}
+
+        temporal_counts = {"past": 0, "present": 0, "future": 0, "unknown": 0}
+        relationship_counts = {}
+        past_relationship_samples = []
+        future_relationship_samples = []
+
+        for sample in dataset:
+            # Analyze system prompt to determine temporal context
+            system_content = sample.get('messages', [{}])[0].get('content', '')
+            user_content = sample.get('messages', [{}])[1].get(
+                'content', '') if len(sample.get('messages', [])) > 1 else ''
+
+            # Detect temporal context from system prompt
+            temporal_context = "unknown"
+            if "speaking with a family member about your past" in system_content:
+                temporal_context = "past"
+                relationship_counts["family"] = relationship_counts.get(
+                    "family", 0) + 1
+                past_relationship_samples.append(user_content[:100])
+            elif "reminiscing with an old friend" in system_content:
+                temporal_context = "past"
+                relationship_counts["friend"] = relationship_counts.get(
+                    "friend", 0) + 1
+                past_relationship_samples.append(user_content[:100])
+            elif "reflecting with someone who taught" in system_content:
+                temporal_context = "past"
+                relationship_counts["mentor"] = relationship_counts.get(
+                    "mentor", 0) + 1
+                past_relationship_samples.append(user_content[:100])
+            elif "past romantic connection" in system_content:
+                temporal_context = "past"
+                relationship_counts["romance"] = relationship_counts.get(
+                    "romance", 0) + 1
+                past_relationship_samples.append(user_content[:100])
+            elif "known each other for years" in system_content:
+                temporal_context = "future"
+                future_relationship_samples.append(user_content[:100])
+            elif "meeting the User for the first time" in system_content:
+                temporal_context = "present"
+            elif any(past_keyword in user_content.lower() for past_keyword in ["childhood", "growing up", "when you were young", "your father", "your mother"]):
+                temporal_context = "past"
+            elif any(future_keyword in user_content.lower() for future_keyword in ["after all this time", "our relationship", "years together"]):
+                temporal_context = "future"
+            else:
+                temporal_context = "present"
+
+            temporal_counts[temporal_context] += 1
+
+        total_samples = sum(temporal_counts.values())
+        temporal_percentages = {k: (v/total_samples)*100 if total_samples > 0 else 0
+                                for k, v in temporal_counts.items()}
+
+        return {
+            'temporal_distribution': temporal_counts,
+            'temporal_percentages': temporal_percentages,
+            'relationship_contexts': relationship_counts,
+            # First 5 examples
+            'past_relationship_samples': past_relationship_samples[:5],
+            # First 5 examples
+            'future_relationship_samples': future_relationship_samples[:5],
+            # Out of 3 temporal buckets
+            'temporal_diversity_score': len([v for v in temporal_counts.values() if v > 0]) / 3 * 100
+        }
+
+    def generate_prompts_from_greetings(self, character: Dict[str, Any], knowledge: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Generate prompts based on alternate greetings which show different scenarios"""
+        prompts = []
+        
+        # Process first message
+        first_mes = character.get('first_mes', '')
+        if first_mes:
+            # Analyze the greeting scenario
+            greeting_prompts = self._analyze_greeting_for_prompts(first_mes, "initial greeting")
+            if greeting_prompts:
+                prompts.append({
+                    'context': 'Initial meeting scenario',
+                    'prompts': greeting_prompts
+                })
+        
+        # Process alternate greetings
+        alternate_greetings = character.get('alternate_greetings', [])
+        for i, greeting in enumerate(alternate_greetings[:3]):  # Process up to 3 alternates
+            if greeting:
+                greeting_prompts = self._analyze_greeting_for_prompts(greeting, f"alternate scenario {i+1}")
+                if greeting_prompts:
+                    # Determine context from greeting content
+                    context = self._extract_greeting_context(greeting)
+                    prompts.append({
+                        'context': context,
+                        'prompts': greeting_prompts
+                    })
+        
+        return prompts
+
+    def _analyze_greeting_for_prompts(self, greeting: str, greeting_type: str) -> List[str]:
+        """Analyze a greeting to generate contextual prompts"""
+        prompts = []
+        greeting_lower = greeting.lower()
+        
+        # Financial stress scenario
+        if any(word in greeting_lower for word in ['money', 'gold', 'coin', 'rent', 'debt', 'pay']):
+            prompts.extend([
+                "How much money do you need exactly?",
+                "What happened to your finances?",
+                "Who are you in debt to?",
+                "What's your plan to make money?"
+            ])
+        
+        # Celebration/success scenario
+        if any(word in greeting_lower for word in ['celebrate', 'success', 'did it', 'woohoo', 'toast']):
+            prompts.extend([
+                "What are we celebrating?",
+                "How did you pull it off?",
+                "What's next after this success?",
+                "Who else helped make this happen?"
+            ])
+        
+        # Danger/trouble scenario
+        if any(word in greeting_lower for word in ['danger', 'trouble', 'help', 'emergency', 'problem']):
+            prompts.extend([
+                "What kind of trouble are you in?",
+                "How can I help?",
+                "Who's after you?",
+                "How urgent is this?"
+            ])
+        
+        # Business/work scenario
+        if any(word in greeting_lower for word in ['job', 'work', 'contract', 'guild', 'agency', 'business']):
+            prompts.extend([
+                "What kind of job is it?",
+                "What's the pay like?",
+                "Why did you choose this line of work?",
+                "Any interesting contracts lately?"
+            ])
+        
+        # Location-specific prompts
+        if 'tavern' in greeting_lower:
+            prompts.extend([
+                "Come here often?",
+                "What's good to drink here?",
+                "Know any interesting people here?"
+            ])
+        elif 'warehouse' in greeting_lower or 'office' in greeting_lower:
+            prompts.extend([
+                "How long have you had this place?",
+                "Business been good?",
+                "What kind of work do you do here?"
+            ])
+        
+        # Emotional state prompts based on actions/descriptions
+        if '*sigh*' in greeting or '*groan*' in greeting or 'frustrated' in greeting_lower:
+            prompts.extend([
+                "Rough day?",
+                "What's got you so frustrated?",
+                "Anything I can do to help?"
+            ])
+        elif '*smile*' in greeting or '*grin*' in greeting or 'excited' in greeting_lower:
+            prompts.extend([
+                "You seem happy!",
+                "What's the good news?",
+                "Share the excitement!"
+            ])
+        
+        return prompts
+
+    def _extract_greeting_context(self, greeting: str) -> str:
+        """Extract a descriptive context from a greeting"""
+        greeting_lower = greeting.lower()
+        
+        # Identify the primary scenario
+        if 'money' in greeting_lower or 'debt' in greeting_lower or 'rent' in greeting_lower:
+            return "Financial crisis scenario"
+        elif 'celebrate' in greeting_lower or 'success' in greeting_lower:
+            return "Celebration scenario"
+        elif 'danger' in greeting_lower or 'trouble' in greeting_lower:
+            return "Danger/emergency scenario"
+        elif 'tavern' in greeting_lower:
+            return "Tavern meeting scenario"
+        elif 'job' in greeting_lower or 'contract' in greeting_lower:
+            return "Business opportunity scenario"
+        elif 'visitor' in greeting_lower or 'customer' in greeting_lower:
+            return "Unexpected visitor scenario"
+        else:
+            return "Alternative meeting scenario"

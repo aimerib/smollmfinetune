@@ -125,6 +125,7 @@ class VLLMEngine(InferenceEngine):
         self._available = None
         self._batch_queue = []
         self._batch_size = 8  # Process in batches of 8
+        self._max_batch_size = 1000  # vLLM can handle very large batches
         self._initialized = True
 
         # Initialize the lock if not already done
