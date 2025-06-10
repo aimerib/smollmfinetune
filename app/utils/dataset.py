@@ -1333,8 +1333,16 @@ Format as JSON list:
                     custom_stop_tokens=reduced_stop_tokens
                 )
                 
+                # ————————————————————————  NEW DIAGNOSTIC LOGGING  ————————————————————————
+                preview_len = min(len(response), 400)
+                logger.info(
+                    f"📝 Raw intelligent-prompt response (context={temporal_context}, attempt={attempt + 1}, chars={len(response)}):\n"
+                    f"{response[:preview_len].replace('\n', ' ')[:400]}{'…' if len(response) > preview_len else ''}"
+                )
+                # ——————————————————————————————————————————————————————————————————————
+                
                 if not response or len(response.strip()) < 10:
-                    logger.debug(f"Empty or too short response from LLM (attempt {attempt + 1}): '{response}'")
+                    logger.info(f"⚠️ Empty or too short response from LLM (attempt {attempt + 1})")
                     if attempt == max_retries - 1:  # Last attempt
                         logger.info(f"⚡ LLM generated empty responses after {max_retries} attempts, using static prompts")
                     continue
@@ -1361,7 +1369,7 @@ Format as JSON list:
                             return parsed_prompts
                         
                 except json.JSONDecodeError as e:
-                    logger.debug(f"JSON parsing failed (attempt {attempt + 1}): {e}")
+                    logger.info(f"🛑 JSON parsing failed (attempt {attempt + 1}): {e}")
                     
                 # Fallback: extract questions from raw text
                 lines = response.split('\n')
@@ -1390,7 +1398,7 @@ Format as JSON list:
                     return fallback_prompts[:num_prompts]
                     
             except Exception as e:
-                logger.debug(f"LLM temporal prompt generation failed (attempt {attempt + 1}): {e}")
+                logger.info(f"💥 LLM temporal prompt generation failed (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:  # Last attempt
                     logger.info(f"⚡ LLM generation failed after {max_retries} attempts, using static prompts")
                     break
