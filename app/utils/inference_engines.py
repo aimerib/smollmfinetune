@@ -11,6 +11,7 @@ import secrets
 from typing import Optional, List
 import logging
 import torch  # For memory management
+import gc
 
 
 logger = logging.getLogger(__name__)
@@ -194,6 +195,11 @@ class VLLMEngine(InferenceEngine):
                       custom_stop_tokens: Optional[List[str]] = None) -> str:
         """Generate using vLLM with smart batching"""
         try:
+            # Validate input
+            if not prompt or not isinstance(prompt, str):
+                logger.warning("⚠️ Invalid prompt passed to generate")
+                return ""
+
             # Initialize model if needed (only happens once)
             self._initialize_model()
             
@@ -237,10 +243,42 @@ class VLLMEngine(InferenceEngine):
             
             # Generate using the singleton model instance
             loop = asyncio.get_event_loop()
-            outputs = await loop.run_in_executor(
-                None, 
-                lambda: VLLMEngine._llm.generate([prompt], sampling_params)
-            )
+            try:
+                outputs = await loop.run_in_executor(
+                    None, 
+                    lambda: VLLMEngine._llm.generate([prompt], sampling_params)
+                )
+            except RuntimeError as e:
+                error_str = str(e)
+                if any(err in error_str for err in ["index", "out of bounds", "size", "dimension", "shape", "CUDA"]):
+                    logger.error(f"⚠️ vLLM tensor/CUDA error: {error_str}")
+                    logger.info("🔄 Attempting generation with minimal parameters")
+                    
+                    # Try again with more conservative settings
+                    min_sampling_params = SamplingParams(
+                        temperature=temperature,
+                        top_p=top_p,
+                        max_tokens=min(max_tokens, 100),  # Limit token count
+                        stop=stop_tokens,
+                    )
+                    
+                    try:
+                        # Force garbage collection
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                        gc.collect()
+                        
+                        # Retry with minimal parameters
+                        outputs = await loop.run_in_executor(
+                            None, 
+                            lambda: VLLMEngine._llm.generate([prompt], min_sampling_params)
+                        )
+                    except Exception as retry_e:
+                        logger.error(f"💥 Retry also failed: {retry_e}")
+                        return ""  # Give up and return empty string
+                else:
+                    # Re-raise other errors
+                    raise
             
             # Force CUDA cache cleanup after generation to prevent memory fragmentation
             if torch.cuda.is_available():
@@ -250,13 +288,14 @@ class VLLMEngine(InferenceEngine):
                 except Exception as e:
                     logger.debug(f"Failed to clear CUDA cache: {e}")
 
-            if outputs and outputs[0].outputs:
+            if outputs and len(outputs) > 0 and hasattr(outputs[0], 'outputs') and outputs[0].outputs:
                 return outputs[0].outputs[0].text.strip()
             else:
                 raise RuntimeError("vLLM returned empty output")
                 
         except Exception as e:
-            raise RuntimeError(f"vLLM generation failed: {str(e)}")
+            logger.error(f"💥 vLLM generation failed: {str(e)}")
+            return ""  # Return empty string instead of raising exception
     
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                            temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
@@ -265,6 +304,21 @@ class VLLMEngine(InferenceEngine):
         try:
             logger.info(f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
             
+            # Validate inputs to prevent tensor shape mismatches
+            if not prompts:
+                logger.warning("⚠️ Empty prompts list passed to generate_batch")
+                return []
+                
+            # Filter out empty prompts that can cause tensor dimension errors
+            filtered_prompts = [p for p in prompts if p and isinstance(p, str)]
+            if len(filtered_prompts) != len(prompts):
+                logger.warning(f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
+                prompts = filtered_prompts
+                
+            if not prompts:
+                logger.warning("⚠️ No valid prompts after filtering")
+                return []
+
             # Initialize model if needed (only happens once)
             self._initialize_model()
             
@@ -306,19 +360,48 @@ class VLLMEngine(InferenceEngine):
             
             logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model (character: {character_name or 'none'})")
             
-            # Generate all prompts in a single batch
-            loop = asyncio.get_event_loop()
-            outputs = await loop.run_in_executor(
-                None, 
-                lambda: VLLMEngine._llm.generate(prompts, sampling_params)
-            )
+            try:
+                # Generate all prompts in a single batch
+                loop = asyncio.get_event_loop()
+                outputs = await loop.run_in_executor(
+                    None, 
+                    lambda: VLLMEngine._llm.generate(prompts, sampling_params)
+                )
+            except RuntimeError as e:
+                # Handle tensor shape/index errors and other CUDA issues
+                error_str = str(e)
+                if any(err in error_str for err in ["index", "out of bounds", "size", "dimension", "shape"]):
+                    logger.error(f"⚠️ vLLM tensor shape/indexing error: {error_str}")
+                    logger.info("🔄 Falling back to sequential generation")
+                    
+                    # Fallback to sequential generation
+                    outputs = []
+                    for i, prompt in enumerate(prompts):
+                        try:
+                            # Process each prompt individually
+                            single_output = await loop.run_in_executor(
+                                None,
+                                lambda: VLLMEngine._llm.generate([prompt], sampling_params)
+                            )
+                            outputs.extend(single_output)
+                            # Clear cache after each item
+                            if torch.cuda.is_available():
+                                torch.cuda.empty_cache()
+                        except Exception as inner_e:
+                            logger.warning(f"❌ Individual generation failed for prompt {i}: {inner_e}")
+                            # Create an empty output placeholder to maintain alignment with input
+                            from vllm.outputs import RequestOutput
+                            outputs.append(RequestOutput(request_id=f"error-{i}", prompt=prompt, prompt_token_ids=[], outputs=[]))
+                else:
+                    # Re-raise other errors
+                    raise
             
             logger.info(f"📤 vLLM returned {len(outputs)} outputs")
             
             # Extract results
             results = []
             for i, output in enumerate(outputs):
-                if output.outputs:
+                if output and hasattr(output, 'outputs') and output.outputs:
                     text = output.outputs[0].text.strip()
                     # logger.debug(f"vLLM output {i}: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
                     results.append(text)
@@ -326,6 +409,16 @@ class VLLMEngine(InferenceEngine):
                     logger.warning(f"❌ vLLM output {i}: No outputs generated")
                     results.append("")
             
+            # Ensure we return exactly the right number of results
+            if len(results) < len(prompts):
+                logger.warning(f"⚠️ Results count mismatch: got {len(results)}, expected {len(prompts)}")
+                # Pad with empty strings to match original prompt count
+                results.extend([""] * (len(prompts) - len(results)))
+            elif len(results) > len(prompts):
+                logger.warning(f"⚠️ Too many results: got {len(results)}, expected {len(prompts)}")
+                # Truncate to match original prompt count
+                results = results[:len(prompts)]
+
             # Force CUDA cache cleanup after batch generation to prevent memory fragmentation
             if torch.cuda.is_available():
                 try:
@@ -339,7 +432,9 @@ class VLLMEngine(InferenceEngine):
             
         except Exception as e:
             logger.error(f"💥 vLLM batch generation failed: {str(e)}")
-            raise RuntimeError(f"vLLM batch generation failed: {str(e)}")
+            # Last resort fallback - return empty responses for all prompts
+            logger.warning("⚠️ Returning empty responses due to generation failure")
+            return [""] * len(prompts)
 
 
 
