@@ -1504,12 +1504,17 @@ Format as JSON list:
                 reduced_stop_tokens = [
                     "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
 
+                # ✅ FIX: Wrap the analytical prompt in proper DanChat format
+                # The model expects: <|system|>{system}<|endoftext|><|user|>{user}<|endoftext|><|assistant|>{char}:
+                system_prompt = "You are a helpful AI assistant that analyzes character cards and generates creative, contextual questions for roleplay scenarios."
+                danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{current_prompt}<|endoftext|><|assistant|>Assistant:"
+
                 response = await self._generate_text(
-                    prompt=current_prompt,
+                    prompt=danschat_prompt,  # Use properly formatted DanChat prompt
                     max_tokens=600,  # Reduced to avoid CUDA memory issues
                     temperature=1.0,  # Slightly higher for creativity
                     top_p=0.9,       # Less restrictive sampling
-                    character_name=char_name,
+                    character_name=None,  # Don't add character name for analytical task
                     custom_stop_tokens=reduced_stop_tokens
                 )
 
