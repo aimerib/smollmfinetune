@@ -14,6 +14,7 @@ import hashlib
 import time as _time
 import tempfile
 import warnings
+import gc
 
 logger = logging.getLogger(__name__)
 
@@ -593,6 +594,17 @@ class DatasetManager:
         # Suppress coroutine warnings in Streamlit environment
         warnings.filterwarnings("ignore", message="coroutine.*was never awaited")
         
+        # Force garbage collection to clean up memory
+        gc.collect()
+        
+        # Clear CUDA cache if available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:
+            pass
+        
         # Test inference engine if intelligent generation is enabled
         if self.enable_intelligent_generation:
             engine_working = await self.test_inference_engine()
@@ -721,8 +733,8 @@ class DatasetManager:
         for item in prompts_data:
             prompts_grouped.setdefault(item['max_tokens'], []).append(item)
 
-        # Determine base batch size once (may still be 1 if batching unsupported)
-        base_batch_size = 50 if hasattr(self.inference_engine, 'generate_batch') else 1
+        # Use smaller batch sizes to avoid CUDA memory issues
+        base_batch_size = 16 if hasattr(self.inference_engine, 'generate_batch') else 1
 
         processed_count = 0
         logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared, batch_size={base_batch_size}")
@@ -736,123 +748,177 @@ class DatasetManager:
                 batch_prompts = bucket_prompts[batch_start:batch_end]
                 full_prompts = [item['full_prompt'] for item in batch_prompts]
                 
-                # Generate the replies respecting bucket-level max_tokens
-                if batch_size > 1:
-                    replies = await self._generate_text_batch(
-                        prompts=full_prompts,
-                        max_tokens=bucket_max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        character_name=character.get('name')
-                    )
-                else:
-                    replies = [await self._generate_text(
-                        prompt=full_prompts[0],
-                        max_tokens=bucket_max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        character_name=character.get('name')
-                    )]
-                
-                logger.info(f"🔥 Got {len(replies)} replies from {self.inference_engine.name}")
-                
-                # Process batch results
-                for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
-                    try:
-                        # ✅ VALIDATE REPLY QUALITY AND FORMAT
-                        reply_str = str(reply).strip()
-                        
-                        # Check for obvious prompt formatting leakage
-                        format_issues = []
-                        if '<|system|>' in reply_str:
-                            format_issues.append("Contains <|system|> token")
-                        if '<|user|>' in reply_str:
-                            format_issues.append("Contains <|user|> token")
-                        if '<|assistant|>' in reply_str:
-                            format_issues.append("Contains <|assistant|> token")
-                        if '<|endoftext|>' in reply_str:
-                            format_issues.append("Contains <|endoftext|> token")
-                        
-                        if format_issues:
-                            logger.warning(f"🔴 Reply {batch_start+i} has format leakage: {', '.join(format_issues)}")
-                            logger.warning(f"   Reply preview: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
-                        
-                        # Quality filters
-                        word_count = len(reply_str.split())
-                        if word_count < 1:
-                            logger.warning(f"❌ Reply {batch_start+i} filtered: too short (word_count={word_count})")
-                            continue
-                        if word_count > bucket_max_tokens * 1.5:  # generous upper bound
-                            logger.warning(f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count} > {bucket_max_tokens * 1.5})")
-                            continue
-                        
-                        # Log sample replies for first few batches
-                        if batch_start < 24 and i == 0:  # First 3 batches, first reply each
-                            logger.info(f"📤 SAMPLE REPLY from batch {batch_start}, reply {i}:")
-                            logger.info(f"   User: '{prompt_data['prompt'][:80]}{'...' if len(prompt_data['prompt']) > 80 else ''}'")
-                            logger.info(f"   {char_name}: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
-                            logger.info(f"   (Word count: {word_count})")
-                        
-                        # Create ChatML sample with temporal system prompt
-                        temporal_system_prompt = self._generate_temporal_system_prompt(
-                            character, 
-                            prompt_data.get('temporal_context', 'present'),
-                            prompt_data.get('relationship_context'),
-                            prompt_data.get('intelligent_prompt_data')
-                        )
-                        sample = {
-                            "messages": [
-                                {"role": "system", "content": temporal_system_prompt},
-                                {"role": "user", "content": prompt_data['prompt']},
-                                {"role": "assistant", "content": reply_str},
-                            ]
-                        }
-                        samples.append(sample)
-                        processed_count += 1
-                        
-                        # Update progress (account for existing samples)
-                        if progress_callback:
-                            total_current = len(samples)
-                            progress_callback(min(total_current / num_samples, 1.0))
-                        
-                        # Stop if we have enough total samples
-                        if len(samples) >= num_samples:
-                            break
+                # Generate the replies with robust error handling
+                try:
+                    # First try batch processing (most efficient)
+                    if batch_size > 1:
+                        try:
+                            replies = await self._generate_text_batch(
+                                prompts=full_prompts,
+                                max_tokens=bucket_max_tokens,
+                                temperature=temperature,
+                                top_p=top_p,
+                                character_name=character.get('name')
+                            )
+                        except Exception as e:
+                            # If batch processing fails with CUDA error, retry with smaller batch
+                            if "CUDA error" in str(e) and batch_size > 4:
+                                logger.warning(f"⚠️ CUDA error in batch processing - reducing batch size and retrying")
+                                # Reduce batch size for this run and all future batches
+                                batch_size = max(4, batch_size // 2)
+                                batch_end = min(batch_start + batch_size, len(bucket_prompts))
+                                batch_prompts = bucket_prompts[batch_start:batch_end]
+                                full_prompts = [item['full_prompt'] for item in batch_prompts]
+                                
+                                # Try again with smaller batch
+                                replies = await self._generate_text_batch(
+                                    prompts=full_prompts,
+                                    max_tokens=bucket_max_tokens,
+                                    temperature=temperature,
+                                    top_p=top_p,
+                                    character_name=character.get('name')
+                                )
+                            else:
+                                # For other errors or if batch is already small, fall back to sequential processing
+                                logger.warning(f"⚠️ Batch processing failed - falling back to sequential processing: {str(e)}")
+                                # Process each prompt individually
+                                replies = []
+                                for prompt in full_prompts:
+                                    try:
+                                        reply = await self._generate_text(
+                                            prompt=prompt,
+                                            max_tokens=bucket_max_tokens,
+                                            temperature=temperature,
+                                            top_p=top_p,
+                                            character_name=character.get('name')
+                                        )
+                                        replies.append(reply)
+                                        # Small delay between prompts to let GPU recover
+                                        await asyncio.sleep(0.1)
+                                    except Exception as inner_e:
+                                        logger.warning(f"❌ Individual prompt generation failed: {str(inner_e)}")
+                                        replies.append("")  # Empty placeholder for failed generations
+                        else:
+                            # Single prompt mode
+                            replies = [await self._generate_text(
+                                prompt=full_prompts[0],
+                                max_tokens=bucket_max_tokens,
+                                temperature=temperature,
+                                top_p=top_p,
+                                character_name=character.get('name')
+                            )]
+
+                    
+                    logger.info(f"🔥 Got {len(replies)} replies from {self.inference_engine.name}")
+                    
+                    # Process batch results
+                    for i, (prompt_data, reply) in enumerate(zip(batch_prompts, replies)):
+                        try:
+                            # ✅ VALIDATE REPLY QUALITY AND FORMAT
+                            reply_str = str(reply).strip()
                             
-                    except Exception as e:
-                        logger.debug(f"Error processing sample: {e}")
-                        continue
-                
-                # Stop if we have enough total samples
-                if len(samples) >= num_samples:
-                    break
-                
-                # Small delay between different length buckets for stability
-                await asyncio.sleep(0.2)
+                            # Check for obvious prompt formatting leakage
+                            format_issues = []
+                            if '<|system|>' in reply_str:
+                                format_issues.append("Contains <|system|> token")
+                            if '<|user|>' in reply_str:
+                                format_issues.append("Contains <|user|> token")
+                            if '<|assistant|>' in reply_str:
+                                format_issues.append("Contains <|assistant|> token")
+                            if '<|endoftext|>' in reply_str:
+                                format_issues.append("Contains <|endoftext|> token")
+                            
+                            if format_issues:
+                                logger.warning(f"🔴 Reply {batch_start+i} has format leakage: {', '.join(format_issues)}")
+                                logger.warning(f"   Reply preview: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
+                            
+                            # Quality filters
+                            word_count = len(reply_str.split())
+                            if word_count < 1:
+                                logger.warning(f"❌ Reply {batch_start+i} filtered: too short (word_count={word_count})")
+                                continue
+                            if word_count > bucket_max_tokens * 1.5:  # generous upper bound
+                                logger.warning(f"❌ Reply {batch_start+i} filtered: too long (word_count={word_count} > {bucket_max_tokens * 1.5})")
+                                continue
+                            
+                            # Log sample replies for first few batches
+                            if batch_start < 24 and i == 0:  # First 3 batches, first reply each
+                                logger.info(f"📤 SAMPLE REPLY from batch {batch_start}, reply {i}:")
+                                logger.info(f"   User: '{prompt_data['prompt'][:80]}{'...' if len(prompt_data['prompt']) > 80 else ''}'")
+                                logger.info(f"   {char_name}: '{reply_str[:150]}{'...' if len(reply_str) > 150 else ''}'")
+                                logger.info(f"   (Word count: {word_count})")
+                            
+                            # Create ChatML sample with temporal system prompt
+                            temporal_system_prompt = self._generate_temporal_system_prompt(
+                                character, 
+                                prompt_data.get('temporal_context', 'present'),
+                                prompt_data.get('relationship_context'),
+                                prompt_data.get('intelligent_prompt_data')
+                            )
+                            sample = {
+                                "messages": [
+                                    {"role": "system", "content": temporal_system_prompt},
+                                    {"role": "user", "content": prompt_data['prompt']},
+                                    {"role": "assistant", "content": reply_str},
+                                ]
+                            }
+                            samples.append(sample)
+                            processed_count += 1
+                            
+                            # Update progress (account for existing samples)
+                            if progress_callback:
+                                total_current = len(samples)
+                                progress_callback(min(total_current / num_samples, 1.0))
+                            
+                            # Stop if we have enough total samples
+                            if len(samples) >= num_samples:
+                                break
+                                
+                        except Exception as e:
+                            logger.debug(f"Error processing sample: {e}")
+                            continue
+                    
+                    # Stop if we have enough total samples
+                    if len(samples) >= num_samples:
+                        break
+                    
+                    # Small delay between different length buckets for stability
+                    await asyncio.sleep(0.2)
+                    
+                    # Clear CUDA cache between length buckets to reduce memory fragmentation
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                except Exception as outer_e:
+                        # Ultimate fallback - return empty responses if everything fails
+                        logger.error(f"💥 Critical generation error: {str(outer_e)}")
+                        replies = [""] * len(full_prompts)
+                # End inner batch loop
             
-            # End inner batch loop
-        
-            # Validate prompt structure to catch template errors early
-            invalid_prompts = []
-            for idx, prompt in enumerate(full_prompts):
-                if not prompt.startswith('<|system|>'):
-                    invalid_prompts.append(f"Prompt {idx}: Missing <|system|> start")
-                if '<|endoftext|><|user|>' not in prompt:
-                    invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
-                if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
-                    invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
-                if prompt.count('<|system|>') != 1:
-                    invalid_prompts.append(f"Prompt {idx}: Multiple or missing <|system|> tags")
-                if prompt.count('<|endoftext|>') != 2:
-                    invalid_prompts.append(f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
-            if invalid_prompts:
-                logger.error(f"🚨 BATCH VALIDATION FAILURE ({batch_start}-{batch_end}): {len(invalid_prompts)} issues")
-                for issue in invalid_prompts[:5]:
-                    logger.error(f"  ❌ {issue}")
-                if len(invalid_prompts) > 5:
-                    logger.error(f"  ... and {len(invalid_prompts) - 5} more issues")
-        
-        # End grouped processing
+                # Validate prompt structure to catch template errors early
+                invalid_prompts = []
+                for idx, prompt in enumerate(full_prompts):
+                    if not prompt.startswith('<|system|>'):
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|system|> start")
+                    if '<|endoftext|><|user|>' not in prompt:
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|user|> transition")
+                    if f'<|endoftext|><|assistant|>{char_name}:' not in prompt:
+                        invalid_prompts.append(f"Prompt {idx}: Missing <|endoftext|><|assistant|>{char_name}:")
+                    if prompt.count('<|system|>') != 1:
+                        invalid_prompts.append(f"Prompt {idx}: Multiple or missing <|system|> tags")
+                    if prompt.count('<|endoftext|>') != 2:
+                        invalid_prompts.append(f"Prompt {idx}: Expected exactly 2 <|endoftext|> tags, found {prompt.count('<|endoftext|>')}")
+                if invalid_prompts:
+                    logger.error(f"🚨 BATCH VALIDATION FAILURE ({batch_start}-{batch_end}): {len(invalid_prompts)} issues")
+                    for issue in invalid_prompts[:5]:
+                        logger.error(f"  ❌ {issue}")
+                    if len(invalid_prompts) > 5:
+                        logger.error(f"  ... and {len(invalid_prompts) - 5} more issues")
+            
+            # End grouped processing
 
         if progress_callback:
             progress_callback(1.0)
@@ -1324,7 +1390,16 @@ Format as JSON list:
                 # Add small delay to avoid overwhelming vLLM
                 if attempt > 0:
                     await asyncio.sleep(1.0)  # Longer delay between retries
-                
+                     
+                    # Force garbage collection and clear CUDA cache between attempts
+                    gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                 
                 # For second attempt, if we got an empty response on first try,
                 # modify the prompt to avoid potential safety filter triggers
                 current_prompt = analysis_prompt
@@ -1344,7 +1419,7 @@ Format as JSON list:
 
                 response = await self._generate_text(
                     prompt=current_prompt,
-                    max_tokens=1000,  # Increased back - was too restrictive
+                    max_tokens=600,  # Reduced to avoid CUDA memory issues
                     temperature=1.0,  # Slightly higher for creativity
                     top_p=0.9,       # Less restrictive sampling
                     character_name=char_name,

@@ -5,10 +5,12 @@ Automatically selects the best engine based on available resources.
 
 import os
 import asyncio
+import importlib
 from abc import ABC, abstractmethod
 import secrets
 from typing import Optional, List
 import logging
+import torch  # For memory management
 
 
 logger = logging.getLogger(__name__)
@@ -240,6 +242,14 @@ class VLLMEngine(InferenceEngine):
                 lambda: VLLMEngine._llm.generate([prompt], sampling_params)
             )
             
+            # Force CUDA cache cleanup after generation to prevent memory fragmentation
+            if torch.cuda.is_available():
+                try:
+                    # Clear cache
+                    torch.cuda.empty_cache()
+                except Exception as e:
+                    logger.debug(f"Failed to clear CUDA cache: {e}")
+
             if outputs and outputs[0].outputs:
                 return outputs[0].outputs[0].text.strip()
             else:
@@ -274,6 +284,9 @@ class VLLMEngine(InferenceEngine):
             if character_name:
                 stop_tokens.extend([f"{character_name}:", f"\n{character_name}:"])
             
+            # Use a really random seed every time using the gpu seed
+            seed = secrets.randbits(64)
+            
             # Create sampling parameters (optimized for character generation)
             sampling_params = SamplingParams(
                 temperature=temperature,
@@ -287,7 +300,8 @@ class VLLMEngine(InferenceEngine):
                 top_k=-1,                # Disabled (use top_p)
                 min_p=0.0,               # Disabled (use top_p) 
                 logprobs=None,           # Disabled for performance
-                min_tokens=1,            # Ensure non-empty responses
+                min_tokens=1,            # Ensure non-empty responses,
+                seed=seed,
             )
             
             logger.info(f"🎯 Sending {len(prompts)} prompts to vLLM model (character: {character_name or 'none'})")
@@ -312,6 +326,14 @@ class VLLMEngine(InferenceEngine):
                     logger.warning(f"❌ vLLM output {i}: No outputs generated")
                     results.append("")
             
+            # Force CUDA cache cleanup after batch generation to prevent memory fragmentation
+            if torch.cuda.is_available():
+                try:
+                    # Clear cache
+                    torch.cuda.empty_cache()
+                except Exception as e:
+                    logger.debug(f"Failed to clear CUDA cache: {e}")
+
             logger.info(f"✅ vLLM batch generation complete: {len(results)} results")
             return results
             
