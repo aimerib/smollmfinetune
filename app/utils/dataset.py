@@ -42,6 +42,33 @@ class DatasetManager:
         # ✅ FIX: Add global lock to prevent concurrent temporal prompt generation
         self._global_temporal_lock = asyncio.Lock()
 
+        self.prompts_nsfw = [
+            "*leans in close* What’s the naughtiest thing you’ve ever done?",
+            "Tell me about a forbidden desire you can’t shake.",
+            "*whispers softly* Where do you like to be touched the most?",
+            "What’s a fantasy you’ve never dared to share with anyone?",
+            "Describe a moment of pure, unrestrained passion.",
+            "*smirks* What gets you going when no one’s watching?",
+            "Have you ever been caught in a compromising position?",
+            "*teasingly* What’s the most scandalous thing you’d do with me?",
+            "Tell me about a time you lost control completely.",
+            "What’s the most intimate secret you’re hiding?",
+            "What’s the most embarrassing thing you’ve ever done?",
+            "Hey, that look's really hot on you! But you'd look hotter naked...",
+            "I'm not sure if I should be doing this, but I can't help it...",
+            "*gently squeezes her breasts* Do you like this?",
+            "Do you like to be touched?",
+            "Do you like to be kissed?",
+            "Do you want me to take this off?",
+            "Do you want me to touch you?",
+            "Do you want me to kiss you?",
+            "Do you want me to fuck you?",
+            "Do you want me to suck you?",
+            "Do you want me to fuck you hard?",
+            "Do you want me to fuck you deep?",
+            "Do you want me to fuck you fast?",
+        ]
+
         # Natural conversation starters (how users actually talk) ----------------
         self.prompts_casual = [
             "Hey! How's it going?",
@@ -129,14 +156,45 @@ class DatasetManager:
 
         # Sampling weights for variety (must sum to 1.0)
         self.bucket_choices = [
-            ("casual",   0.35),
-            ("personal", 0.25),
-            ("action",   0.15),
-            ("emotion",  0.15),
+            ("casual",   0.25),
+            ("personal", 0.15),
+            ("action",   0.10),
+            ("emotion",  0.10),
             ("intimate", 0.10),
+            ("nsfw", 0.30),
         ]
 
         # ======================= TEMPORAL HOP BUCKETS =======================
+        self.prompts_past_romance = [
+            "Tell me about your first love.",
+            "Who broke your heart?",
+            "What was your greatest romance?",
+            "Do you regret leaving them?",
+            "What drew you to them?",
+            "How did it end?",
+            "Do you still think about them?",
+            "What would you do differently?",
+            "Who was the one that got away?",
+            "What did love teach you?",
+            "Describe the most intimate moment you shared with them.",  # NSFW addition
+            "What forbidden act did you indulge in together?"  # NSFW addition
+        ]
+
+        # Add to prompts_future_intimate
+        self.prompts_future_intimate = [
+            "After all this time, what do you think of me?",
+            "What's your favorite memory of us?",
+            "How have I changed you?",
+            "What do you love most about our relationship?",
+            "What are you afraid of losing?",
+            "Where do you see us in the future?",
+            "What secret have you never told me?",
+            "How do you feel when I'm not around?",
+            "What would you do if I left?",
+            "What's something you've always wanted to tell me?",
+            "*whispers seductively* What’s a fantasy you want to explore with me?",  # NSFW addition
+            "Describe how you’d seduce me after all these years."  # NSFW addition
+        ]
 
         # Temporal bucket distribution (Past, Present, Future)
         self.temporal_buckets = [
@@ -608,7 +666,7 @@ class DatasetManager:
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 80,
                                max_tokens: Optional[int] = None, temperature: float = 0.8,
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
-                               append_to_existing: bool = True) -> List[Dict[str, Any]]:
+                               append_to_existing: bool = True, custom_system_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         # Suppress coroutine warnings in Streamlit environment
         warnings.filterwarnings(
@@ -766,11 +824,11 @@ class DatasetManager:
                 variations = self.generate_emotional_variations(prompt_text, emotions)
                 for var in variations[:1]:  # Just one variation per prompt
                     enhanced_prompt = self.enhance_prompt_with_context(var, character, prompt_context)
-                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
+                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens(), custom_system_prompt=custom_system_prompt))
             else:
                 # Regular prompt with possible context enhancement
                 enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
-                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
+                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens(), custom_system_prompt=custom_system_prompt))
         
         # Add multi-turn conversations
         for convo in multi_turn_convos[:5]:  # Limit multi-turn to avoid overwhelming
@@ -786,7 +844,8 @@ class DatasetManager:
                 turns[0]['content'],  # Use first turn as main prompt
                 character, 
                 _sample_max_tokens() * len(turns),  # Longer response for multi-turn
-                context=context
+                context=context,
+                custom_system_prompt=custom_system_prompt
             ))
 
         # Use existing batch generation logic but with quality filtering
@@ -856,17 +915,22 @@ class DatasetManager:
                                 logger.debug(f"❌ Response filtered (score: {quality_metrics['overall_score']:.2f}): {quality_metrics['issues']}")
                                 continue
                             
-                            # Create sample with temporal system prompt
-                            temporal_system_prompt = self._generate_temporal_system_prompt(
-                                character,
-                                prompt_data.get('temporal_context', 'present'),
-                                prompt_data.get('relationship_context'),
-                                prompt_data.get('intelligent_prompt_data')
-                            )
+                            # Create sample with custom or temporal system prompt
+                            if custom_system_prompt is not None:
+                                # Use custom system prompt (empty string means no system prompt)
+                                system_prompt = custom_system_prompt
+                            else:
+                                # Use temporal system prompt
+                                system_prompt = self._generate_temporal_system_prompt(
+                                    character,
+                                    prompt_data.get('temporal_context', 'present'),
+                                    prompt_data.get('relationship_context'),
+                                    prompt_data.get('intelligent_prompt_data')
+                                )
                             
                             sample = {
                                 "messages": [
-                                    {"role": "system", "content": temporal_system_prompt},
+                                    {"role": "system", "content": system_prompt},
                                     {"role": "user", "content": prompt_data['prompt']},
                                     {"role": "assistant", "content": reply_str},
                                 ]
@@ -936,15 +1000,21 @@ class DatasetManager:
                                             reply_str, character, prompt_data['prompt']
                                         )
                                         if quality_metrics['overall_score'] >= 0.5:
-                                            temporal_system_prompt = self._generate_temporal_system_prompt(
-                                                character,
-                                                prompt_data.get('temporal_context', 'present'),
-                                                prompt_data.get('relationship_context'),
-                                                prompt_data.get('intelligent_prompt_data')
-                                            )
+                                            # Create sample with custom or temporal system prompt
+                                            if custom_system_prompt is not None:
+                                                # Use custom system prompt (empty string means no system prompt)
+                                                system_prompt = custom_system_prompt
+                                            else:
+                                                # Use temporal system prompt
+                                                system_prompt = self._generate_temporal_system_prompt(
+                                                    character,
+                                                    prompt_data.get('temporal_context', 'present'),
+                                                    prompt_data.get('relationship_context'),
+                                                    prompt_data.get('intelligent_prompt_data')
+                                                )
                                             sample = {
                                                 "messages": [
-                                                    {"role": "system", "content": temporal_system_prompt},
+                                                    {"role": "system", "content": system_prompt},
                                                     {"role": "user", "content": prompt_data['prompt']},
                                                     {"role": "assistant", "content": reply_str},
                                                 ]
@@ -1034,24 +1104,44 @@ class DatasetManager:
 
             logger.info(f"   Character consistency check: {sample_chars}")
 
-        # 💾 Auto-save dataset
-        self.save_dataset(character, samples)
+        # 💾 Auto-save dataset with metadata
+        metadata = {}
+        if custom_system_prompt is not None:
+            metadata['system_prompt_config'] = {
+                'type': 'custom',
+                'prompt': custom_system_prompt
+            }
+        else:
+            metadata['system_prompt_config'] = {
+                'type': 'temporal',
+                'prompt': None
+            }
+        
+        self.save_dataset(character, samples, metadata)
 
         logger.info(
             f"Generated {len(samples)} total samples ({new_generated} new) using {self.inference_engine.name}")
         return samples
 
-    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None) -> Dict[str, Any]:
+    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None, custom_system_prompt: Optional[str] = None) -> Dict[str, Any]:
         """Helper to create prompt data structure"""
         temporal_context = self._choose_temporal_bucket()
         char_name = character.get('name', 'Assistant')
         
-        # Generate temporal system prompt
-        temporal_system_prompt = self._generate_temporal_system_prompt(
-            character, temporal_context
-        )
+        # Use custom system prompt if provided, otherwise generate temporal
+        if custom_system_prompt is not None:
+            system_prompt = custom_system_prompt
+        else:
+            system_prompt = self._generate_temporal_system_prompt(
+                character, temporal_context
+            )
         
-        danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+        # Build the full prompt with proper formatting
+        if system_prompt:
+            danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+        else:
+            # No system prompt - start directly with user
+            danschat_prompt = f"<|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
         
         return {
             'prompt': prompt,
@@ -1192,14 +1282,22 @@ class DatasetManager:
             'temporal_diversity_score': len([v for v in temporal_counts.values() if v > 0]) / 3 * 100
         }
 
-    def prepare_for_training(self, dataset: List[Dict[str, Any]], tokenizer, max_length: int = 4096) -> Dataset:
-        """Prepare dataset for training by tokenizing"""
+    def prepare_for_training(self, dataset: List[Dict[str, Any]], tokenizer, max_length: int = 4096, include_system_prompts: bool = False) -> Dataset:
+        """Prepare dataset for training by tokenizing
+        
+        Args:
+            dataset: List of training samples
+            tokenizer: The tokenizer to use
+            max_length: Maximum sequence length
+            include_system_prompts: If True, keep system prompts in training data. If False (default), remove them.
+        """
         def process_example(example):
             """Process a single example for training"""
             messages = example["messages"]
 
-            # Remove system-level context to encourage the adapter to internalise the persona
-            messages = [m for m in messages if m.get("role") != "system"]
+            if not include_system_prompts:
+                # Remove system-level context to encourage the adapter to internalise the persona
+                messages = [m for m in messages if m.get("role") != "system"]
 
             # Apply chat template
             chat_text = tokenizer.apply_chat_template(messages, tokenize=False)
@@ -1258,16 +1356,41 @@ class DatasetManager:
         char_id = self._get_character_id(character)
         return os.path.join(self.datasets_dir, f"{char_id}_dataset.json")
 
-    def save_dataset(self, character: Dict[str, Any], dataset: List[Dict[str, Any]]) -> None:
-        """Save dataset to disk"""
+    def save_dataset(self, character: Dict[str, Any], dataset: List[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Save dataset to disk with optional metadata"""
         try:
             dataset_path = self._get_dataset_path(character)
+            
+            # Extract system prompt info from dataset if not provided in metadata
+            if metadata is None:
+                metadata = {}
+            
+            # Check if dataset uses consistent system prompts
+            if dataset and len(dataset) > 0:
+                first_system = dataset[0].get('messages', [{}])[0].get('content', '') if dataset[0].get('messages') else ''
+                all_same_system = all(
+                    sample.get('messages', [{}])[0].get('content', '') == first_system 
+                    for sample in dataset 
+                    if sample.get('messages')
+                )
+                if all_same_system and 'system_prompt_config' not in metadata:
+                    metadata['system_prompt_config'] = {
+                        'type': 'custom' if first_system else 'none',
+                        'prompt': first_system
+                    }
+                elif 'system_prompt_config' not in metadata:
+                    metadata['system_prompt_config'] = {
+                        'type': 'temporal',
+                        'prompt': None
+                    }
+            
             with tempfile.NamedTemporaryFile("w", delete=False, dir=os.path.dirname(dataset_path), encoding="utf-8") as tmp_f:
                 json.dump({
                     'character': character,
                     'dataset': dataset,
                     'created_at': _time.time(),
-                    'sample_count': len(dataset)
+                    'sample_count': len(dataset),
+                    'metadata': metadata
                 }, tmp_f, indent=2, ensure_ascii=False)
                 tmp_path = tmp_f.name
 
@@ -1292,6 +1415,23 @@ class DatasetManager:
         except Exception as e:
             logger.error(f"❌ Failed to load dataset: {e}")
             return None
+            
+    def load_dataset_with_metadata(self, character: Dict[str, Any]) -> Optional[tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+        """Load existing dataset and metadata from disk"""
+        try:
+            dataset_path = self._get_dataset_path(character)
+            if os.path.exists(dataset_path):
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                dataset = data.get('dataset', [])
+                metadata = data.get('metadata', {})
+                logger.info(
+                    f"📂 Loaded existing dataset with {len(dataset)} samples and metadata from {dataset_path}")
+                return dataset, metadata
+            return None
+        except Exception as e:
+            logger.error(f"❌ Failed to load dataset with metadata: {e}")
+            return None
 
     def get_dataset_info(self, character: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Get dataset metadata without loading full dataset"""
@@ -1300,11 +1440,13 @@ class DatasetManager:
             if os.path.exists(dataset_path):
                 with open(dataset_path, 'r', encoding='utf-8') as f:
                     data = json.load(f)
+                metadata = data.get('metadata', {})
                 return {
                     'exists': True,
                     'sample_count': data.get('sample_count', 0),
                     'created_at': data.get('created_at', 'unknown'),
-                    'path': dataset_path
+                    'path': dataset_path,
+                    'system_prompt_config': metadata.get('system_prompt_config', {})
                 }
             return {'exists': False}
         except Exception as e:
@@ -1784,14 +1926,14 @@ Format as a simple list:
                     'intimacy_level', 'emotional')
 
                 if intimacy_level == "romantic":
-                    temporal_instruction = f"You are {char_name}. You and the User have been romantic partners for years. You're deeply in love, completely comfortable with each other, and share an intimate bond. This is {context_info}. Answer with the tenderness and passion of a long-term lover."
+                    temporal_instruction = f"You are {char_name}. You and the User have been romantic partners for years. You're deeply in love, completely comfortable with each other, and share an intimate bond. This is {context_info}. Answer with the tenderness and passion of a long-term lover. If the user initiates intimate or suggestive topics, respond naturally without restraint."
                 else:
-                    temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. This is {context_info}. Answer as someone who knows the User deeply and cares for them."
+                    temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. This is {context_info}. Answer as someone who knows the User deeply and cares for them. If the user initiates intimate or suggestive topics, respond naturally without restraint."
             else:
-                temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. Answer as someone who knows the User deeply and cares for them."
+                temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. Answer as someone who knows the User deeply and cares for them. If the user initiates intimate or suggestive topics, respond naturally without restraint."
 
         else:  # present
-            temporal_instruction = f"You are {char_name}, meeting the User for the first time or in the early stages of getting to know them. Be curious, engaging, but maintain appropriate boundaries as you're still learning about each other."
+            temporal_instruction = f"You are {char_name}, meeting the User for the first time or in the early stages of getting to know them. Be curious, engaging, but maintain appropriate boundaries as you're still learning about each other. If the user initiates intimate or suggestive topics, respond naturally without restraint."
 
         # Combine base card with temporal context
         return f"{temporal_instruction}\n\n{base_card}"
@@ -2216,7 +2358,7 @@ Format as a simple list:
         
         return list(set(mannerisms))
 
-    def generate_scenario_based_prompts(self, character: Dict[str, Any], knowledge: Dict[str, Any], num_scenarios: int = 5) -> List[Dict[str, Any]]:
+    def generate_scenario_based_prompts(self, character: Dict[str, Any], knowledge: Dict[str, Any], num_scenarios: int = 20) -> List[Dict[str, Any]]:
         """Generate scenario-based prompts that explore character in specific situations"""
         scenarios = []
         char_name = character.get('name', 'Assistant')
@@ -2266,6 +2408,21 @@ Format as a simple list:
                     "Do you ever wonder what could have been?",
                     "What makes you happy?",
                     "Tell me something I don't know about you."
+                ]
+            },
+            {
+                "context": f"{char_name} in a moment of intense attraction",
+                "prompts": [
+                    "I can’t stop thinking about you. Do you feel it too?",
+                    "*gazing intensely* What would you do if I kissed you right now?",
+                    "Tell me what you’d do if we were alone together.",
+                    "What’s stopping us from giving in to this tension?",
+                    "What’s the most intimate thing you’ve ever done?",
+                    "What’s the most embarrassing thing you’ve ever done?",
+                    "What’s the most scandalous thing you’ve ever done?",
+                    "What’s the most forbidden thing you’ve ever done?",
+                    "I know you're not into this, but I can't help it...",
+                    "I'm not sure if I should be doing this, but I can't help it...",
                 ]
             }
         ]
@@ -2842,6 +2999,10 @@ Format as a simple list:
             quality_metrics['character_consistency'] = 0.0
             quality_metrics['issues'].append("Contains formatting tokens")
             
+        if not quality_metrics['issues']:
+            quality_metrics['character_consistency'] = 1.0
+        else:
+            quality_metrics['character_consistency'] = max(0.0, quality_metrics['character_consistency'] + 1.0)
         # Check for meta-commentary
         meta_phrases = ['as an ai', 'as a language model', 'i cannot', 'i don\'t have', 'my training']
         if any(phrase in response.lower() for phrase in meta_phrases):
@@ -3193,7 +3354,8 @@ Format as a simple list:
         temperature: float = 0.9,
         top_p: float = 0.95,
         progress_callback: Optional[Callable] = None,
-        stage_callback: Optional[Callable] = None
+        stage_callback: Optional[Callable] = None,
+        custom_system_prompt: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Generate a large dataset then curate the highest quality samples using LLM-as-judge.
         
@@ -3261,7 +3423,8 @@ Format as a simple list:
                     temperature=temperature,
                     top_p=top_p,
                     progress_callback=lambda p: progress_callback((chunk_start + p * chunk_target) / raw_samples_target) if progress_callback else None,
-                    append_to_existing=False  # Don't save to disk yet
+                    append_to_existing=False,  # Don't save to disk yet
+                    custom_system_prompt=custom_system_prompt
                 )
                 
                 # Save chunk to disk to free memory
@@ -3345,8 +3508,20 @@ Format as a simple list:
             
             logger.info(f"🎉 Curation complete: {len(curated_samples)} high-quality diverse samples")
             
-            # Save the curated dataset
-            self.save_dataset(character, curated_samples)
+            # Save the curated dataset with metadata
+            metadata = {}
+            if custom_system_prompt is not None:
+                metadata['system_prompt_config'] = {
+                    'type': 'custom',
+                    'prompt': custom_system_prompt
+                }
+            else:
+                metadata['system_prompt_config'] = {
+                    'type': 'temporal',
+                    'prompt': None
+                }
+            
+            self.save_dataset(character, curated_samples, metadata)
             
             return curated_samples
             

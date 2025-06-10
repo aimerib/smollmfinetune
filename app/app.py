@@ -204,6 +204,8 @@ def init_session_state():
         st.session_state.training_status = 'idle'
     if 'dataset_preview' not in st.session_state:
         st.session_state.dataset_preview = None
+    if 'dataset_metadata' not in st.session_state:
+        st.session_state.dataset_metadata = {}
     if 'selected_engine' not in st.session_state:
         # Display current engine in sidebar
         st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
@@ -421,12 +423,15 @@ def page_character_upload():
                 st.session_state.current_character = character_data
                 
                 # Auto-load existing dataset if available
-                existing_dataset = st.session_state.dataset_manager.load_dataset(character_data)
-                if existing_dataset:
+                dataset_with_metadata = st.session_state.dataset_manager.load_dataset_with_metadata(character_data)
+                if dataset_with_metadata:
+                    existing_dataset, metadata = dataset_with_metadata
                     st.session_state.dataset_preview = existing_dataset
+                    st.session_state.dataset_metadata = metadata
                     st.success(f"✅ Character card loaded with existing dataset ({len(existing_dataset)} samples)!")
                 else:
                     st.session_state.dataset_preview = None
+                    st.session_state.dataset_metadata = {}
                     st.success("✅ Character card loaded successfully!")
                 
                 # Display character preview
@@ -493,18 +498,33 @@ def page_dataset_preview():
                 st.metric("Existing Samples", dataset_info['sample_count'])
             with col_info2:
                 if st.button("📂 Load Existing", use_container_width=True):
-                    existing_dataset = st.session_state.dataset_manager.load_dataset(st.session_state.current_character)
-                    if existing_dataset:
+                    dataset_with_metadata = st.session_state.dataset_manager.load_dataset_with_metadata(st.session_state.current_character)
+                    if dataset_with_metadata:
+                        existing_dataset, metadata = dataset_with_metadata
                         st.session_state.dataset_preview = existing_dataset
+                        st.session_state.dataset_metadata = metadata
                         st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
                         st.rerun()
             with col_info3:
                 if st.button("🗑️ Reset Dataset", use_container_width=True):
                     if st.session_state.dataset_manager.delete_dataset(st.session_state.current_character):
                         st.session_state.dataset_preview = None
+                        st.session_state.dataset_metadata = {}
                         st.success("✅ Dataset reset! Generate a new one below.")
                         st.rerun()
             
+            # Show system prompt configuration
+            system_config = dataset_info.get('system_prompt_config', {})
+            if system_config:
+                if system_config.get('type') == 'custom':
+                    prompt_text = system_config.get('prompt', '')
+                    if prompt_text:
+                        st.info(f"💡 Dataset was generated with custom system prompt: \"{prompt_text[:100]}{'...' if len(prompt_text) > 100 else ''}\"")
+                    else:
+                        st.info("💡 Dataset was generated with no system prompt")
+                elif system_config.get('type') == 'temporal':
+                    st.info("💡 Dataset was generated with temporal context system prompts (varying per sample)")
+                    
             st.markdown("---")
         
         # Dataset statistics
@@ -664,6 +684,21 @@ def page_dataset_preview():
         
         st.info(engine_info)
         
+        # System prompt configuration
+        st.markdown("### System Prompt Configuration")
+        use_custom_system = st.checkbox("Use custom system prompt", value=False, help="Define a custom system prompt for dataset generation")
+        
+        if use_custom_system:
+            system_prompt = st.text_area(
+                "System Prompt",
+                placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
+                height=100,
+                help="This system prompt will be used for all generated samples. Empty = no system prompt."
+            )
+        else:
+            system_prompt = None
+            st.info("Using default temporal context system prompts (varies per sample)")
+        
         with st.form("dataset_generation"):
             col_a, col_b = st.columns(2)
             
@@ -718,13 +753,29 @@ def page_dataset_preview():
                             temperature=temperature,
                             top_p=top_p,
                             progress_callback=lambda p: progress_bar.progress(p),
-                            append_to_existing=True
+                            append_to_existing=True,
+                            custom_system_prompt=system_prompt if use_custom_system else None
                         )
                     )
                 finally:
                     loop.close()
                 
                 st.session_state.dataset_preview = dataset
+                # Update metadata if we generated with custom system prompt
+                if use_custom_system:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'custom',
+                            'prompt': system_prompt
+                        }
+                    }
+                else:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'temporal',
+                            'prompt': None
+                        }
+                    }
                 progress_bar.progress(1.0)
                 status_text.text("Dataset generation complete!")
                 st.success(f"✅ Generated {len(dataset)} samples successfully!")
@@ -802,6 +853,22 @@ def page_dataset_preview():
                 help="Larger batches are more efficient with vLLM"
             )
         
+        # System prompt configuration for quality generation
+        st.markdown("### System Prompt Configuration")
+        use_custom_system_quality = st.checkbox("Use custom system prompt", value=False, help="Define a custom system prompt for dataset generation", key="quality_custom_system")
+        
+        if use_custom_system_quality:
+            system_prompt_quality = st.text_area(
+                "System Prompt",
+                placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
+                height=100,
+                help="This system prompt will be used for all generated samples. Empty = no system prompt.",
+                key="quality_system_prompt"
+            )
+        else:
+            system_prompt_quality = None
+            st.info("Using default temporal context system prompts (varies per sample)")
+        
         # Judge model selection
         with st.expander("🧑‍⚖️ Judge Model Configuration", expanded=False):
             use_custom_judge = st.checkbox("Use custom judge model", value=False)
@@ -859,11 +926,27 @@ def page_dataset_preview():
                         judge_model=judge_model,
                         temperature=temperature,
                         progress_callback=update_progress,
-                        stage_callback=update_stage
+                        stage_callback=update_stage,
+                        custom_system_prompt=system_prompt_quality if use_custom_system_quality else None
                     )
                 )
                 
                 st.session_state.dataset_preview = dataset
+                # Update metadata if we generated with custom system prompt
+                if use_custom_system_quality:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'custom',
+                            'prompt': system_prompt_quality
+                        }
+                    }
+                else:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'temporal',
+                            'prompt': None
+                        }
+                    }
                 progress_bar.progress(1.0)
                 stage_text.success("✅ Quality-first generation complete!")
                 
@@ -996,6 +1079,27 @@ def page_training_config():
             
             # Advanced settings
             with st.expander("🔧 Advanced Settings"):
+                # Check if dataset has system prompts
+                dataset_has_system = False
+                if st.session_state.dataset_preview and len(st.session_state.dataset_preview) > 0:
+                    first_sample = st.session_state.dataset_preview[0]
+                    if 'messages' in first_sample and len(first_sample['messages']) > 0:
+                        dataset_has_system = first_sample['messages'][0].get('role') == 'system'
+                
+                include_system_prompts = st.checkbox(
+                    "Include System Prompts in Training",
+                    value=False,
+                    help="If checked, system prompts will be included in training data. Usually better to let LoRA internalize character behavior without system prompts.",
+                    disabled=not dataset_has_system
+                )
+                
+                if dataset_has_system and not include_system_prompts:
+                    st.info("💡 System prompts will be removed during training (recommended for character LoRAs)")
+                elif dataset_has_system and include_system_prompts:
+                    st.warning("⚠️ Including system prompts in training - make sure this is intentional")
+                elif not dataset_has_system:
+                    st.info("ℹ️ Dataset has no system prompts")
+                
                 fp16 = st.checkbox("Enable FP16", value=True, help="Enables mixed precision training for better performance")
                 save_steps = st.slider("Save Every N Steps", 25, 200, 50, step=25)
                 logging_steps = st.slider("Log Every N Steps", 1, 20, 5, step=1)
@@ -1097,7 +1201,8 @@ def page_training_config():
             'logging_steps': logging_steps,
             'eval_steps': eval_steps,
             'max_steps_override': int(max_steps_override) if max_steps_override else 0,
-            'resume_from_checkpoint': resume_ckpt
+            'resume_from_checkpoint': resume_ckpt,
+            'include_system_prompts': include_system_prompts
         }
         
         try:
@@ -1250,15 +1355,22 @@ def page_model_testing():
             return
         
         selected_model = st.selectbox("Select Model", available_models)
+        
+        # Check if we have dataset metadata with system prompt info
+        dataset_metadata = st.session_state.get('dataset_metadata', {})
+        system_prompt_config = dataset_metadata.get('system_prompt_config', {})
+        
+        # Set default option based on dataset
+        if system_prompt_config.get('type') == 'custom':
+            default_option = "Dataset System Prompt"
+            options = ["Dataset System Prompt", "Default (Tokenizer's built-in)", "Empty (No system prompt)", "Roleplay Director", "Custom"]
+        else:
+            default_option = "Default (Tokenizer's built-in)"
+            options = ["Default (Tokenizer's built-in)", "Empty (No system prompt)", "Roleplay Director", "Custom"]
 
         system_prompt_option = st.radio(
             "Choose system prompt strategy:",
-            [
-                "Default (Tokenizer's built-in)",
-                "Empty (No system prompt)",
-                "Roleplay Director",
-                "Custom"
-            ],
+            options,
             help="Test how the LoRA responds to different system prompts"
         )
         
@@ -1280,7 +1392,13 @@ def page_model_testing():
         st.markdown("### System Prompt Configuration")
         
         system_prompt = None
-        if system_prompt_option == "Empty (No system prompt)":
+        if system_prompt_option == "Dataset System Prompt":
+            system_prompt = system_prompt_config.get('prompt', '')
+            if system_prompt:
+                st.info(f"📊 Using system prompt from dataset generation")
+            else:
+                st.info(f"📊 Dataset was generated with no system prompt")
+        elif system_prompt_option == "Empty (No system prompt)":
             system_prompt = ""
             st.info("🧪 Testing pure LoRA behavior without any system guidance")
         elif system_prompt_option == "Roleplay Director":
@@ -1296,8 +1414,8 @@ def page_model_testing():
         else:
             st.info("🤖 Using tokenizer's default system prompt (SmolLM assistant)")
         
-        if system_prompt_option != "Default (Tokenizer's built-in)" and system_prompt_option != "Custom":
-            st.code(f"System: {system_prompt}", language="text")
+        if system_prompt is not None and system_prompt_option not in ["Default (Tokenizer's built-in)", "Custom"]:
+            st.code(f"System: {system_prompt if system_prompt else '[No system prompt]'}", language="text")
         elif system_prompt_option == "Custom" and system_prompt:
             st.code(f"System: {system_prompt}", language="text")
 

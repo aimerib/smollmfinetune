@@ -191,8 +191,15 @@ class TrainingManager:
             print("📊 Preparing dataset for training...")
             from .dataset import DatasetManager
             dataset_manager = DatasetManager()
-            processed_dataset = dataset_manager.prepare_for_training(dataset, tokenizer)
+            include_system_prompts = config.get('include_system_prompts', False)
+            processed_dataset = dataset_manager.prepare_for_training(
+                dataset, tokenizer, include_system_prompts=include_system_prompts
+            )
             print(f"✅ Dataset prepared: {len(processed_dataset)} samples")
+            if include_system_prompts:
+                print("   Including system prompts in training data")
+            else:
+                print("   System prompts removed (LoRA will internalize character behavior)")
             
             # Data collator
             print("🔧 Setting up data collator...")
