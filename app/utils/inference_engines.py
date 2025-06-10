@@ -188,7 +188,8 @@ class VLLMEngine(InferenceEngine):
             raise
     
     async def generate(self, prompt: str, max_tokens: int = 160,
-                      temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
+                      temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                      custom_stop_tokens: Optional[List[str]] = None) -> str:
         """Generate using vLLM with smart batching"""
         try:
             # Initialize model if needed (only happens once)
@@ -199,8 +200,13 @@ class VLLMEngine(InferenceEngine):
             
             from vllm import SamplingParams
             
-            # Create stop tokens list
+            # Base stop tokens (robust defaults for normal dialogue)
             stop_tokens = ["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+            
+            # Allow caller to override stop tokens for special generation modes
+            if custom_stop_tokens is not None:
+                # Use a *copy* so that downstream modifications do not affect caller list
+                stop_tokens = list(custom_stop_tokens)
             
             # Add character name as stop token to prevent speaking for other characters
             if character_name:
@@ -243,7 +249,8 @@ class VLLMEngine(InferenceEngine):
             raise RuntimeError(f"vLLM generation failed: {str(e)}")
     
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
-                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> List[str]:
+                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                           custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
         try:
             logger.info(f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
@@ -256,8 +263,12 @@ class VLLMEngine(InferenceEngine):
             
             from vllm import SamplingParams
             
-            # Create stop tokens list
+            # Base stop tokens list
             stop_tokens = ["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+            
+            # Allow caller to override stop tokens for special generation modes
+            if custom_stop_tokens is not None:
+                stop_tokens = list(custom_stop_tokens)
             
             # Add character name as stop token to prevent speaking for other characters
             if character_name:

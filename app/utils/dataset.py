@@ -315,55 +315,54 @@ class DatasetManager:
             return False
     
     async def _generate_text(self, prompt: str, max_tokens: int = 160, 
-                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
+                           temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                           custom_stop_tokens: Optional[List[str]] = None) -> str:
         """Generate text using the configured inference engine"""
         try:
-            # Pass character name if the engine supports it
-            if hasattr(self.inference_engine, 'generate') and 'character_name' in self.inference_engine.generate.__code__.co_varnames:
-                return await self.inference_engine.generate(
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    character_name=character_name
-                )
-            else:
-                return await self.inference_engine.generate(
-                    prompt=prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p
-                )
+            if not hasattr(self.inference_engine, 'generate'):
+                raise RuntimeError("Inference engine does not implement `generate` method")
+
+            # Dynamically build keyword arguments based on the engine's accepted parameters
+            sig_params = self.inference_engine.generate.__code__.co_varnames
+            gen_kwargs = {
+                'prompt': prompt,
+                'max_tokens': max_tokens,
+                'temperature': temperature,
+                'top_p': top_p,
+            }
+            if 'character_name' in sig_params:
+                gen_kwargs['character_name'] = character_name
+            if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
+                gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
+
+            return await self.inference_engine.generate(**gen_kwargs)
         except Exception as e:
             raise RuntimeError(f"Text generation failed ({self.inference_engine.name}): {str(e)}")
     
     async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
-                                 temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> list[str]:
+                                 temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                                 custom_stop_tokens: Optional[List[str]] = None) -> list[str]:
         """Generate text for multiple prompts using batching (if supported)"""
         try:
-            # Check if engine supports batching
             if hasattr(self.inference_engine, 'generate_batch'):
-                # Pass character name if the batch method supports it
-                if 'character_name' in self.inference_engine.generate_batch.__code__.co_varnames:
-                    return await self.inference_engine.generate_batch(
-                        prompts=prompts,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        character_name=character_name
-                    )
-                else:
-                    return await self.inference_engine.generate_batch(
-                        prompts=prompts,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p
-                    )
+                sig_params = self.inference_engine.generate_batch.__code__.co_varnames
+                gen_kwargs = {
+                    'prompts': prompts,
+                    'max_tokens': max_tokens,
+                    'temperature': temperature,
+                    'top_p': top_p,
+                }
+                if 'character_name' in sig_params:
+                    gen_kwargs['character_name'] = character_name
+                if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
+                    gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
+
+                return await self.inference_engine.generate_batch(**gen_kwargs)
             else:
-                # Fallback to individual generation
+                # Fallback: generate sequentially
                 results = []
                 for prompt in prompts:
-                    result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name)
+                    result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name, custom_stop_tokens)
                     results.append(result)
                 return results
         except Exception as e:
@@ -1321,12 +1320,17 @@ Format as JSON list:
                 
                 # Generate using the inference engine with conservative settings
                 logger.debug(f"Attempting intelligent prompt generation for {temporal_context} (attempt {attempt + 1})")
+                # Use a custom stop-token list that omits "\n\n" so the model can safely emit
+                # multi-line JSON without being truncated.
+                reduced_stop_tokens = ["<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+
                 response = await self._generate_text(
                     prompt=analysis_prompt,
                     max_tokens=400,  # Increased back - was too restrictive
                     temperature=0.7,  # Slightly higher for creativity
                     top_p=0.9,       # Less restrictive sampling
-                    character_name=char_name
+                    character_name=char_name,
+                    custom_stop_tokens=reduced_stop_tokens
                 )
                 
                 if not response or len(response.strip()) < 10:
