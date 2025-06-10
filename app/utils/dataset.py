@@ -13,6 +13,7 @@ import os
 import hashlib
 import time as _time
 import tempfile
+import warnings
 
 logger = logging.getLogger(__name__)
 
@@ -589,6 +590,8 @@ class DatasetManager:
                              top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                              append_to_existing: bool = True) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
+        # Suppress coroutine warnings in Streamlit environment
+        warnings.filterwarnings("ignore", message="coroutine.*was never awaited")
         
         # Test inference engine if intelligent generation is enabled
         if self.enable_intelligent_generation:
@@ -689,7 +692,8 @@ class DatasetManager:
         for i in range(random_prompt_target * 2):  # keep safety margin
             if generated_random >= random_prompt_target:
                 break
-            random_prompt_tasks.append(await self._generate_single_random_prompt(character, i))
+            # Collect coroutines to execute in batches - DO NOT await here
+            random_prompt_tasks.append(self._generate_single_random_prompt(character, i))
         
         # Process random prompts in batches to avoid overwhelming the system
         batch_size = 10
