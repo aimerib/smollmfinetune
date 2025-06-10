@@ -282,6 +282,38 @@ class DatasetManager:
         logger.info("🛡️ Creating DatasetManager with conservative settings (intelligent generation disabled)")
         return cls(preferred_engine=preferred_engine, enable_intelligent_generation=False)
     
+    async def test_inference_engine(self) -> bool:
+        """Test the inference engine with a simple prompt for debugging"""
+        if not self.inference_engine:
+            logger.error("❌ No inference engine available")
+            return False
+            
+        try:
+            logger.info(f"🔧 Testing inference engine: {self.inference_engine.name}")
+            
+            # Test with a very simple prompt
+            test_prompt = "Hello, how are you today?"
+            result = await self._generate_text(
+                prompt=test_prompt,
+                max_tokens=50,
+                temperature=0.8,
+                top_p=0.9
+            )
+            
+            if result and len(result.strip()) > 0:
+                logger.info(f"✅ Inference engine test PASSED")
+                logger.info(f"   Test prompt: '{test_prompt}'")
+                logger.info(f"   Response: '{result.strip()}'")
+                return True
+            else:
+                logger.error(f"❌ Inference engine test FAILED - empty response")
+                logger.error(f"   Raw result: {repr(result)}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"❌ Inference engine test FAILED with exception: {e}")
+            return False
+    
     async def _generate_text(self, prompt: str, max_tokens: int = 160, 
                            temperature: float = 0.8, top_p: float = 0.9, character_name: str = None) -> str:
         """Generate text using the configured inference engine"""
@@ -558,6 +590,14 @@ class DatasetManager:
                              top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                              append_to_existing: bool = True) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
+        
+        # Test inference engine if intelligent generation is enabled
+        if self.enable_intelligent_generation:
+            engine_working = await self.test_inference_engine()
+            if not engine_working:
+                logger.warning("🔄 Disabling intelligent generation due to engine issues - using static prompts only")
+                self.enable_intelligent_generation = False
+        
         card_block = self._make_card_block(character)
         
         # Load existing dataset if append_to_existing is True
@@ -1222,21 +1262,6 @@ class DatasetManager:
             logger.warning(f"No inference engine available for intelligent prompt generation")
             return []
         
-        # Quick health check - try a simple generation first
-        try:
-            health_check = await self._generate_text(
-                prompt="Hello", 
-                max_tokens=5, 
-                temperature=0.1, 
-                top_p=0.9
-            )
-            if not health_check or len(health_check.strip()) == 0:
-                logger.warning(f"Inference engine health check failed - empty response")
-                return []
-        except Exception as e:
-            logger.warning(f"Inference engine health check failed: {e}")
-            return []
-        
         # Build character analysis prompt
         card_info = f"Character: {char_name}\nDescription: {description}\nPersonality: {personality}\nScenario: {scenario}"
         
@@ -1292,19 +1317,22 @@ Format as JSON list:
             try:
                 # Add small delay to avoid overwhelming vLLM
                 if attempt > 0:
-                    await asyncio.sleep(0.5)
+                    await asyncio.sleep(1.0)  # Longer delay between retries
                 
                 # Generate using the inference engine with conservative settings
+                logger.debug(f"Attempting intelligent prompt generation for {temporal_context} (attempt {attempt + 1})")
                 response = await self._generate_text(
                     prompt=analysis_prompt,
-                    max_tokens=300,  # Reduced for more reliable generation
-                    temperature=0.6,  # Lower temperature for more consistent output
-                    top_p=0.8,       # More focused sampling
+                    max_tokens=400,  # Increased back - was too restrictive
+                    temperature=0.7,  # Slightly higher for creativity
+                    top_p=0.9,       # Less restrictive sampling
                     character_name=char_name
                 )
                 
                 if not response or len(response.strip()) < 10:
-                    logger.warning(f"Empty or too short response from LLM (attempt {attempt + 1})")
+                    logger.debug(f"Empty or too short response from LLM (attempt {attempt + 1}): '{response}'")
+                    if attempt == max_retries - 1:  # Last attempt
+                        logger.info(f"⚡ LLM generated empty responses after {max_retries} attempts, using static prompts")
                     continue
                 
                 # Try to parse JSON response
@@ -1358,12 +1386,13 @@ Format as JSON list:
                     return fallback_prompts[:num_prompts]
                     
             except Exception as e:
-                logger.warning(f"LLM temporal prompt generation failed (attempt {attempt + 1}): {e}")
+                logger.debug(f"LLM temporal prompt generation failed (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:  # Last attempt
+                    logger.info(f"⚡ LLM generation failed after {max_retries} attempts, using static prompts")
                     break
         
         # Final fallback to static prompts
-        logger.info(f"⚡ Falling back to static {temporal_context} prompts after {max_retries} attempts")
+        logger.debug(f"Falling back to static {temporal_context} prompts")
         return []
     
     def _extract_relationships_from_card(self, character: Dict[str, Any]) -> Dict[str, List[str]]:
@@ -1558,53 +1587,59 @@ Format as JSON list:
         if (use_intelligent_generation and 
             self.enable_intelligent_generation and 
             temporal_context in ["past", "future"]):
-            try:
-                # Check if we have cached intelligent prompts for this character
-                char_id = self._get_character_id(character)
-                cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
-                
-                # Get or generate intelligent prompts (with serialization)
-                if not hasattr(self, '_intelligent_prompt_cache'):
-                    self._intelligent_prompt_cache = {}
-                    self._intelligent_generation_locks = {}
-                
-                # Use a lock to prevent concurrent generation for the same cache key
-                if cache_key not in self._intelligent_generation_locks:
-                    self._intelligent_generation_locks[cache_key] = asyncio.Lock()
-                
-                async with self._intelligent_generation_locks[cache_key]:
-                    if cache_key not in self._intelligent_prompt_cache:
-                        logger.info(f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
+            
+            # Check if we have cached intelligent prompts for this character
+            char_id = self._get_character_id(character)
+            cache_key = f"{char_id}_{temporal_context}_intelligent_prompts"
+            
+            # Get or generate intelligent prompts (with serialization)
+            if not hasattr(self, '_intelligent_prompt_cache'):
+                self._intelligent_prompt_cache = {}
+                self._intelligent_generation_locks = {}
+            
+            # Use a lock to prevent concurrent generation for the same cache key
+            if cache_key not in self._intelligent_generation_locks:
+                self._intelligent_generation_locks[cache_key] = asyncio.Lock()
+            
+            async with self._intelligent_generation_locks[cache_key]:
+                if cache_key not in self._intelligent_prompt_cache:
+                    logger.info(f"🧠 Generating intelligent {temporal_context} prompts for {character.get('name', 'character')}")
+                    try:
                         intelligent_prompts = await self._generate_intelligent_temporal_prompts(
                             character, temporal_context, num_prompts=6  # Reduced to be more reliable
                         )
                         self._intelligent_prompt_cache[cache_key] = intelligent_prompts
                         
+                        if intelligent_prompts:
+                            logger.info(f"✅ Successfully generated {len(intelligent_prompts)} intelligent {temporal_context} prompts")
+                        else:
+                            logger.info(f"🔄 No intelligent prompts generated, will use static prompts")
+                        
                         # Small delay to give vLLM time to process
                         await asyncio.sleep(0.1)
-                    else:
-                        intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+                    except Exception as e:
+                        logger.debug(f"Intelligent prompt generation error: {e}")
+                        self._intelligent_prompt_cache[cache_key] = []  # Cache empty result
+                else:
+                    intelligent_prompts = self._intelligent_prompt_cache[cache_key]
+            
+            # Use intelligent prompt if available
+            if intelligent_prompts:
+                intelligent_prompt_data = random.choice(intelligent_prompts)
+                prompt = intelligent_prompt_data.get('question', '')
                 
-                # Use intelligent prompt if available
-                if intelligent_prompts:
-                    intelligent_prompt_data = random.choice(intelligent_prompts)
-                    prompt = intelligent_prompt_data.get('question', '')
+                if temporal_context == "past":
+                    relationship_context = intelligent_prompt_data.get('relationship_name', 
+                                                                    intelligent_prompt_data.get('relationship_type', 'unknown'))
+                
+                if prompt:
+                    logger.debug(f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
+                    # Add noise and processing (keeping existing functionality)
+                    prompt = self._add_noise(prompt.strip())
+                    prompt = self._paraphrase(prompt)
+                    prompt = self._backtranslate(prompt)
                     
-                    if temporal_context == "past":
-                        relationship_context = intelligent_prompt_data.get('relationship_name', 
-                                                                        intelligent_prompt_data.get('relationship_type', 'unknown'))
-                    
-                    if prompt:
-                        logger.debug(f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
-                        # Add noise and processing (keeping existing functionality)
-                        prompt = self._add_noise(prompt.strip())
-                        prompt = self._paraphrase(prompt)
-                        prompt = self._backtranslate(prompt)
-                        
-                        return prompt, temporal_context, relationship_context, intelligent_prompt_data
-                        
-            except Exception as e:
-                logger.warning(f"Intelligent prompt generation failed, falling back to static: {e}")
+                    return prompt, temporal_context, relationship_context, intelligent_prompt_data
         
         # Fallback to static prompts (original system)
         if temporal_context == "past":
