@@ -404,7 +404,7 @@ class VLLMEngine(InferenceEngine):
         logger.info(f"Cleared {count} GGUF files from cache")
         return count
 
-    def generate_batch(self, prompts: List[str], max_tokens: int = 160,
+    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                              custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
@@ -436,15 +436,16 @@ class VLLMEngine(InferenceEngine):
                 raise RuntimeError("vLLM model failed to load")
 
             from vllm import SamplingParams
+            import asyncio
+            import secrets
 
             # Base stop tokens list
             stop_tokens = ["\n\n", "<|endoftext|>",
                            "User:", "###", "<|endofcard|>", "<|user|>"]
 
-            # Allow caller to override stop tokens for special generation modes
-            if custom_stop_tokens is not None:
-                stop_tokens = list(custom_stop_tokens)
-
+            # Add custom stop tokens if provided
+            if custom_stop_tokens:
+                stop_tokens.extend(custom_stop_tokens)
 
             # Use a really random seed every time using the gpu seed
             seed = secrets.randbits(64)
@@ -458,7 +459,7 @@ class VLLMEngine(InferenceEngine):
                 seed=seed
             )
 
-            request_outputs = _sync_generate(prompts, sampling_params)
+            request_outputs = await asyncio.to_thread(_sync_generate, prompts, sampling_params)
 
             results = []
             for request_output in request_outputs:
@@ -481,8 +482,9 @@ class VLLMEngine(InferenceEngine):
             return results
 
         except Exception as e:
-            logger.error(f"vLLM generation failed: {e}")
-            raise
+            import traceback
+            traceback.print_exc()
+            raise RuntimeError(f"vLLM generation failed: {str(e)}")
 
 
     async def generate(self, prompt: str, max_tokens: int = 160,
@@ -494,7 +496,7 @@ class VLLMEngine(InferenceEngine):
         one place, and ensures any future fixes in `generate_batch` automatically
         apply here.
         """
-        results = self.generate_batch(
+        results = await self.generate_batch(
             prompts=[prompt],
             max_tokens=max_tokens,
             temperature=temperature,
