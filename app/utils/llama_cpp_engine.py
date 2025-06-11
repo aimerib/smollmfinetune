@@ -54,7 +54,7 @@ class LlamaCppEngine(InferenceEngine):
             tokenizer_name: Optional tokenizer override
             n_ctx: Context window size
             n_threads: Number of threads (auto-detect if None)
-            n_gpu_layers: Number of layers to offload to GPU (-1 = all)
+            n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU only)
         """
         # Prevent re-initialization to avoid Streamlit infinite loops
         if hasattr(self, '_initialized'):
@@ -67,7 +67,7 @@ class LlamaCppEngine(InferenceEngine):
         self.gguf_file = gguf_file
         self.tokenizer_name = tokenizer_name
         self.n_ctx = n_ctx
-        self.n_threads = n_threads or os.cpu_count()
+        self.n_threads = 8 # n_threads or os.cpu_count()
         self.n_gpu_layers = n_gpu_layers
         
         # Force reload if model changed
@@ -214,18 +214,26 @@ class LlamaCppEngine(InferenceEngine):
             # Download GGUF file if needed
             gguf_path = self._download_gguf_file(repo_id, filename)
             
-            logger.info(f"🚀 Loading GGUF model from {gguf_path} (threads={self.n_threads}, gpu_layers={self.n_gpu_layers})")
+            logger.info(f"🚀 Loading GGUF model from {gguf_path}")
+            logger.info(f"🔧 Configuration: threads={self.n_threads}, gpu_layers={self.n_gpu_layers}, ctx={self.n_ctx}")
             
-            # Initialize llama-cpp-python with optimized settings
+            # Set memory optimization environment variables
+            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")  # Use first GPU
+            os.environ.setdefault("LLAMA_CUBLAS", "1")  # Enable CUDA
+            
+            # Initialize llama-cpp-python with GPU optimization
             LlamaCppEngine._llm = Llama(
                 model_path=str(gguf_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers,
-                verbose=True,
+                verbose=True,  # Keep verbose to debug GPU issues
                 seed=-1,  # Allow random seeds per generation
                 n_batch=512,  # Optimize batch size
-                use_mlock=True,  # Keep model in memory
+                use_mlock=False,  # Disable mlock to avoid memory errors
+                use_mmap=True,   # Use memory mapping
+                main_gpu=0,      # Use first GPU
+                offload_kqv=True,      # Offload KV cache to GPU
             )
             
             # Store the model info for display
