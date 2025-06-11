@@ -442,7 +442,7 @@ class VLLMEngine(InferenceEngine):
                 max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
-                stop_tokens=stop_tokens,
+                stop=stop_tokens,
             )
 
             # Acquire the lock to prevent concurrent generation
