@@ -891,7 +891,7 @@ French version:"""
                 try:
                     # Generate variations of this popular question
                     variations = await self._generate_question_variations(
-                        question, character, num_variations=min(count, 5)
+                        question, character, num_variations=count
                     )
                     
                     # Add variations to results
@@ -949,10 +949,10 @@ Respond with ONLY the questions, one per line, no numbering:"""
         try:
             response = await self._generate_text(
                 prompt=variation_prompt,
-                max_tokens=300,
+                max_tokens=1000,
                 temperature=0.8,
                 top_p=0.9,
-                custom_stop_tokens=["Character:", f"{char_name}:", "User:", "\n\n\n"]
+                custom_stop_tokens=["Character:", f"{char_name}:", "User:"]
             )
             
             # Parse variations from response
