@@ -654,7 +654,7 @@ French version:"""
     async def suggest_user_questions(
         self,
         character: Dict[str, Any],
-        num_questions: int = 10,
+        num_questions: int = 100,
         temperature: float = 0.8,
         top_p: float = 0.9,
         existing_dataset: Optional[List[Dict[str, Any]]] = None,
@@ -720,7 +720,7 @@ French version:"""
             prompts.append((prompt_txt, examples_for_prompt))
 
         # Determine whether we can leverage batched generation
-        batch_size = min(num_questions, 50) if hasattr(
+        batch_size = min(num_questions, 100) if hasattr(
             self.inference_engine, 'generate_batch') else 1
         prompt_texts = [p[0] for p in prompts]
         
@@ -735,6 +735,7 @@ French version:"""
         # Generate the questions (batched when supported)
         try:
             logger.info("🎯 Calling _generate_text_batch...")
+            logger.info(f"   Prompt texts: {prompt_texts}")
             if hasattr(self.inference_engine, 'generate_batch'):
                 raw_outputs = await self._generate_text_batch(
                     prompts=prompt_texts,
