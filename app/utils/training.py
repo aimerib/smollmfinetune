@@ -193,13 +193,27 @@ class TrainingManager:
             print("⚙️ Setting up LoRA configuration...")
             model = self._setup_lora_model(model, config)
             
+            # Apply sample selection if specified
+            max_samples = config.get('max_samples', len(dataset))
+            if max_samples < len(dataset):
+                import random
+                print(f"🎲 Randomly selecting {max_samples} samples from {len(dataset)} total samples...")
+                # Create a copy and shuffle to ensure randomization
+                dataset_copy = dataset.copy()
+                random.shuffle(dataset_copy)
+                selected_dataset = dataset_copy[:max_samples]
+                print(f"✅ Selected {len(selected_dataset)} samples for training")
+            else:
+                selected_dataset = dataset
+                print(f"📊 Using all {len(dataset)} samples for training")
+            
             # Prepare dataset
             print("📊 Preparing dataset for training...")
             from .dataset import DatasetManager
             dataset_manager = DatasetManager()
             include_system_prompts = config.get('include_system_prompts', False)
             processed_dataset = dataset_manager.prepare_for_training(
-                dataset, tokenizer, include_system_prompts=include_system_prompts
+                selected_dataset, tokenizer, include_system_prompts=include_system_prompts
             )
             print(f"✅ Dataset prepared: {len(processed_dataset)} samples")
             if include_system_prompts:
@@ -220,7 +234,7 @@ class TrainingManager:
             batch_size = config.get('batch_size', 2)
             gradient_accumulation = config.get('gradient_accumulation_steps', 2)
             epochs = config.get('epochs', 6)  # 5-10 epochs recommended for character LoRA
-            dataset_size = len(processed_dataset)
+            dataset_size = len(selected_dataset)
             
             # Calculate total steps (can be overridden by UI)
             total_steps = (dataset_size * epochs) // (batch_size * gradient_accumulation)
@@ -232,7 +246,11 @@ class TrainingManager:
                 total_steps = int(config['max_steps_override'])
             
             print(f"📊 Training calculation:")
-            print(f"   Dataset size: {dataset_size} samples")
+            if max_samples < len(dataset):
+                print(f"   Original dataset: {len(dataset)} samples")
+                print(f"   Selected samples: {dataset_size} samples (randomly sampled)")
+            else:
+                print(f"   Dataset size: {dataset_size} samples")
             print(f"   Epochs: {epochs}")
             print(f"   Batch size: {batch_size}")
             print(f"   Gradient accumulation: {gradient_accumulation}")
@@ -362,7 +380,11 @@ class TrainingManager:
             raise RuntimeError("Training is already in progress")
         
         print(f"🚀 Starting training for character: {character.get('name', 'Unknown')}")
-        print(f"📊 Dataset size: {len(dataset)} samples")
+        max_samples = config.get('max_samples', len(dataset))
+        if max_samples < len(dataset):
+            print(f"📊 Dataset: {max_samples} samples selected from {len(dataset)} total")
+        else:
+            print(f"📊 Dataset size: {len(dataset)} samples")
         print(f"⚙️ Config: {config}")
         
         # Clear previous state

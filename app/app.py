@@ -1540,6 +1540,23 @@ def page_training_config():
                 gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=1)  # Default to 2
                 warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
                 max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 1.0, step=0.1, help="1.0 is standard")
+                
+                # Sample selection for dataset
+                st.markdown("**Dataset Sampling**")
+                if dataset_size > 0:
+                    use_all_samples = st.checkbox("Use All Samples", value=True, help="Use the entire dataset for training")
+                    if not use_all_samples:
+                        max_samples = st.slider(
+                            "Number of Samples", 
+                            min_value=1, 
+                            max_value=dataset_size, 
+                            value=min(dataset_size, 100),
+                            help=f"Select subset from {dataset_size} total samples (randomized selection)"
+                        )
+                    else:
+                        max_samples = dataset_size
+                else:
+                    max_samples = dataset_size
             
             # LoRA settings optimized for character training
             st.markdown("#### LoRA Configuration (Character-Optimized)")
@@ -1620,36 +1637,42 @@ def page_training_config():
     with col2:
         st.markdown("### Training Recommendations")
         
-        # Calculate training recommendations
-        total_steps = (dataset_size * epochs) // (batch_size * gradient_accumulation)
+        # Calculate training recommendations based on selected samples
+        effective_dataset_size = max_samples if 'max_samples' in locals() else dataset_size
+        total_steps = (effective_dataset_size * epochs) // (batch_size * gradient_accumulation)
         effective_batch_size = batch_size * gradient_accumulation
         
         # More nuanced overfitting risk calculation
-        if dataset_size < 50:
+        if effective_dataset_size < 50:
             if total_steps > 300:
                 overfitting_risk = "Very High"
             elif total_steps > 200:
                 overfitting_risk = "High"
             else:
                 overfitting_risk = "Medium"
-        elif dataset_size < 100:
+        elif effective_dataset_size < 100:
             if total_steps > 500:
                 overfitting_risk = "High"
             elif total_steps > 300:
                 overfitting_risk = "Medium"
             else:
                 overfitting_risk = "Low"
-        else:  # dataset_size >= 100
+        else:  # effective_dataset_size >= 100
             if total_steps > 1000:
                 overfitting_risk = "Medium"
             else:
                 overfitting_risk = "Low"
         
         # Display recommendations
+        # Show both total and selected dataset info
+        dataset_info = f"{effective_dataset_size} samples"
+        if effective_dataset_size != dataset_size:
+            dataset_info += f" (from {dataset_size} total)"
+        
         st.markdown(f"""
             <div class="metric-card">
                 <h4 style="margin: 0 0 1rem 0;">📊 Training Analysis</h4>
-                <p><strong>Dataset Size:</strong> {dataset_size} samples</p>
+                <p><strong>Training Dataset:</strong> {dataset_info}</p>
                 <p><strong>Total Steps:</strong> {total_steps}</p>
                 <p><strong>Effective Batch Size:</strong> {effective_batch_size}</p>
                 <p><strong>Overfitting Risk:</strong> <span style="color: {'#dc2626' if overfitting_risk == 'Very High' else '#ef4444' if overfitting_risk == 'High' else '#f59e0b' if overfitting_risk == 'Medium' else '#10b981'}">{overfitting_risk}</span></p>
@@ -1661,7 +1684,7 @@ def page_training_config():
         if overfitting_risk in ["High", "Very High"]:
             st.warning(f"⚠️ {overfitting_risk} overfitting risk! Consider: reducing epochs to {max(1, epochs-2)}, increasing dataset size, or lowering learning rate.")
         
-        if dataset_size > 300:
+        if effective_dataset_size > 300:
             st.info("💡 Large dataset detected. Consider using rank 32 for more model capacity.")
         
         if learning_rate >= 5e-4:
@@ -1704,7 +1727,8 @@ def page_training_config():
             'eval_steps': eval_steps,
             'max_steps_override': int(max_steps_override) if max_steps_override else 0,
             'resume_from_checkpoint': resume_ckpt,
-            'include_system_prompts': include_system_prompts
+            'include_system_prompts': include_system_prompts,
+            'max_samples': max_samples
         }
         
         try:

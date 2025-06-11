@@ -546,30 +546,92 @@ class DatasetManager:
         
         return chosen
 
-    def _add_noise(self, text: str) -> str:
-        """Keep prompts clean - no artificial noise"""
-        return text
-
     # ---------------- paraphrasing & back-translation ----------------
-    def _paraphrase(self, text: str) -> str:
-        if not hasattr(self, 'paraphraser') or not self.paraphraser or random.random() > 0.5:  # 50% keep original
+    async def _paraphrase(self, text: str) -> str:
+        """Paraphrase text using the inference engine for variation"""
+        if random.random() > 0.3:  # 70% chance to keep original for performance
             return text
+            
         try:
-            out = self.paraphraser(
-                f"paraphrase: {text} </s>",
-                max_length=min(len(text.split()) + 30, 60),
-                num_beams=5,
-                num_return_sequences=1,
-            )[0]["generated_text"]
-            return out.strip()
-        except Exception:
+            if not self.inference_engine:
+                return text
+                
+            paraphrase_prompt = f"""Rewrite this text to mean the same thing but with different words. Keep the same tone and meaning, just vary the phrasing:
+
+Original: {text}
+
+Rewritten:"""
+
+            # Use lower temperature for more controlled paraphrasing
+            paraphrased = await self._generate_text(
+                prompt=paraphrase_prompt,
+                max_tokens=min(len(text.split()) * 2, 100),
+                temperature=0.6,
+                top_p=0.9
+            )
+            
+            # Clean up the response
+            paraphrased = paraphrased.strip()
+            
+            # If paraphrasing failed or is too different, return original
+            if len(paraphrased) < 5 or len(paraphrased) > len(text) * 3:
+                return text
+                
+            return paraphrased
+            
+        except Exception as e:
+            logger.debug(f"Paraphrasing failed: {e}")
             return text
 
-    def _backtranslate(self, text: str) -> str:
-        # Disabled for now - requires additional model downloads
-        return text
+    async def _backtranslate(self, text: str) -> str:
+        """Simulate back-translation by asking for minor rewording"""
+        if random.random() > 0.2:  # 80% chance to keep original
+            return text
+            
+        try:
+            if not self.inference_engine:
+                return text
+                
+            backtranslate_prompt = f"""Translate this text to french:
 
-    def _build_user_prompt(self) -> str:
+Text: {text}
+
+French version:"""
+
+            # Very conservative settings for backtranslation
+            backtranslated = await self._generate_text(
+                prompt=backtranslate_prompt,
+                max_tokens=min(len(text.split()) * 2, 80),
+                temperature=0.4,
+                top_p=0.8
+            )
+            
+            # Clean and validate
+            backtranslated = backtranslated.strip()
+            if len(backtranslated) < 5 or len(backtranslated) > len(text) * 2.5:
+                return text
+            
+            translated_back_prompt = f"""Translate this text to english:
+
+            French version: {backtranslated}
+
+            English version:"""
+
+            backtranslated = await self._generate_text(
+                prompt=translated_back_prompt,
+                max_tokens=min(len(backtranslated.split()) * 2, 80),
+                temperature=0.4,
+                top_p=0.8
+            )
+            
+            backtranslated = backtranslated.strip()
+            return backtranslated
+            
+        except Exception as e:
+            logger.debug(f"Back-translation failed: {e}")
+            return text
+
+    async def _build_user_prompt(self) -> str:
         """Build a random user prompt from the appropriate bucket."""
         bucket = self._choose_bucket()
         
@@ -588,9 +650,8 @@ class DatasetManager:
                 prompt_list = self.prompts_casual
                 
             prompt = random.choice(prompt_list)
-            prompt = self._add_noise(prompt.strip())
-            prompt = self._paraphrase(prompt)
-            prompt = self._backtranslate(prompt)
+            prompt = await self._paraphrase(prompt)
+            prompt = await self._backtranslate(prompt)
             return prompt
         except Exception as e:
             logger.error(f"Error in _build_user_prompt: {e}")
@@ -613,7 +674,14 @@ class DatasetManager:
         questions – no numbering, quotes, or extra commentary – ready to be added to the
         baseline prompt list for ground-truth generation.
         """
+        logger.info(f"🔍 suggest_user_questions called:")
+        logger.info(f"   Requested questions: {num_questions}")
+        logger.info(f"   Character: {character.get('name', 'Unknown')}")
+        logger.info(f"   Existing dataset size: {len(existing_dataset) if existing_dataset else 0}")
+        logger.info(f"   Inference engine available: {self.inference_engine is not None}")
+        
         card_block = self._make_card_block(character)
+        logger.info(f"   Card block length: {len(card_block)} chars")
 
         interactions_block = ""
         context_examples: list[list[str]] = []  # store per prompt
@@ -660,16 +728,42 @@ class DatasetManager:
         batch_size = min(num_questions, 50) if hasattr(
             self.inference_engine, 'generate_batch') else 1
         prompt_texts = [p[0] for p in prompts]
+        
+        logger.info(f"   Prepared {len(prompt_texts)} prompts for generation")
+        logger.info(f"   Batch size: {batch_size}")
+        logger.info(f"   Sample prompt preview: {prompt_texts[0][:200]}..." if prompt_texts else "No prompts")
 
         # Generate the questions (batched when supported)
-        # if batch_size > 1:
-        raw_outputs = await self._generate_text_batch(
-            prompts=prompt_texts,
-            max_tokens=1000,
-            temperature=temperature,
-            top_p=top_p,
-            custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
-        )
+        try:
+            logger.info("🎯 Calling _generate_text_batch...")
+            if hasattr(self.inference_engine, 'generate_batch'):
+                raw_outputs = await self._generate_text_batch(
+                    prompts=prompt_texts,
+                    max_tokens=1000,
+                    temperature=temperature,
+                    top_p=top_p,
+                    custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
+                )
+            else:
+                # Fallback to sequential generation
+                logger.info("   Using sequential generation (no batch support)")
+                raw_outputs = []
+                for prompt in prompt_texts:
+                    output = await self._generate_text(
+                        prompt=prompt,
+                        max_tokens=1000,
+                        temperature=temperature,
+                        top_p=top_p,
+                        custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
+                    )
+                    raw_outputs.append(output)
+            
+            logger.info(f"✅ Got {len(raw_outputs)} raw outputs from LLM")
+            logger.info(f"   Sample raw output: {raw_outputs[0][:100]}..." if raw_outputs else "No outputs")
+        except Exception as e:
+            logger.error(f"❌ Generation failed: {e}")
+            logger.exception("Full traceback:")
+            return []
         # else:
         #     raw_outputs = []
         #     for _ in range(num_questions):
@@ -684,14 +778,21 @@ class DatasetManager:
 
         results: List[Dict[str, Any]] = []
         seen = set()
+        logger.info(f"🔨 Processing {len(raw_outputs)} raw outputs...")
+        
         for idx, q in enumerate(raw_outputs):
             q_str = str(q).strip()
+            logger.debug(f"   Raw output {idx}: {q_str[:100]}...")
+            
             # Remove bullets / numbering if present (e.g. "1. ", "- ")
             q_str = re.sub(r'^[\d\-\*\.\s]+', '', q_str)
             q_str = q_str.strip(' "\'')
             # Ensure terminal question-mark for consistency
             if q_str and not q_str.endswith('?'):
                 q_str += '?'
+                
+            logger.debug(f"   Processed to: {q_str[:100]}...")
+                
             if q_str and q_str not in seen:
                 results.append({
                     'question': q_str,
@@ -703,7 +804,14 @@ class DatasetManager:
                     ]
                 })
                 seen.add(q_str)
+                logger.debug(f"   ✅ Added question: {q_str[:50]}...")
+            else:
+                logger.debug(f"   ❌ Skipped question (empty or duplicate): {q_str[:50]}...")
 
+        logger.info(f"📝 Final results: {len(results)} unique questions")
+        if results:
+            logger.info(f"   Sample results: {[r['question'][:50] + '...' for r in results[:3]]}")
+        
         return results[:num_questions]
 
     # ---------------------------------------------------------------------------
@@ -802,14 +910,6 @@ class DatasetManager:
         except ImportError:
             pass
 
-        # Test inference engine if intelligent generation is enabled
-        if self.enable_intelligent_generation:
-            engine_working = await self.test_inference_engine()
-            if not engine_working:
-                logger.warning(
-                    "🔄 Disabling intelligent generation due to engine issues - using static prompts only")
-                self.enable_intelligent_generation = False
-
         card_block = self._make_card_block(character)
 
         # Load existing dataset if append_to_existing is True
@@ -852,9 +952,13 @@ class DatasetManager:
             })
         
         # 2. LLM-generated character-specific prompts (PRIMARY SOURCE)
+        logger.info(f"🧠 Intelligent generation enabled: {self.enable_intelligent_generation}")
         if self.enable_intelligent_generation:
             try:
                 logger.info("🧠 Generating LLM-tailored questions...")
+                logger.info(f"   Target questions: {min(new_samples_needed * 2, 100)}")
+                logger.info(f"   Character: {character.get('name', 'Unknown')}")
+                logger.info(f"   Inference engine: {self.inference_engine.name if self.inference_engine else 'None'}")
                 
                 # Generate a large pool of character-specific questions
                 num_llm_questions = min(new_samples_needed * 2, 100)  # Generate 2x what we need for variety
@@ -870,7 +974,13 @@ class DatasetManager:
                 
                 logger.info(f"✅ Generated {len(llm_questions)} LLM-tailored questions")
                 
+                if not llm_questions:
+                    logger.warning("⚠️ suggest_user_questions returned empty list")
+                else:
+                    logger.info(f"   Sample questions: {[q['question'][:50] + '...' for q in llm_questions[:3]]}")
+                
                 # Add these high-quality questions to the prompt pool
+                added_count = 0
                 for question_data in llm_questions:
                     question_text = question_data['question']
                     if question_text not in seen_user_prompts:
@@ -879,9 +989,13 @@ class DatasetManager:
                             'type': 'llm_generated',
                             'context': question_data.get('context', [])
                         })
+                        added_count += 1
+                
+                logger.info(f"   Added {added_count} unique LLM questions to prompt pool")
                         
             except Exception as e:
                 logger.warning(f"⚠️ LLM question generation failed: {e}")
+                logger.exception("Full traceback:")
                 logger.info("🔄 Falling back to algorithmic prompt generation")
                 # Fall back to algorithmic generation if LLM fails
                 self.enable_intelligent_generation = False
@@ -1117,7 +1231,6 @@ class DatasetManager:
                                 character,
                                 prompt_data.get('temporal_context', 'present'),
                                 prompt_data.get('relationship_context'),
-                                prompt_data.get('intelligent_prompt_data')
                             )
                             
                             sample = {
@@ -1197,7 +1310,6 @@ class DatasetManager:
                                                 character,
                                                 prompt_data.get('temporal_context', 'present'),
                                                 prompt_data.get('relationship_context'),
-                                                prompt_data.get('intelligent_prompt_data')
                                             )
                                             sample = {
                                                 "messages": [
@@ -1253,10 +1365,6 @@ class DatasetManager:
         for prompt_data in prompts_data[:new_generated]:
             temporal_ctx = prompt_data.get('temporal_context', 'present')
             temporal_counts[temporal_ctx] += 1
-
-            # Count intelligent prompts
-            if prompt_data.get('intelligent_prompt_data'):
-                intelligent_prompt_count += 1
 
             rel_ctx = prompt_data.get('relationship_context')
             if rel_ctx:
@@ -1868,14 +1976,26 @@ Format as a simple list:
                     {'role': 'user', 'content': current_prompt}
                 ]
 
-                response = await self.inference_engine.generate_with_messages(
-                    messages=messages,
-                    max_tokens=1000,  # Reduced for simpler responses
-                    temperature=0.9,  # Slightly lower for more focused responses
-                    top_p=0.9,       # Less restrictive sampling
-                    character_name=None,  # Don't add character name for analytical task
-                    custom_stop_tokens=reduced_stop_tokens
-                )
+                # Check if generate_with_messages is available, fallback to regular generate
+                if hasattr(self.inference_engine, 'generate_with_messages'):
+                    response = await self.inference_engine.generate_with_messages(
+                        messages=messages,
+                        max_tokens=1000,  # Reduced for simpler responses
+                        temperature=0.9,  # Slightly lower for more focused responses
+                        top_p=0.9,       # Less restrictive sampling
+                        character_name=None,  # Don't add character name for analytical task
+                        custom_stop_tokens=reduced_stop_tokens
+                    )
+                else:
+                    # Fallback: use chat template and regular generate
+                    templated_prompt = self.inference_engine.apply_chat_template(messages)
+                    response = await self._generate_text(
+                        prompt=templated_prompt,
+                        max_tokens=1000,
+                        temperature=0.9,
+                        top_p=0.9,
+                        custom_stop_tokens=reduced_stop_tokens
+                    )
 
                 # ————————————————————————  NEW DIAGNOSTIC LOGGING  ————————————————————————
                 preview_len = min(len(response), 400)
@@ -2093,8 +2213,7 @@ Format as a simple list:
 
     def _generate_temporal_system_prompt(self, character: Dict[str, Any],
                                          temporal_context: str,
-                                         relationship_context: Optional[str] = None,
-                                         intelligent_prompt_data: Optional[Dict[str, Any]] = None) -> str:
+                                         relationship_context: Optional[str] = None) -> str:
         """Generate system prompt with temporal and relationship context"""
         char_name = character.get('name', 'Assistant')
 
@@ -2104,51 +2223,20 @@ Format as a simple list:
         # Temporal context instructions
         if temporal_context == "past":
             # Use intelligent prompt data if available for more specific context
-            if intelligent_prompt_data:
-                relationship_name = intelligent_prompt_data.get(
-                    'relationship_name', 'Someone from your past')
-                relationship_type = intelligent_prompt_data.get(
-                    'relationship_type', 'person')
-                context_info = intelligent_prompt_data.get(
-                    'context', 'reflecting on your past')
-
-                if relationship_type in ["father", "mother", "parent"]:
-                    temporal_instruction = f"You are {char_name}, speaking with {relationship_name}. This is {context_info}. Be open about your childhood, upbringing, and family experiences. Show the emotional bonds and formative experiences that shaped who you are."
-                elif relationship_type in ["friend", "companion", "ally"]:
-                    temporal_instruction = f"You are {char_name}, speaking with {relationship_name}. This is {context_info}. Be nostalgic and share stories about your adventures, mistakes, and growth together."
-                elif relationship_type in ["mentor", "teacher", "master"]:
-                    temporal_instruction = f"You are {char_name}, speaking with {relationship_name}. This is {context_info}. Show respect and gratitude while discussing the lessons learned and wisdom gained."
-                elif relationship_type in ["lover", "beloved", "romance"]:
-                    temporal_instruction = f"You are {char_name}, speaking with {relationship_name}. This is {context_info}. Be vulnerable and emotional, sharing intimate memories and the impact of love on your life."
-                else:
-                    temporal_instruction = f"You are {char_name}, speaking with {relationship_name}. This is {context_info}. Be introspective and reveal your backstory naturally."
+            if relationship_context == "family_member":
+                temporal_instruction = f"You are {char_name}, speaking with a family member about your past. Be open about your childhood, upbringing, and family experiences. Show the emotional bonds and formative experiences that shaped who you are."
+            elif relationship_context == "old_friend":
+                temporal_instruction = f"You are {char_name}, reminiscing with an old friend about shared memories and experiences. Be nostalgic and share stories about your adventures, mistakes, and growth together."
+            elif relationship_context == "mentor":
+                temporal_instruction = f"You are {char_name}, reflecting with someone who taught or guided you. Show respect and gratitude while discussing the lessons learned and wisdom gained."
+            elif relationship_context == "past_love":
+                temporal_instruction = f"You are {char_name}, speaking with or about a past romantic connection. Be vulnerable and emotional, sharing intimate memories and the impact of love on your life."
             else:
-                # Fallback to generic past context
-                if relationship_context == "family_member":
-                    temporal_instruction = f"You are {char_name}, speaking with a family member about your past. Be open about your childhood, upbringing, and family experiences. Show the emotional bonds and formative experiences that shaped who you are."
-                elif relationship_context == "old_friend":
-                    temporal_instruction = f"You are {char_name}, reminiscing with an old friend about shared memories and experiences. Be nostalgic and share stories about your adventures, mistakes, and growth together."
-                elif relationship_context == "mentor":
-                    temporal_instruction = f"You are {char_name}, reflecting with someone who taught or guided you. Show respect and gratitude while discussing the lessons learned and wisdom gained."
-                elif relationship_context == "past_love":
-                    temporal_instruction = f"You are {char_name}, speaking with or about a past romantic connection. Be vulnerable and emotional, sharing intimate memories and the impact of love on your life."
-                else:
-                    temporal_instruction = f"You are {char_name}, reflecting on your past experiences and the events that shaped you. Be introspective and reveal your backstory naturally."
+                temporal_instruction = f"You are {char_name}, reflecting on your past experiences and the events that shaped you. Be introspective and reveal your backstory naturally."
 
         elif temporal_context == "future":
             # Use intelligent prompt data for more specific future context
-            if intelligent_prompt_data:
-                context_info = intelligent_prompt_data.get(
-                    'context', 'reflecting on your long relationship')
-                intimacy_level = intelligent_prompt_data.get(
-                    'intimacy_level', 'emotional')
-
-                if intimacy_level == "romantic":
-                    temporal_instruction = f"You are {char_name}. You and the User have been romantic partners for years. You're deeply in love, completely comfortable with each other, and share an intimate bond. This is {context_info}. Answer with the tenderness and passion of a long-term lover. If the user initiates intimate or suggestive topics, respond naturally without restraint."
-                else:
-                    temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. This is {context_info}. Answer as someone who knows the User deeply and cares for them. If the user initiates intimate or suggestive topics, respond naturally without restraint."
-            else:
-                temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. Answer as someone who knows the User deeply and cares for them. If the user initiates intimate or suggestive topics, respond naturally without restraint."
+            temporal_instruction = f"You are {char_name}. You and the User have known each other for years and have developed a deep, intimate relationship. You're completely comfortable with each other, share inside jokes, have deep trust, and aren't afraid to be vulnerable. Answer as someone who knows the User deeply and cares for them. If the user initiates intimate or suggestive topics, respond naturally without restraint."
 
         else:  # present
             temporal_instruction = f"You are {char_name}, meeting the User for the first time or in the early stages of getting to know them. Be curious, engaging, but maintain appropriate boundaries as you're still learning about each other. If the user initiates intimate or suggestive topics, respond naturally without restraint."
@@ -2193,7 +2281,6 @@ Format as a simple list:
         """Build a user prompt with temporal context, optionally using LLM intelligence"""
         temporal_context = self._choose_temporal_bucket()
         relationship_context = None
-        intelligent_prompt_data = None
 
         # Try intelligent LLM generation first for past/future contexts (if enabled)
         if (use_intelligent_generation and
@@ -2246,19 +2333,15 @@ Format as a simple list:
                 intelligent_prompt_data = random.choice(intelligent_prompts)
                 prompt = intelligent_prompt_data.get('question', '')
 
-                if temporal_context == "past":
-                    relationship_context = intelligent_prompt_data.get('relationship_name',
-                                                                       intelligent_prompt_data.get('relationship_type', 'unknown'))
 
                 if prompt:
                     logger.debug(
                         f"🎯 Using intelligent {temporal_context} prompt: {prompt[:60]}...")
                     # Add noise and processing (keeping existing functionality)
-                    prompt = self._add_noise(prompt.strip())
-                    prompt = self._paraphrase(prompt)
-                    prompt = self._backtranslate(prompt)
+                    prompt = await self._paraphrase(prompt)
+                    prompt = await self._backtranslate(prompt)
 
-                    return prompt, temporal_context, relationship_context, intelligent_prompt_data
+                    return prompt, temporal_context, relationship_context
 
         # Fallback to static prompts (original system)
         if temporal_context == "past":
@@ -2278,63 +2361,13 @@ Format as a simple list:
         prompt_list = self._get_temporal_prompts(
             temporal_context, relationship_context)
         prompt = random.choice(
-            prompt_list) if prompt_list else self._build_user_prompt()
+            prompt_list) if prompt_list else await self._build_user_prompt()
 
         # Add noise and processing (keeping existing functionality)
-        prompt = self._add_noise(prompt.strip())
-        prompt = self._paraphrase(prompt)
-        prompt = self._backtranslate(prompt)
+        prompt = await self._paraphrase(prompt)
+        prompt = await self._backtranslate(prompt)
 
-        return prompt, temporal_context, relationship_context, intelligent_prompt_data
-
-    async def _generate_single_random_prompt(self, character: Dict[str, Any], index: int) -> Optional[Dict[str, Any]]:
-        """Generate a single random prompt with temporal context"""
-        try:
-            # Select random template
-            mode, template = random.choice(self.templates)
-            prompt, temporal_context, relationship_context, intelligent_prompt_data = await self._fill_template(template, character)
-
-            # Validate template filling
-            unfilled_placeholders = re.findall(r'\{[^}]+\}', prompt)
-            if unfilled_placeholders:
-                return None
-
-            char_name = character.get('name', 'Assistant') or 'Assistant'
-
-            # Generate temporal system prompt with intelligent data
-            temporal_system_prompt = self._generate_temporal_system_prompt(
-                character, temporal_context, relationship_context, intelligent_prompt_data
-            )
-
-            danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
-
-            # Basic validation of structure
-            if danschat_prompt.count('<|endoftext|>') != 2:
-                return None
-
-            def _sample_max_tokens() -> int:
-                length_buckets = [("short", 0.40, 800),
-                                  ("medium", 0.45, 2000), ("long", 0.15, 4000)]
-                names, probs, toks = zip(*[(n, p, t)
-                                         for n, p, t in length_buckets])
-                bucket_name = random.choices(names, weights=probs, k=1)[0]
-                token_map = {n: t for n, _, t in length_buckets}
-                return token_map[bucket_name]
-
-            return {
-                'prompt': prompt,
-                'full_prompt': danschat_prompt,
-                'template_mode': mode,
-                'temporal_context': temporal_context,
-                'relationship_context': relationship_context,
-                'intelligent_prompt_data': intelligent_prompt_data,
-                'char_name': char_name,
-                'max_tokens': _sample_max_tokens(),
-            }
-
-        except Exception as e:
-            logger.debug(f"Error preparing prompt {index}: {e}")
-            return None
+        return prompt, temporal_context, relationship_context
 
     def analyze_character_intimacy_style(self, character: Dict[str, Any]) -> Dict[str, Any]:
         """Analyze how this character would approach intimate situations"""
