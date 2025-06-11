@@ -282,15 +282,25 @@ class LlamaCppEngine(InferenceEngine):
             if 'tokenizer.chat_template' in model_metadata:
                 chat_template = model_metadata['tokenizer.chat_template']
             
+            # Extract EOS token with error handling
             if 'tokenizer.ggml.eos_token_id' in model_metadata:
-                eos_token_id = model_metadata['tokenizer.ggml.eos_token_id']
-                # Get the actual token string
-                eos_token = LlamaCppEngine._llm.detokenize([eos_token_id]).decode('utf-8', errors='ignore')
+                try:
+                    eos_token_id = int(model_metadata['tokenizer.ggml.eos_token_id'])
+                    # Get the actual token string
+                    eos_token = LlamaCppEngine._llm.detokenize([eos_token_id]).decode('utf-8', errors='ignore')
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Failed to extract EOS token: {e}")
+                    eos_token = None
             
+            # Extract BOS token with error handling
             if 'tokenizer.ggml.bos_token_id' in model_metadata:
-                bos_token_id = model_metadata['tokenizer.ggml.bos_token_id']
-                # Get the actual token string  
-                bos_token = LlamaCppEngine._llm.detokenize([bos_token_id]).decode('utf-8', errors='ignore')
+                try:
+                    bos_token_id = int(model_metadata['tokenizer.ggml.bos_token_id'])
+                    # Get the actual token string  
+                    bos_token = LlamaCppEngine._llm.detokenize([bos_token_id]).decode('utf-8', errors='ignore')
+                except (ValueError, TypeError, AttributeError) as e:
+                    logger.warning(f"Failed to extract BOS token: {e}")
+                    bos_token = None
             
             # Fallback tokens if not found
             if not eos_token:
