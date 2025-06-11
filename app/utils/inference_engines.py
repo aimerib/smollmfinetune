@@ -105,53 +105,62 @@ class VLLMEngine(InferenceEngine):
                  gguf_file: Optional[str] = None,
                  tokenizer_name: Optional[str] = None,
                  tensor_parallel_size: int = 1):
-        # Only initialize once
-        if hasattr(self, '_initialized') and model_name == self.model_name:
-            return
-
+        # ✅ FIX: Prevent re-initialization to avoid Streamlit infinite loops
+        # Check if already initialized with same parameters
+        if hasattr(self, '_initialized'):
+            current_model = getattr(self, 'model_name', None)
+            if model_name is None or model_name == current_model:
+                return  # Already initialized with same or default model
+        
         # Allow override via environment variable
-        self.model_name = (
+        target_model = (
             model_name or
             os.getenv('VLLM_MODEL', 'PocketDoc/Dans-PersonalityEngine-V1.3.0-24b')
         )
         
-        # GGUF configuration
-        self.gguf_file = gguf_file
-        self.tokenizer_name = tokenizer_name
-        
-        # Force reload if model changed
-        if hasattr(self, '_initialized') and model_name != getattr(self, 'model_name', None):
-            VLLMEngine._model_loaded = False
-            VLLMEngine._llm = None
+        # Only proceed if model actually changed or first initialization
+        if not hasattr(self, '_initialized') or target_model != getattr(self, 'model_name', None):
+            self.model_name = target_model
+            
+            # GGUF configuration
+            self.gguf_file = gguf_file
+            self.tokenizer_name = tokenizer_name
+            
+            # Force reload if model changed
+            if hasattr(self, '_initialized') and target_model != getattr(self, 'model_name', None):
+                VLLMEngine._model_loaded = False
+                VLLMEngine._llm = None
 
-        # Auto-detect tensor parallel size based on GPU count if not specified
-        if tensor_parallel_size == 1:
-            try:
-                import torch
-                gpu_count = torch.cuda.device_count()
-                # Use multiple GPUs for 24B model if available
-                if gpu_count >= 2 and "24b" in self.model_name.lower():
-                    self.tensor_parallel_size = min(gpu_count, 4)  # Max 4 GPUs
-                else:
+            # Auto-detect tensor parallel size based on GPU count if not specified
+            if tensor_parallel_size == 1:
+                try:
+                    import torch
+                    gpu_count = torch.cuda.device_count()
+                    # Use multiple GPUs for 24B model if available
+                    if gpu_count >= 2 and "24b" in self.model_name.lower():
+                        self.tensor_parallel_size = min(gpu_count, 4)  # Max 4 GPUs
+                    else:
+                        self.tensor_parallel_size = 1
+                except:
                     self.tensor_parallel_size = 1
-            except:
-                self.tensor_parallel_size = 1
-        else:
-            self.tensor_parallel_size = tensor_parallel_size
+            else:
+                self.tensor_parallel_size = tensor_parallel_size
 
-        self._sampling_params = None
-        self._available = None
-        self._batch_queue = []
-        self._batch_size = 8  # Process in batches of 8
-        self._max_batch_size = 1000  # vLLM can handle very large batches
-        self._initialized = True
+            self._sampling_params = None
+            self._available = None
+            self._batch_queue = []
+            self._batch_size = 8  # Process in batches of 8
+            self._max_batch_size = 1000  # vLLM can handle very large batches
+            
+            # Mark as initialized to prevent future re-initialization
+            self._initialized = True
 
-        # Initialize the lock if not already done
-        if VLLMEngine._generation_lock is None:
-            VLLMEngine._generation_lock = asyncio.Lock()
+            # Initialize the lock if not already done
+            if VLLMEngine._generation_lock is None:
+                VLLMEngine._generation_lock = asyncio.Lock()
 
-        # Create GGUF cache directory
-        VLLMEngine._gguf_cache_dir.mkdir(parents=True, exist_ok=True)
+            # Create GGUF cache directory
+            VLLMEngine._gguf_cache_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def name(self) -> str:
@@ -421,117 +430,35 @@ class VLLMEngine(InferenceEngine):
             if custom_stop_tokens is not None:
                 stop_tokens = list(custom_stop_tokens)
 
-            # Add character name as stop token to prevent speaking for other characters
-            if character_name:
-                stop_tokens.extend(
-                    [f"{character_name}:", f"\n{character_name}:"])
 
             # Use a really random seed every time using the gpu seed
             seed = secrets.randbits(64)
 
-            # Create sampling parameters (optimized for character generation)
+            # Sampling parameters
             sampling_params = SamplingParams(
+                max_tokens=max_tokens,
                 temperature=temperature,
                 top_p=top_p,
-                max_tokens=max_tokens,
-                stop=stop_tokens,
-                # Character-optimized settings
-                repetition_penalty=1.05,  # Slight penalty to reduce repetition
-                frequency_penalty=0.1,    # Light penalty for frequent tokens
-                presence_penalty=0.05,    # Encourage topic diversity
-                top_k=-1,                # Disabled (use top_p)
-                min_p=0.0,               # Disabled (use top_p)
-                logprobs=None,           # Disabled for performance
-                min_tokens=1,            # Ensure non-empty responses,
-                seed=seed,
+                stop_tokens=stop_tokens,
             )
 
-            logger.info(
-                f"🎯 Sending {len(prompts)} prompts to vLLM model (character: {character_name or 'none'})")
+            # Acquire the lock to prevent concurrent generation
+            async with VLLMEngine._generation_lock:
+                # Generate text
+                results = await VLLMEngine._llm.generate_batch(prompts, sampling_params)
 
-            try:
-                # Generate all prompts in a single batch
-                loop = asyncio.get_event_loop()
-                outputs = await loop.run_in_executor(
-                    None,
-                    lambda: VLLMEngine._llm.generate(prompts, sampling_params)
-                )
-            except RuntimeError as e:
-                # Handle tensor shape/index errors and other CUDA issues
-                error_str = str(e)
-                if any(err in error_str for err in ["index", "out of bounds", "size", "dimension", "shape"]):
-                    logger.error(
-                        f"⚠️ vLLM tensor shape/indexing error: {error_str}")
-                    logger.info("🔄 Falling back to sequential generation")
+            # Post-processing: remove trailing whitespace and handle errors
+            results = [r.strip() for r in results]
+            for i, result in enumerate(results):
+                if not result:
+                    logger.warning(f"Empty result for prompt '{prompts[i]}'")
+                    results[i] = "Error: Empty response"
 
-                    # Fallback to sequential generation
-                    outputs = []
-                    for i, prompt in enumerate(prompts):
-                        try:
-                            # Process each prompt individually
-                            single_output = await loop.run_in_executor(
-                                None,
-                                lambda: VLLMEngine._llm.generate(
-                                    [prompt], sampling_params)
-                            )
-                            outputs.extend(single_output)
-                            # Clear cache after each item
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                        except Exception as inner_e:
-                            logger.warning(
-                                f"❌ Individual generation failed for prompt {i}: {inner_e}")
-                            # Create an empty output placeholder to maintain alignment with input
-                            from vllm.outputs import RequestOutput
-                            outputs.append(RequestOutput(
-                                request_id=f"error-{i}", prompt=prompt, prompt_token_ids=[], outputs=[]))
-                else:
-                    # Re-raise other errors
-                    raise
-
-            logger.info(f"📤 vLLM returned {len(outputs)} outputs")
-
-            # Extract results
-            results = []
-            for i, output in enumerate(outputs):
-                if output and hasattr(output, 'outputs') and output.outputs:
-                    text = output.outputs[0].text.strip()
-                    # logger.debug(f"vLLM output {i}: '{text[:100]}{'...' if len(text) > 100 else ''}' (length: {len(text)})")
-                    results.append(text)
-                else:
-                    logger.warning(f"❌ vLLM output {i}: No outputs generated")
-                    results.append("")
-
-            # Ensure we return exactly the right number of results
-            if len(results) < len(prompts):
-                logger.warning(
-                    f"⚠️ Results count mismatch: got {len(results)}, expected {len(prompts)}")
-                # Pad with empty strings to match original prompt count
-                results.extend([""] * (len(prompts) - len(results)))
-            elif len(results) > len(prompts):
-                logger.warning(
-                    f"⚠️ Too many results: got {len(results)}, expected {len(prompts)}")
-                # Truncate to match original prompt count
-                results = results[:len(prompts)]
-
-            # Force CUDA cache cleanup after batch generation to prevent memory fragmentation
-            if torch.cuda.is_available():
-                try:
-                    # Clear cache
-                    torch.cuda.empty_cache()
-                except Exception as e:
-                    logger.debug(f"Failed to clear CUDA cache: {e}")
-
-            logger.info(
-                f"✅ vLLM batch generation complete: {len(results)} results")
             return results
 
         except Exception as e:
-            logger.error(f"💥 vLLM batch generation failed: {str(e)}")
-            # Last resort fallback - return empty responses for all prompts
-            logger.warning(
-                "⚠️ Returning empty responses due to generation failure")
-            return [""] * len(prompts)
+            logger.error(f"vLLM generation failed: {e}")
+            raise
 
 
 class InferenceEngineFactory:

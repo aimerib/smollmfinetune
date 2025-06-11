@@ -46,6 +46,63 @@ logging.basicConfig(
 # Set specific loggers to DEBUG for more detail
 logging.getLogger('utils.inference').setLevel(logging.DEBUG)
 
+# ✅ FIX: Cache DatasetManager initialization to prevent infinite loops
+@st.cache_resource
+def get_cached_dataset_manager(preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
+    """Create and cache DatasetManager instance to prevent re-initialization"""
+    logger.info(f"Creating cached DatasetManager with engine: {preferred_engine}, model: {generation_model}")
+    return DatasetManager(
+        preferred_engine=preferred_engine,
+        generation_model=generation_model
+    )
+
+# Initialize session state
+def init_session_state():
+    if 'character_manager' not in st.session_state:
+        st.session_state.character_manager = CharacterManager()
+    
+    # ✅ FIX: Use cached DatasetManager to prevent re-initialization and infinite loops
+    if 'dataset_manager' not in st.session_state:
+        # Auto-detect inference engine, but allow override
+        preferred_engine = os.getenv('INFERENCE_ENGINE', None)
+        generation_model = os.getenv('GENERATION_MODEL', None)
+        
+        try:
+            # Use cached function to prevent re-initialization
+            st.session_state.dataset_manager = get_cached_dataset_manager(
+                preferred_engine=preferred_engine,
+                generation_model=generation_model
+            )
+            logger.info("✅ DatasetManager successfully initialized from cache")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize DatasetManager: {e}")
+            # Set a placeholder to prevent infinite retries
+            st.session_state.dataset_manager = None
+            st.error(f"Failed to initialize DatasetManager: {e}")
+    
+    if 'training_manager' not in st.session_state:
+        st.session_state.training_manager = TrainingManager()
+    if 'inference_manager' not in st.session_state:
+        st.session_state.inference_manager = InferenceManager()
+    if 'current_character' not in st.session_state:
+        st.session_state.current_character = None
+    if 'training_status' not in st.session_state:
+        st.session_state.training_status = 'idle'
+    if 'dataset_preview' not in st.session_state:
+        st.session_state.dataset_preview = None
+    if 'dataset_metadata' not in st.session_state:
+        st.session_state.dataset_metadata = {}
+    if 'selected_engine' not in st.session_state:
+        # Only set if dataset_manager exists and is properly initialized
+        if hasattr(st.session_state, 'dataset_manager') and st.session_state.dataset_manager:
+            st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
+        else:
+            st.session_state.selected_engine = "Unknown"
+    if 'generated_questions' not in st.session_state:
+        st.session_state.generated_questions = None
+    if 'generation_model' not in st.session_state:
+        st.session_state.generation_model = None
+
 # Page config
 st.set_page_config(
     page_title="🎭 Character AI Training Studio",
@@ -187,38 +244,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-def init_session_state():
-    if 'character_manager' not in st.session_state:
-        st.session_state.character_manager = CharacterManager()
-    if 'dataset_manager' not in st.session_state:
-        # Auto-detect inference engine, but allow override
-        preferred_engine = os.getenv('INFERENCE_ENGINE', None)
-        generation_model = os.getenv('GENERATION_MODEL', None)
-        st.session_state.dataset_manager = DatasetManager(
-            preferred_engine=preferred_engine,
-            generation_model=generation_model
-        )
-    if 'training_manager' not in st.session_state:
-        st.session_state.training_manager = TrainingManager()
-    if 'inference_manager' not in st.session_state:
-        st.session_state.inference_manager = InferenceManager()
-    if 'current_character' not in st.session_state:
-        st.session_state.current_character = None
-    if 'training_status' not in st.session_state:
-        st.session_state.training_status = 'idle'
-    if 'dataset_preview' not in st.session_state:
-        st.session_state.dataset_preview = None
-    if 'dataset_metadata' not in st.session_state:
-        st.session_state.dataset_metadata = {}
-    if 'selected_engine' not in st.session_state:
-        # Display current engine in sidebar
-        st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
-    if 'generated_questions' not in st.session_state:
-        st.session_state.generated_questions = None
-    if 'generation_model' not in st.session_state:
-        st.session_state.generation_model = None
-
+# Render the beautiful header
 def render_header():
     """Render the beautiful header"""
     st.markdown("""
@@ -232,6 +258,7 @@ def render_header():
         </div>
     """, unsafe_allow_html=True)
 
+# Render the sidebar navigation
 def render_sidebar():
     """Render the sidebar navigation"""
     with st.sidebar:
@@ -471,7 +498,7 @@ def render_sidebar():
                         if current_config is None or current_config.get('gguf_file') != new_gguf_config['gguf_file']:
                             st.session_state.gguf_config = new_gguf_config
                         
-                        st.success(f"✅ GGUF: {gguf_filename}")
+                        st.success(f"✅ GGUF: {st.session_state.gguf_config['display_name']}...")
                         st.info(f"📊 Tokenizer: {tokenizer_repo or 'Auto-detect'}")
                         
                         # Show cache info as regular section instead of nested expander
@@ -647,6 +674,7 @@ def render_sidebar():
     
     return selected
 
+# Character upload and card management page
 def page_character_upload():
     """Character upload and card management page"""
     st.markdown('<h2 class="gradient-text">📁 Character Card Upload</h2>', unsafe_allow_html=True)
@@ -722,6 +750,7 @@ def page_character_upload():
             </div>
         """, unsafe_allow_html=True)
 
+# Dataset generation and preview page
 def page_dataset_preview():
     """Dataset generation and preview page"""
     st.markdown('<h2 class="gradient-text">🔍 Dataset Preview & Generation</h2>', unsafe_allow_html=True)
@@ -1275,6 +1304,7 @@ def page_dataset_preview():
                 
                 st.markdown("---")
 
+# Training configuration page
 def page_training_config():
     """Training configuration page"""
     st.markdown('<h2 class="gradient-text">⚙️ Training Configuration</h2>', unsafe_allow_html=True)
@@ -1517,7 +1547,7 @@ def page_training_config():
         st.markdown("""
             <div style="background: rgba(16, 185, 129, 0.1); padding: 1rem; border-radius: 8px; border-left: 4px solid #10b981;">
                 <h4 style="color: #10b981; margin-top: 0;">💡 Character LoRA Best Practices</h4>
-                <ul style="color: #cbd5e1; font-size: 0.9rem; margin-bottom: 0;">
+                <ul style="color: #cbd5e1; font-size: 0.9rem;">
                     <li><strong>Dataset:</strong> 50-100 samples optimal, 200-300 max</li>
                     <li><strong>Learning Rate:</strong> Start with 2e-4, use 1e-4 if unstable</li>
                     <li><strong>LoRA Rank:</strong> 8-16 for most characters, 32 for complex ones</li>
@@ -1571,6 +1601,7 @@ def page_training_config():
             st.error(f"❌ Failed to start training: {str(e)}")
             st.session_state.training_status = 'error'
 
+# Real-time training dashboard
 def page_training_dashboard():
     """Real-time training dashboard"""
     st.markdown('<h2 class="gradient-text">📊 Training Dashboard</h2>', unsafe_allow_html=True)
@@ -1677,6 +1708,7 @@ def page_training_dashboard():
         time.sleep(2)
         st.rerun()
 
+# Model testing and inference page
 def page_model_testing():
     """Model testing and inference page"""
     st.markdown('<h2 class="gradient-text">🧪 Model Testing</h2>', unsafe_allow_html=True)
@@ -1868,6 +1900,7 @@ def page_model_testing():
         else:
             st.info("Train multiple checkpoints to enable model comparison.")
 
+# Dataset explorer page
 def page_dataset_explorer():
     """Dataset explorer page"""
     st.markdown('<h2 class="gradient-text">📚 Dataset Explorer</h2>', unsafe_allow_html=True)
@@ -1940,6 +1973,7 @@ def page_dataset_explorer():
         if stats:
             st.json(stats)
 
+# Main app function
 def main():
     """Main app function"""
     init_session_state()
