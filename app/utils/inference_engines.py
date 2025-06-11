@@ -88,8 +88,8 @@ class LMStudioEngine(InferenceEngine):
 
 def _sync_generate(prompts, sampling_params):
     """Synchronous wrapper for vLLM generate call"""
-    with VLLMEngine._generation_lock:
-        return VLLMEngine._llm.generate(prompts, sampling_params)
+    # No lock needed here – vLLM's scheduler supports concurrent generate calls.
+    return VLLMEngine._llm.generate(prompts, sampling_params)
 
 class VLLMEngine(InferenceEngine):
     """vLLM engine for high-performance cloud deployment with batching"""
@@ -443,11 +443,11 @@ class VLLMEngine(InferenceEngine):
             stop_tokens = ["\n\n", "<|endoftext|>",
                            "User:", "###", "<|endofcard|>", "<|user|>"]
 
-            # Add custom stop tokens if provided
-            if custom_stop_tokens:
-                stop_tokens.extend(custom_stop_tokens)
+                        # Allow caller to override stop tokens for special generation modes
+            if custom_stop_tokens is not None:
+                stop_tokens = list(custom_stop_tokens)
 
-            # Use a really random seed every time using the gpu seed
+            # Use a cryptographically strong random seed for each batch
             seed = secrets.randbits(64)
 
             # Sampling parameters
@@ -456,35 +456,36 @@ class VLLMEngine(InferenceEngine):
                 temperature=temperature,
                 top_p=top_p,
                 stop=stop_tokens,
-                seed=seed
+                seed=seed,
             )
 
-            request_outputs = await asyncio.to_thread(_sync_generate, prompts, sampling_params)
+            # Run synchronous vLLM generate in a worker thread
+            request_outputs = await asyncio.to_thread(
+                _sync_generate, prompts, sampling_params
+            )
 
-            results = []
+            results: List[str] = []
             for request_output in request_outputs:
-                # Each RequestOutput contains a list of CompletionOutput objects
-                # We take the first (and typically only) completion
                 if request_output.outputs:
                     generated_text = request_output.outputs[0].text
                     results.append(generated_text)
                 else:
-                    logger.warning(f"No outputs for prompt: {request_output.prompt}")
+                    logger.warning("No outputs for prompt: %s", request_output.prompt)
                     results.append("Error: No output generated")
 
-            # Post-processing: remove trailing whitespace and handle errors
-            results = [r.strip() for r in results]
-            for i, result in enumerate(results):
-                if not result:
-                    logger.warning(f"Empty result for prompt '{prompts[i]}'")
-                    results[i] = "Error: Empty response"
+            # Strip whitespace / handle empties
+            for idx, txt in enumerate(results):
+                txt = txt.strip()
+                if not txt:
+                    logger.warning("Empty result for prompt '%s'", prompts[idx])
+                    txt = "Error: Empty response"
+                results[idx] = txt
 
             return results
 
         except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise RuntimeError(f"vLLM generation failed: {str(e)}")
+            logger.error("vLLM generation failed: %s", e)
+            raise
 
 
     async def generate(self, prompt: str, max_tokens: int = 160,
