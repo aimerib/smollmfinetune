@@ -155,6 +155,7 @@ class LlamaCppEngine(InferenceEngine):
             raise RuntimeError(f"Failed to download GGUF file: {e}")
 
     def _parse_gguf_model_string(self, model_string: str) -> Tuple[str, str, Optional[str]]:
+        import json
         """Parse GGUF model string format: 'repo_id/filename@tokenizer_repo'
         
         Examples:
@@ -176,9 +177,14 @@ class LlamaCppEngine(InferenceEngine):
         last_slash = gguf_part.rfind('/')
         repo_id = gguf_part[:last_slash]
         filename = gguf_part[last_slash + 1:]
+        try:
+            files_array = json.loads(filename)
+            filename = files_array
+        except json.JSONDecodeError:
+            pass
         
-        if not filename.endswith('.gguf'):
-            raise ValueError(f"Invalid GGUF filename: {filename}. Must end with .gguf")
+        if not filename.endswith('.gguf') and not isinstance(filename, list):
+            raise ValueError(f"Invalid GGUF filename: {filename}. Must end with .gguf or be a list of filenames.")
         
         return repo_id, filename, tokenizer_repo
 
