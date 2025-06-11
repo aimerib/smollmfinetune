@@ -650,7 +650,6 @@ class DatasetManager:
                         "\n\n".join(formatted) + "\n\n"
 
             prompt_txt = (
-                "You are brainstorming conversation starters for a chat with the following character.\n"
                 "Based on the character information and the sample dialogue below, write ONE concise and engaging question that a user might ask next.\n"
                 "Respond with ONLY the question itself.\n\n"
                 f"{card_block}\n\n" + interactions_block + "Question:"
@@ -668,7 +667,8 @@ class DatasetManager:
             prompts=prompt_texts,
             max_tokens=1000,
             temperature=temperature,
-            top_p=top_p
+            top_p=top_p,
+            custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
         )
         # else:
         #     raw_outputs = []
