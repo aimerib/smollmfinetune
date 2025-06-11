@@ -473,7 +473,7 @@ def render_sidebar():
                             "Custom": None,
                             "Fallen Llama 3.3 R1": {
                                 "repo": "bartowski/TheDrummer_Fallen-Llama-3.3-R1-70B-v1-GGUF",
-                                "file": "TheDrummer_Fallen-Llama-3.3-R1-70B-v1-Q5_K_S.gguf",
+                                "file": "TheDrummer_Fallen-Llama-3.3-R1-70B-v1-IQ4_NL.gguf",
                                 "tokenizer": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
                             },
                             "Llama 2 70B (Q4_K_M)": {
