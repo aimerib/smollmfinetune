@@ -29,7 +29,7 @@ class DatasetManager:
         
         # If vLLM engine and custom model specified, create with that model
         if preferred_engine == 'vllm' and generation_model:
-            from .inference_engines import VLLMEngine
+            from .vllm_engine import VLLMEngine
             self.inference_engine = VLLMEngine(model_name=generation_model)
         else:
             self.inference_engine = get_inference_engine(preferred_engine)
@@ -4284,7 +4284,7 @@ Respond with ONLY a JSON object with numeric scores:
                 stage_callback({'stage': 'setup', 'message': f'Loading judge model: {judge_model}'})
             
             # Create a new vLLM engine instance for the judge model
-            from .inference_engines import VLLMEngine
+            from .vllm_engine import VLLMEngine
             judge_engine = VLLMEngine(model_name=judge_model)
             if not judge_engine.is_available():
                 logger.warning(f"Judge model {judge_model} not available, falling back to generation model")
