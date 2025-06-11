@@ -180,7 +180,8 @@ class LlamaCppEngine(InferenceEngine):
         try:
             files_array = json.loads(filename)
             filename = files_array
-        except json.JSONDecodeError:
+        except Exception as e:
+            logger.error(f"Error parsing GGUF filename: {e}")
             traceback.print_exc()
             pass
         
