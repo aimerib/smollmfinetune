@@ -681,7 +681,6 @@ def render_sidebar():
                     engine = LlamaCppEngine(
                         gguf_file=st.session_state.gguf_config['gguf_file'],
                         tokenizer_name=st.session_state.gguf_config.get('tokenizer_name'),
-                        n_ctx=s
                     )
                     
                     # Create DatasetManager without auto-engine creation, then assign GGUF engine

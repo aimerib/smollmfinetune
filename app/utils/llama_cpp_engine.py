@@ -69,16 +69,16 @@ class LlamaCppEngine(InferenceEngine):
         # Configuration
         self.gguf_file = gguf_file
         self.tokenizer_name = tokenizer_name
-        self.n_ctx = n_ctx
+        self.n_ctx = int(os.getenv('MAX_MODEL_LEN', str(n_ctx)))  # Use env var but fall back to parameter
         self.n_threads = n_threads or os.cpu_count()
         self.n_gpu_layers = n_gpu_layers
-        self.n_ctx = int(os.getenv('MAX_MODEL_LEN', '4096'))
         
         # Force reload if model changed
         if hasattr(self, '_initialized') and gguf_file != getattr(self, 'gguf_file', None):
             logger.info(f"🔄 Model changed from {getattr(self, 'gguf_file', None)} to {gguf_file}, forcing reload")
             LlamaCppEngine._model_loaded = False
             LlamaCppEngine._llm = None
+            LlamaCppEngine._initializing = False  # Reset initializing flag to allow re-initialization
 
         self._available = None
         
@@ -226,6 +226,7 @@ class LlamaCppEngine(InferenceEngine):
             os.environ.setdefault("LLAMA_CUBLAS", "1")  # Enable CUDA
             
             # Initialize llama-cpp-python with GPU optimization
+            logger.info("Creating Llama instance...")
             LlamaCppEngine._llm = Llama(
                 model_path=str(gguf_path),
                 n_ctx=self.n_ctx,
@@ -240,11 +241,19 @@ class LlamaCppEngine(InferenceEngine):
                 offload_kqv=True,      # Offload KV cache to GPU
             )
             
+            # Verify the model was created successfully
+            if LlamaCppEngine._llm is None:
+                raise RuntimeError("Failed to create Llama instance - returned None")
+            
+            # Test that the model is callable
+            if not callable(LlamaCppEngine._llm):
+                raise RuntimeError("Llama instance is not callable")
+            
             # Store the model info for display
             self.model_display_name = f"{repo_id}/{filename}"
             
             LlamaCppEngine._model_loaded = True
-            logger.info(f"Llama.cpp model loaded successfully!")
+            logger.info(f"Llama.cpp model loaded successfully! Instance type: {type(LlamaCppEngine._llm)}")
 
         except Exception as e:
             logger.error(f"Failed to load Llama.cpp model: {e}")
@@ -462,20 +471,36 @@ class LlamaCppEngine(InferenceEngine):
                              top_p: float, stop_tokens: List[str]) -> str:
         """Synchronous generation for a single prompt with improved error handling"""
         try:
+            # Ensure model is loaded and available
+            if not LlamaCppEngine._model_loaded or LlamaCppEngine._llm is None:
+                logger.error("Model not loaded or _llm is None, attempting to reinitialize")
+                self._initialize_model()
+                
+            # Double-check after initialization
+            if LlamaCppEngine._llm is None:
+                raise RuntimeError("Model failed to initialize - _llm is None")
+            
             # Generate with a random seed for each call
             import random
             seed = random.randint(0, 2**31 - 1)
             
-            response = LlamaCppEngine._llm(
-                prompt,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop_tokens,
-                echo=False,  # Don't echo the prompt
-                seed=seed,   # Random seed for each generation
-                repeat_penalty=1.1,  # Reduce repetition
-            )
+            # Use the generation lock to prevent concurrent access to _llm
+            with LlamaCppEngine._generation_lock:
+                # Final safety check
+                if LlamaCppEngine._llm is None:
+                    raise RuntimeError("_llm is None just before generation call")
+                    
+                logger.debug(f"Calling _llm generation with type: {type(LlamaCppEngine._llm)}")
+                response = LlamaCppEngine._llm(
+                    prompt,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop_tokens,
+                    echo=False,  # Don't echo the prompt
+                    seed=seed,   # Random seed for each generation
+                    repeat_penalty=1.1,  # Reduce repetition
+                )
             
             # Extract text from response - handle both dict and string formats
             text = ""
