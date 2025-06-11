@@ -98,6 +98,7 @@ class VLLMEngine(InferenceEngine):
     _instance = None
     _llm = None
     _model_loaded = False
+    _initializing = False  # Add flag to prevent concurrent initialization
     _generation_lock = None  # Add class-level lock
     if Path("/workspace").exists():
         _gguf_cache_dir = Path("/workspace") / ".cache" / "vllm_gguf"  # GGUF cache directory
@@ -270,10 +271,33 @@ class VLLMEngine(InferenceEngine):
 
     def _initialize_model(self):
         """Initialize vLLM model once (singleton pattern)"""
-        if VLLMEngine._model_loaded:
-            return
+        # ✅ CRITICAL FIX: Add thread-safe initialization check
+        with VLLMEngine._generation_lock:
+            # Double-check pattern: check again inside the lock
+            if VLLMEngine._model_loaded and VLLMEngine._llm is not None:
+                return
+            
+            # Prevent concurrent initialization attempts
+            if hasattr(VLLMEngine, '_initializing') and VLLMEngine._initializing:
+                logger.info("Model initialization already in progress, waiting...")
+                # Wait for other thread to finish initialization
+                import time
+                max_wait = 300  # 5 minutes max wait
+                waited = 0
+                while VLLMEngine._initializing and waited < max_wait:
+                    time.sleep(1)
+                    waited += 1
+                
+                if VLLMEngine._model_loaded and VLLMEngine._llm is not None:
+                    return
+                else:
+                    raise RuntimeError("Model initialization by other thread failed")
+            
+            # Mark as initializing
+            VLLMEngine._initializing = True
 
         try:
+            torch.cuda.empty_cache() if torch.cuda.is_available() else None
             from vllm import LLM, SamplingParams
 
             # Get configuration from environment or use defaults
@@ -309,7 +333,7 @@ class VLLMEngine(InferenceEngine):
                     tensor_parallel_size=self.tensor_parallel_size,
                     gpu_memory_utilization=gpu_memory_util,
                     max_model_len=max_model_len,
-                    enforce_eager=False,
+                    enforce_eager=True,
                     trust_remote_code=True,
                 )
                 
@@ -338,6 +362,9 @@ class VLLMEngine(InferenceEngine):
             logger.error(f"Failed to load vLLM model: {e}")
             VLLMEngine._model_loaded = False
             raise
+        finally:
+            # Always clear the initializing flag
+            VLLMEngine._initializing = False
 
     @classmethod
     def get_gguf_cache_info(cls) -> Dict[str, any]:
@@ -431,8 +458,8 @@ class VLLMEngine(InferenceEngine):
             from vllm import SamplingParams
 
             # Base stop tokens list
-            stop_tokens = ["\n\n", "<|endoftext|>",
-                           "User:", "###", "<|endofcard|>", "<|user|>"]
+            stop_tokens = ["\n\n", "<|pad|>",
+                           "User:", "###", "<|endofcard|>", ""]
 
             # Allow caller to override stop tokens for special generation modes
             if custom_stop_tokens is not None:
