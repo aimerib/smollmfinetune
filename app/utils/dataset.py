@@ -718,9 +718,11 @@ French version:"""
                         "\n\n".join(formatted) + "\n\n"
 
             prompt_txt = (
-                "Based on the character information and the sample dialogue below, write ONE concise and engaging question that a user might ask next.\n"
-                "Respond with ONLY the question itself.\n\n"
-                f"{card_block}\n\n" + interactions_block + "Question:"
+                "You are helping create questions for roleplay conversations. "
+                "Based on the character information below, write ONE engaging question that a user might ask this character.\n\n"
+                "Important: Respond with ONLY the question itself - no numbering, no quotes, no extra text.\n\n"
+                f"{card_block}\n\n" + interactions_block + 
+                "Write one engaging question for this character:\n"
             )
             prompts.append((prompt_txt, examples_for_prompt))
 
@@ -731,7 +733,11 @@ French version:"""
         
         logger.info(f"   Prepared {len(prompt_texts)} prompts for generation")
         logger.info(f"   Batch size: {batch_size}")
-        logger.info(f"   Sample prompt preview: {prompt_texts[0][:200]}..." if prompt_texts else "No prompts")
+        
+        if prompt_texts:
+            logger.info(f"   📋 Full sample prompt:\n{'-'*50}\n{prompt_texts[0]}\n{'-'*50}")
+        else:
+            logger.info("   ❌ No prompts generated!")
 
         # Generate the questions (batched when supported)
         try:
@@ -742,7 +748,7 @@ French version:"""
                     max_tokens=1000,
                     temperature=temperature,
                     top_p=top_p,
-                    custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
+                    custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"]
                 )
             else:
                 # Fallback to sequential generation
@@ -754,7 +760,7 @@ French version:"""
                         max_tokens=1000,
                         temperature=temperature,
                         top_p=top_p,
-                        custom_stop_tokens=["\n\n", "Answer", f"{character['name']}:"]
+                        custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"]
                     )
                     raw_outputs.append(output)
             
@@ -782,18 +788,41 @@ French version:"""
         
         for idx, q in enumerate(raw_outputs):
             q_str = str(q).strip()
-            logger.debug(f"   Raw output {idx}: {q_str[:100]}...")
+            
+            # Log first few raw outputs in detail
+            if idx < 5:
+                logger.info(f"   📋 Raw output {idx}: '{q_str}'")
+            else:
+                logger.debug(f"   Raw output {idx}: {q_str[:100]}...")
             
             # Remove bullets / numbering if present (e.g. "1. ", "- ")
+            original_q = q_str
             q_str = re.sub(r'^[\d\-\*\.\s]+', '', q_str)
             q_str = q_str.strip(' "\'')
+            
+            # Clean up common LLM artifacts
+            q_str = re.sub(r'^(Question:\s*|Q:\s*|A:\s*|Answer:\s*)', '', q_str, flags=re.IGNORECASE)
+            
+            # Remove trailing periods that might interfere with question marks
+            q_str = q_str.rstrip('.')
+            
             # Ensure terminal question-mark for consistency
             if q_str and not q_str.endswith('?'):
-                q_str += '?'
+                # Only add ? if it looks like a question (starts with question words or has question structure)
+                question_indicators = ['what', 'how', 'when', 'where', 'why', 'who', 'which', 'can', 'do', 'are', 'is', 'will', 'would', 'could', 'should']
+                if any(q_str.lower().startswith(word) for word in question_indicators):
+                    q_str += '?'
+                else:
+                    # Even if it doesn't start with question words, assume it's a question since that's what we asked for
+                    q_str += '?'
+            
+            if idx < 5:
+                logger.info(f"   🔄 Processed {idx}: '{original_q}' → '{q_str}'")
+            else:
+                logger.debug(f"   Processed to: {q_str[:100]}...")
                 
-            logger.debug(f"   Processed to: {q_str[:100]}...")
-                
-            if q_str and q_str not in seen:
+            # More lenient validation
+            if q_str and len(q_str) > 5 and q_str not in seen:
                 results.append({
                     'question': q_str,
                     'context': [
@@ -804,9 +833,16 @@ French version:"""
                     ]
                 })
                 seen.add(q_str)
-                logger.debug(f"   ✅ Added question: {q_str[:50]}...")
+                if idx < 5:
+                    logger.info(f"   ✅ Added question {idx}: {q_str[:50]}...")
+                else:
+                    logger.debug(f"   ✅ Added question: {q_str[:50]}...")
             else:
-                logger.debug(f"   ❌ Skipped question (empty or duplicate): {q_str[:50]}...")
+                reason = "empty" if not q_str else "too short" if len(q_str) <= 5 else "duplicate"
+                if idx < 5:
+                    logger.info(f"   ❌ Skipped question {idx} ({reason}): '{q_str[:50]}'")
+                else:
+                    logger.debug(f"   ❌ Skipped question (empty or duplicate): {q_str[:50]}...")
 
         logger.info(f"📝 Final results: {len(results)} unique questions")
         if results:
