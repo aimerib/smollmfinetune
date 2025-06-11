@@ -5,6 +5,7 @@ import os
 # errors. Must be set before importing Streamlit so that Streamlit reads the
 # configuration on startup.
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
+os.environ.setdefault("HF_HUB_CACHE", "/workspace/.cache/vllm_hf")
 
 import streamlit as st
 from streamlit_option_menu import option_menu
