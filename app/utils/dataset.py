@@ -500,27 +500,27 @@ class DatasetManager:
             # Update thinking configuration from session state if available
             self._update_thinking_config()
             
-            if hasattr(self.inference_engine, 'generate_batch'):
-                sig_params = self.inference_engine.generate_batch.__code__.co_varnames
-                gen_kwargs = {
-                    'prompts': prompts,
-                    'max_tokens': max_tokens,
-                    'temperature': temperature,
-                    'top_p': top_p,
-                }
-                if 'character_name' in sig_params:
-                    gen_kwargs['character_name'] = character_name
-                if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
-                    gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
+            # if hasattr(self.inference_engine, 'generate_batch'):
+            sig_params = self.inference_engine.generate_batch.__code__.co_varnames
+            gen_kwargs = {
+                'prompts': prompts,
+                'max_tokens': max_tokens,
+                'temperature': temperature,
+                'top_p': top_p,
+            }
+            if 'character_name' in sig_params:
+                gen_kwargs['character_name'] = character_name
+            if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
+                gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
 
-                return await self.inference_engine.generate_batch(**gen_kwargs)
-            else:
-                # Fallback: generate sequentially
-                results = []
-                for prompt in prompts:
-                    result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name, custom_stop_tokens)
-                    results.append(result)
-                return results
+            return await self.inference_engine.generate_batch(**gen_kwargs)
+            # else:
+            #     # Fallback: generate sequentially
+            #     results = []
+            #     for prompt in prompts:
+            #         result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name, custom_stop_tokens)
+            #         results.append(result)
+            #     return results
         except Exception as e:
             raise RuntimeError(
                 f"Batch text generation failed ({self.inference_engine.name}): {str(e)}")
