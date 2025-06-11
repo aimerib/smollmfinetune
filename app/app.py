@@ -338,6 +338,7 @@ def render_sidebar():
         # Build a map of available engines (name ➜ internal key)
         _engine_key_map = {
             "vLLM": "vllm",
+            "Llama.cpp": "llamacpp",
             "LM Studio": "lmstudio",
         }
 
@@ -366,13 +367,20 @@ def render_sidebar():
             help="Select which backend to use for text generation"
         )
         
-        # Model configuration (for vLLM)
-        if selected_engine_friendly == "vLLM":
+        # Model configuration (for vLLM and Llama.cpp)
+        if selected_engine_friendly in ["vLLM", "Llama.cpp"]:
             with st.expander("🤖 Model Configuration", expanded=False):
+                if selected_engine_friendly == "vLLM":
+                    model_type_options = ["Regular HuggingFace Model", "GGUF Quantized Model"]
+                    model_type_help = "GGUF models are quantized for lower memory usage. Note: GGUF support is experimental in vLLM."
+                else:  # Llama.cpp
+                    model_type_options = ["GGUF Quantized Model"]
+                    model_type_help = "Llama.cpp specializes in GGUF quantized models for efficient CPU/GPU inference"
+                
                 model_type = st.radio(
                     "Model Type",
-                    ["Regular HuggingFace Model", "GGUF Quantized Model"],
-                    help="GGUF models are quantized for lower memory usage"
+                    model_type_options,
+                    help=model_type_help
                 )
                 
                 if model_type == "Regular HuggingFace Model":
@@ -507,8 +515,9 @@ def render_sidebar():
                         
                         # Show cache info as regular section instead of nested expander
                         st.markdown("**💾 GGUF Cache Info:**")
-                        from utils.inference_engines import VLLMEngine
-                        cache_info = VLLMEngine.get_gguf_cache_info()
+                        # Use LlamaCppEngine for GGUF cache management
+                        from utils.llama_cpp_engine import LlamaCppEngine
+                        cache_info = LlamaCppEngine.get_gguf_cache_info()
                         
                         st.text(f"Cache: {cache_info['cache_dir']}")
                         
@@ -516,7 +525,7 @@ def render_sidebar():
                             st.text(f"Files: {len(cache_info['cached_files'])} ({cache_info['total_size_gb']:.1f} GB)")
                             
                             if st.button("🗑️ Clear GGUF Cache", key="clear_gguf_cache_btn"):
-                                count = VLLMEngine.clear_gguf_cache()
+                                count = LlamaCppEngine.clear_gguf_cache()
                                 st.success(f"Cleared {count} GGUF files")
                                 st.rerun()
                         else:
@@ -527,7 +536,7 @@ def render_sidebar():
                         if st.session_state.get('gguf_config') is not None:
                             st.session_state.gguf_config = None
         else:
-            # For non-vLLM engines, use whatever model they have loaded
+            # For other engines (LM Studio), use whatever model they have loaded
             st.session_state.generation_model = None
             st.session_state.gguf_config = None
 
@@ -543,26 +552,32 @@ def render_sidebar():
             st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
             needs_recreation = True
         
-        # Check model change (for vLLM) - only if engine didn't change
-        elif selected_engine_friendly == "vLLM":
+        # Check model change (for vLLM and Llama.cpp) - only if engine didn't change
+        elif selected_engine_friendly in ["vLLM", "Llama.cpp"]:
             # Get current state
             current_engine = st.session_state.dataset_manager.inference_engine
             current_model = getattr(current_engine, 'model_name', None)
             current_gguf = getattr(current_engine, 'gguf_file', None)
+            current_engine_name = getattr(current_engine, 'name', 'Unknown')
             
             # Get desired state
             desired_gguf = st.session_state.get('gguf_config', {}).get('gguf_file') if st.session_state.get('gguf_config') else None
             desired_model = st.session_state.get('generation_model')
             
-            # Only recreate if there's actually a meaningful change
-            if desired_gguf:
-                # User wants GGUF model
-                if not current_gguf or current_gguf != desired_gguf:
-                    st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
-                    needs_recreation = True
-            elif desired_model:
-                # User wants regular model
-                if current_gguf or current_model != desired_model:
+            # For GGUF models, automatically switch to Llama.cpp if currently using vLLM
+            if desired_gguf and selected_engine_friendly == "vLLM":
+                st.info("🔄 Switching to Llama.cpp for GGUF model...")
+                st.session_state.selected_engine = "Llama.cpp"
+                needs_recreation = True
+            elif desired_gguf and current_engine_name != "Llama.cpp":
+                st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
+                needs_recreation = True
+            elif desired_gguf and current_gguf != desired_gguf:
+                st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
+                needs_recreation = True
+            elif desired_model and selected_engine_friendly == "vLLM":
+                # User wants regular model with vLLM
+                if current_gguf or current_model != desired_model or current_engine_name != "vLLM":
                     st.info(f"🔄 Switching to model: {desired_model}...")
                     needs_recreation = True
         
@@ -599,22 +614,22 @@ def render_sidebar():
                 _GLOBAL_DATASET_MANAGER = None
                 
                 # Create appropriate DatasetManager based on configuration
-                if internal_key == 'vllm' and st.session_state.get('gguf_config'):
-                    # GGUF model configuration
+                if st.session_state.get('gguf_config'):
+                    # GGUF model configuration - always use LlamaCppEngine
                     logger.info(f"🔄 Creating GGUF engine: {st.session_state.gguf_config['gguf_file']}")
                     
-                    # ✅ FIX: Reset VLLMEngine singleton to allow GGUF configuration
-                    from utils.inference_engines import VLLMEngine
-                    VLLMEngine._instance = None  # Reset singleton
-                    VLLMEngine._llm = None       # Reset loaded model
-                    VLLMEngine._model_loaded = False  # Reset model state
+                    # Reset LlamaCppEngine singleton to allow GGUF configuration
+                    from utils.llama_cpp_engine import LlamaCppEngine
+                    LlamaCppEngine._instance = None  # Reset singleton
+                    LlamaCppEngine._llm = None       # Reset loaded model
+                    LlamaCppEngine._model_loaded = False  # Reset model state
                     
-                    engine = VLLMEngine(
+                    engine = LlamaCppEngine(
                         gguf_file=st.session_state.gguf_config['gguf_file'],
                         tokenizer_name=st.session_state.gguf_config.get('tokenizer_name')
                     )
                     
-                    # ✅ FIX: Create DatasetManager without auto-engine creation, then assign GGUF engine
+                    # Create DatasetManager without auto-engine creation, then assign GGUF engine
                     from utils.dataset import DatasetManager
                     st.session_state.dataset_manager = DatasetManager(preferred_engine=None)
                     # Force override the inference engine with our GGUF engine
@@ -667,28 +682,29 @@ def render_sidebar():
         """, unsafe_allow_html=True)
         
         # Current inference engine
-        if st.session_state.selected_engine == "vLLM":
-            # Check if using GGUF
-            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
-                # GGUF model
-                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
-                # Shorten long GGUF paths
-                if '/' in display_name:
-                    parts = display_name.split('/')
-                    if len(parts) > 2:
-                        # Show repo/file format
-                        display_name = f"{parts[-2]}/{parts[-1]}"
-                if len(display_name) > 35:
-                    display_name = display_name[:32] + "..."
-                model_type = "GGUF"
-            else:
-                # Regular model
-                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
-                # Shorten long model names for display
-                display_name = model_name.split('/')[-1] if '/' in model_name else model_name
-                if len(display_name) > 30:
-                    display_name = display_name[:27] + "..."
-                model_type = "HF"
+        current_engine = st.session_state.dataset_manager.inference_engine
+        engine_name = getattr(current_engine, 'name', 'Unknown')
+        
+        if engine_name == "Llama.cpp":
+            # GGUF model with Llama.cpp
+            display_name = getattr(current_engine, 'model_display_name', 'GGUF Model')
+            # Shorten long GGUF paths
+            if '/' in display_name:
+                parts = display_name.split('/')
+                if len(parts) > 2:
+                    # Show repo/file format
+                    display_name = f"{parts[-2]}/{parts[-1]}"
+            if len(display_name) > 35:
+                display_name = display_name[:32] + "..."
+            model_type = "GGUF"
+        elif engine_name == "vLLM":
+            # Regular HuggingFace model with vLLM
+            model_name = getattr(current_engine, 'model_name', 'Unknown')
+            # Shorten long model names for display
+            display_name = model_name.split('/')[-1] if '/' in model_name else model_name
+            if len(display_name) > 30:
+                display_name = display_name[:27] + "..."
+            model_type = "HF"
         else:
             display_name = "Auto-detected"
             model_type = "Local"
@@ -696,7 +712,7 @@ def render_sidebar():
         st.markdown(f"""
             <div class="metric-card">
                 <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Data Generation</h4>
-                <p style="margin: 0; color: #06b6d4;"><strong>{st.session_state.selected_engine}</strong></p>
+                <p style="margin: 0; color: #06b6d4;"><strong>{engine_name}</strong></p>
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #94a3b8;">
                     Model ({model_type}): {display_name}
                 </p>
