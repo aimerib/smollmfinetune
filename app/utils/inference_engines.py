@@ -459,7 +459,7 @@ class VLLMEngine(InferenceEngine):
 
             # Base stop tokens list
             stop_tokens = ["\n\n", "<|pad|>",
-                           "User:", "###", "<|endofcard|>", ""]
+                           "User:", "###", "<|endofcard|>"]
 
             # Allow caller to override stop tokens for special generation modes
             if custom_stop_tokens is not None:
@@ -475,6 +475,7 @@ class VLLMEngine(InferenceEngine):
                 temperature=temperature,
                 top_p=top_p,
                 stop=stop_tokens,
+                seed=seed
             )
 
             request_outputs = await asyncio.to_thread(_sync_generate, prompts, sampling_params)
