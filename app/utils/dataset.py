@@ -884,7 +884,7 @@ French version:"""
             logger.info(f"🔄 Found {len(frequent_questions)} frequently repeated questions, generating variations...")
             total_variations_added = 0
             
-            for question, data in frequent_questions[:5]:  # Limit to top 5 most frequent
+            for question, data in frequent_questions:  # Limit to top 5 most frequent
                 count = data['count']
                 logger.info(f"   Generating variations for: '{question[:60]}...' (appeared {count} times)")
                 
