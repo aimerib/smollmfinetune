@@ -784,6 +784,7 @@ French version:"""
 
         results: List[Dict[str, Any]] = []
         seen = set()
+        duplicate_tracker = {}  # Track duplicates with counts
         logger.info(f"🔨 Processing {len(raw_outputs)} raw outputs...")
         
         for idx, q in enumerate(raw_outputs):
@@ -821,34 +822,167 @@ French version:"""
             else:
                 logger.debug(f"   Processed to: {q_str[:100]}...")
                 
-            # More lenient validation
-            if q_str and len(q_str) > 5 and q_str not in seen:
-                results.append({
-                    'question': q_str,
-                    'context': [
-                        {
-                            'user': ex['messages'][1]['content'],
-                            'assistant': ex['messages'][2]['content']
-                        } for ex in prompts[idx][1]
-                    ]
-                })
-                seen.add(q_str)
-                if idx < 5:
-                    logger.info(f"   ✅ Added question {idx}: {q_str[:50]}...")
+            # Track all valid questions (including duplicates)
+            if q_str and len(q_str) > 5:
+                if q_str not in duplicate_tracker:
+                    duplicate_tracker[q_str] = {
+                        'count': 1,
+                        'context': [
+                            {
+                                'user': ex['messages'][1]['content'],
+                                'assistant': ex['messages'][2]['content']
+                            } for ex in prompts[idx][1]
+                        ]
+                    }
                 else:
-                    logger.debug(f"   ✅ Added question: {q_str[:50]}...")
+                    duplicate_tracker[q_str]['count'] += 1
+                
+                # Only add to results if not seen before
+                if q_str not in seen:
+                    results.append({
+                        'question': q_str,
+                        'context': [
+                            {
+                                'user': ex['messages'][1]['content'],
+                                'assistant': ex['messages'][2]['content']
+                            } for ex in prompts[idx][1]
+                        ]
+                    })
+                    seen.add(q_str)
+                    if idx < 5:
+                        logger.info(f"   ✅ Added question {idx}: {q_str[:50]}...")
+                    else:
+                        logger.debug(f"   ✅ Added question: {q_str[:50]}...")
+                else:
+                    if idx < 5:
+                        logger.info(f"   ❌ Skipped question {idx} (duplicate): '{q_str[:50]}'")
+                    else:
+                        logger.debug(f"   ❌ Skipped question (duplicate): {q_str[:50]}...")
             else:
-                reason = "empty" if not q_str else "too short" if len(q_str) <= 5 else "duplicate"
+                reason = "empty" if not q_str else "too short"
                 if idx < 5:
                     logger.info(f"   ❌ Skipped question {idx} ({reason}): '{q_str[:50]}'")
                 else:
-                    logger.debug(f"   ❌ Skipped question (empty or duplicate): {q_str[:50]}...")
+                    logger.debug(f"   ❌ Skipped question ({reason}): {q_str[:50]}...")
 
-        logger.info(f"📝 Final results: {len(results)} unique questions")
+        # Generate variations for frequently duplicated questions
+        logger.info(f"📊 Duplicate analysis: {len(seen)} unique questions from {len(raw_outputs)} outputs")
+        
+        # Show duplicate statistics
+        duplicate_counts = sorted([(q, data['count']) for q, data in duplicate_tracker.items()], key=lambda x: x[1], reverse=True)
+        if duplicate_counts:
+            logger.info(f"   Top duplicates:")
+            for q, count in duplicate_counts[:5]:
+                if count > 1:
+                    logger.info(f"     '{q[:60]}...' appeared {count} times")
+        
+        # Find questions that appeared multiple times (suggesting LLM thinks they're good)
+        frequent_questions = [(q, data) for q, data in duplicate_tracker.items() if data['count'] >= 3]
+        frequent_questions.sort(key=lambda x: x[1]['count'], reverse=True)  # Sort by frequency
+        
+        if frequent_questions:
+            logger.info(f"🔄 Found {len(frequent_questions)} frequently repeated questions, generating variations...")
+            total_variations_added = 0
+            
+            for question, data in frequent_questions[:5]:  # Limit to top 5 most frequent
+                count = data['count']
+                logger.info(f"   Generating variations for: '{question[:60]}...' (appeared {count} times)")
+                
+                try:
+                    # Generate variations of this popular question
+                    variations = await self._generate_question_variations(
+                        question, character, num_variations=min(count, 5)
+                    )
+                    
+                    # Add variations to results
+                    variations_added = 0
+                    for variation in variations:
+                        if variation not in seen and len(variation) > 5:
+                            results.append({
+                                'question': variation,
+                                'context': data['context']
+                            })
+                            seen.add(variation)
+                            variations_added += 1
+                            logger.debug(f"   ✅ Added variation: {variation[:50]}...")
+                    
+                    total_variations_added += variations_added
+                    logger.info(f"   Generated {len(variations)} variations, added {variations_added} unique ones")
+                    
+                except Exception as e:
+                    logger.debug(f"   Failed to generate variations: {e}")
+                    continue
+            
+            logger.info(f"✅ Variation generation complete: added {total_variations_added} new questions from {len(frequent_questions)} popular questions")
+
+        logger.info(f"📝 Final results: {len(results)} unique questions (including {total_variations_added if 'total_variations_added' in locals() else 0} generated variations)")
         if results:
             logger.info(f"   Sample results: {[r['question'][:50] + '...' for r in results[:3]]}")
         
         return results[:num_questions]
+
+    async def _generate_question_variations(
+        self, 
+        base_question: str, 
+        character: Dict[str, Any], 
+        num_variations: int = 3
+    ) -> List[str]:
+        """Generate variations of a popular question to increase diversity"""
+        if not self.inference_engine:
+            return []
+        
+        char_name = character.get('name', 'Assistant')
+        
+        variation_prompt = f"""Given this popular roleplay question, create {num_variations} different variations that ask the same core thing but with different wording, tone, or approach.
+
+Character: {char_name}
+Original Question: {base_question}
+
+Create {num_variations} variations that:
+- Ask the same basic thing but with different phrasing
+- Use different emotional tones (casual, formal, intimate, curious, etc.)
+- Approach the topic from different angles
+- Maintain roleplay context
+
+Respond with ONLY the questions, one per line, no numbering:"""
+
+        try:
+            response = await self._generate_text(
+                prompt=variation_prompt,
+                max_tokens=300,
+                temperature=0.8,
+                top_p=0.9,
+                custom_stop_tokens=["Character:", f"{char_name}:", "User:", "\n\n\n"]
+            )
+            
+            # Parse variations from response
+            variations = []
+            for line in response.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                    
+                # Clean up the line
+                line = re.sub(r'^[\d\-\*\.\s]+', '', line)  # Remove numbering
+                line = line.strip(' "\'')
+                
+                # Ensure it ends with ?
+                if line and not line.endswith('?'):
+                    line += '?'
+                
+                # Validate and add
+                if line and len(line) > 10 and line != base_question:
+                    variations.append(line)
+                    
+                if len(variations) >= num_variations:
+                    break
+            
+            logger.debug(f"Generated {len(variations)} variations for: {base_question[:30]}...")
+            return variations
+            
+        except Exception as e:
+            logger.debug(f"Failed to generate variations for '{base_question[:30]}...': {e}")
+            return []
 
     # ---------------------------------------------------------------------------
 
