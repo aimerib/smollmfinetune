@@ -393,6 +393,11 @@ class VLLMEngine(InferenceEngine):
         # `generate_batch` returns one result per input prompt
         return results[0] if results else ""
 
+    def _sync_generate(prompts, sampling_params):
+        """Synchronous wrapper for vLLM generate call"""
+        with VLLMEngine._generation_lock:
+            return VLLMEngine._llm.generate(prompts, sampling_params)
+
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                              custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
@@ -446,12 +451,7 @@ class VLLMEngine(InferenceEngine):
                 stop=stop_tokens,
             )
 
-            request_outputs = None
-
-            # Acquire the lock to prevent concurrent generation
-            with VLLMEngine._generation_lock:
-                # Generate text
-                request_outputs = VLLMEngine._llm.generate(prompts, sampling_params)
+            request_outputs = await asyncio.to_thread(_sync_generate, prompts, sampling_params)
 
             results = []
             for request_output in request_outputs:
