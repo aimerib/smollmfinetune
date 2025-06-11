@@ -178,8 +178,8 @@ class LlamaCppEngine(InferenceEngine):
         repo_id = gguf_part[:last_slash]
         filename = gguf_part[last_slash + 1:]
         try:
-            files_array = json.loads(f"{{{filename}}}")
-            filename = files_array
+            files_array = json.loads(f"{{\"filenames\": {filename}}}")
+            filename = files_array["filenames"]
         except Exception as e:
             logger.error(f"Error parsing GGUF filename: {e}")
             traceback.print_exc()
