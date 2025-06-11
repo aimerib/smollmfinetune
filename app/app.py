@@ -194,7 +194,11 @@ def init_session_state():
     if 'dataset_manager' not in st.session_state:
         # Auto-detect inference engine, but allow override
         preferred_engine = os.getenv('INFERENCE_ENGINE', None)
-        st.session_state.dataset_manager = DatasetManager(preferred_engine=preferred_engine)
+        generation_model = os.getenv('GENERATION_MODEL', None)
+        st.session_state.dataset_manager = DatasetManager(
+            preferred_engine=preferred_engine,
+            generation_model=generation_model
+        )
     if 'training_manager' not in st.session_state:
         st.session_state.training_manager = TrainingManager()
     if 'inference_manager' not in st.session_state:
@@ -212,6 +216,8 @@ def init_session_state():
         st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
     if 'generated_questions' not in st.session_state:
         st.session_state.generated_questions = None
+    if 'generation_model' not in st.session_state:
+        st.session_state.generation_model = None
 
 def render_header():
     """Render the beautiful header"""
@@ -323,24 +329,225 @@ def render_sidebar():
             if st.session_state.selected_engine in available_engine_names else 0,
             help="Select which backend to use for text generation"
         )
+        
+        # Model configuration (for vLLM)
+        if selected_engine_friendly == "vLLM":
+            with st.expander("🤖 Model Configuration", expanded=False):
+                model_type = st.radio(
+                    "Model Type",
+                    ["Regular HuggingFace Model", "GGUF Quantized Model"],
+                    help="GGUF models are quantized for lower memory usage"
+                )
+                
+                if model_type == "Regular HuggingFace Model":
+                    st.markdown("**Generation Model**")
+                    
+                    # Popular model suggestions
+                    popular_models = [
+                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
+                        "meta-llama/Llama-3.1-70B-Instruct",
+                        "meta-llama/Llama-3.1-8B-Instruct",
+                        "mistralai/Mixtral-8x7B-Instruct-v0.1",
+                        "mistralai/Mistral-7B-Instruct-v0.2",
+                        "NousResearch/Hermes-3-Llama-3.1-70B",
+                        "Qwen/Qwen2.5-72B-Instruct",
+                        "microsoft/Phi-3-medium-4k-instruct",
+                        "Custom (enter HF ID below)"
+                    ]
+                    
+                    generation_model_choice = st.selectbox(
+                        "Select generation model",
+                        popular_models,
+                        help="Choose a model for dataset generation"
+                    )
+                    
+                    if generation_model_choice == "Custom (enter HF ID below)":
+                        custom_generation_model = st.text_input(
+                            "HuggingFace Model ID",
+                            placeholder="e.g., meta-llama/Llama-3.1-405B-Instruct",
+                            help="Enter any HuggingFace model ID compatible with vLLM"
+                        )
+                        generation_model = custom_generation_model if custom_generation_model else popular_models[0]
+                    else:
+                        generation_model = generation_model_choice
+                    
+                    # Store in session state
+                    st.session_state.generation_model = generation_model
+                    st.session_state.gguf_config = None
+                    
+                    st.info(f"📊 Generation model: {generation_model}")
+                    
+                else:  # GGUF Model
+                    st.markdown("**GGUF Model Configuration**")
+                    
+                    # Popular GGUF models
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        gguf_presets = {
+                            "Custom": None,
+                            "Llama 2 70B (Q4_K_M)": {
+                                "repo": "TheBloke/Llama-2-70B-GGUF",
+                                "file": "llama-2-70b.Q4_K_M.gguf",
+                                "tokenizer": "meta-llama/Llama-2-70b-hf"
+                            },
+                            "Llama 2 70B Chat (Q4_K_M)": {
+                                "repo": "TheBloke/Llama-2-70B-Chat-GGUF",
+                                "file": "llama-2-70b-chat.Q4_K_M.gguf",
+                                "tokenizer": "meta-llama/Llama-2-70b-chat-hf"
+                            },
+                            "Mixtral 8x7B (Q4_K_M)": {
+                                "repo": "TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF",
+                                "file": "mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf",
+                                "tokenizer": "mistralai/Mixtral-8x7B-Instruct-v0.1"
+                            },
+                            "Mistral 7B v0.2 (Q5_K_M)": {
+                                "repo": "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
+                                "file": "mistral-7b-instruct-v0.2.Q5_K_M.gguf",
+                                "tokenizer": "mistralai/Mistral-7B-Instruct-v0.2"
+                            },
+                            "Qwen 2.5 72B (Q4_K_M)": {
+                                "repo": "Qwen/Qwen2.5-72B-Instruct-GGUF",
+                                "file": "qwen2.5-72b-instruct-q4_k_m.gguf",
+                                "tokenizer": "Qwen/Qwen2.5-72B-Instruct"
+                            }
+                        }
+                        
+                        preset = st.selectbox(
+                            "GGUF Model Preset",
+                            list(gguf_presets.keys()),
+                            help="Select a pre-configured GGUF model or choose Custom"
+                        )
+                    
+                    if preset == "Custom" or preset not in gguf_presets:
+                        # Manual GGUF configuration
+                        with col2:
+                            st.info("Enter GGUF details manually")
+                        
+                        gguf_repo = st.text_input(
+                            "HuggingFace Repository",
+                            placeholder="e.g., TheBloke/Llama-2-70B-GGUF",
+                            help="Repository containing the GGUF file"
+                        )
+                        
+                        gguf_filename = st.text_input(
+                            "GGUF Filename",
+                            placeholder="e.g., llama-2-70b.Q4_K_M.gguf",
+                            help="The specific GGUF file to use"
+                        )
+                        
+                        tokenizer_repo = st.text_input(
+                            "Tokenizer Repository",
+                            placeholder="e.g., meta-llama/Llama-2-70b-hf",
+                            help="Base model repository for tokenizer (recommended)"
+                        )
+                    else:
+                        # Use preset configuration
+                        preset_config = gguf_presets[preset]
+                        gguf_repo = preset_config["repo"]
+                        gguf_filename = preset_config["file"]
+                        tokenizer_repo = preset_config["tokenizer"]
+                        
+                        with col2:
+                            st.success(f"Using preset: {preset}")
+                    
+                    # Validate GGUF configuration
+                    if gguf_repo and gguf_filename:
+                        # Format for vLLM engine
+                        gguf_model_string = f"{gguf_repo}/{gguf_filename}"
+                        if tokenizer_repo:
+                            gguf_model_string += f"@{tokenizer_repo}"
+                        
+                        st.session_state.gguf_config = {
+                            'gguf_file': gguf_model_string,
+                            'tokenizer_name': tokenizer_repo,
+                            'display_name': f"{gguf_repo}/{gguf_filename}"
+                        }
+                        
+                        st.success(f"✅ GGUF: {gguf_filename}")
+                        st.info(f"📊 Tokenizer: {tokenizer_repo or 'Auto-detect'}")
+                        
+                        # Show cache info
+                        with st.expander("💾 GGUF Cache Management", expanded=False):
+                            from utils.inference_engines import VLLMEngine
+                            cache_info = VLLMEngine.get_gguf_cache_info()
+                            
+                            st.info(f"Cache directory: `{cache_info['cache_dir']}`")
+                            
+                            if cache_info['cached_files']:
+                                st.write(f"**Cached files ({cache_info['total_size_gb']:.1f} GB total):**")
+                                for file in cache_info['cached_files']:
+                                    st.write(f"- {file['filename']} ({file['size_gb']:.1f} GB)")
+                                
+                                if st.button("🗑️ Clear GGUF Cache"):
+                                    count = VLLMEngine.clear_gguf_cache()
+                                    st.success(f"Cleared {count} GGUF files")
+                                    st.rerun()
+                            else:
+                                st.info("No GGUF files cached yet")
+                    else:
+                        st.warning("⚠️ Please complete GGUF configuration")
+                        st.session_state.gguf_config = None
+        else:
+            # For non-vLLM engines, use whatever model they have loaded
+            st.session_state.generation_model = None
+            st.session_state.gguf_config = None
 
         # Debug info
         current_actual_engine = st.session_state.dataset_manager.inference_engine.name
         
-        # If the user picked a different engine we recreate the DatasetManager
+        # Check if we need to recreate DatasetManager (engine or model change)
+        needs_recreation = False
+        internal_key = _engine_key_map[selected_engine_friendly]
+        
+        # Check engine change
         if selected_engine_friendly != st.session_state.selected_engine:
-            internal_key = _engine_key_map[selected_engine_friendly]
             st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
-            st.session_state.selected_engine = selected_engine_friendly
-            st.session_state.dataset_manager = DatasetManager(preferred_engine=internal_key)
-            st.rerun()
+            needs_recreation = True
+        
+        # Check model change (for vLLM)
+        if selected_engine_friendly == "vLLM":
+            current_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+            current_gguf = getattr(st.session_state.dataset_manager.inference_engine, 'gguf_file', None)
+            
+            # Check if switching between regular model and GGUF
+            if st.session_state.get('gguf_config'):
+                # Using GGUF
+                if not current_gguf or current_gguf != st.session_state.gguf_config['gguf_file']:
+                    st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
+                    needs_recreation = True
+            else:
+                # Using regular model
+                if current_gguf or current_model != st.session_state.generation_model:
+                    model_display = st.session_state.generation_model or "Default"
+                    st.info(f"🔄 Switching to model: {model_display}...")
+                    needs_recreation = True
         
         # Also check if the actual engine doesn't match what's selected
-        elif current_actual_engine != selected_engine_friendly:
-            internal_key = _engine_key_map[selected_engine_friendly]
+        if current_actual_engine != selected_engine_friendly:
             st.warning(f"⚠️ Engine mismatch detected! Selected: {selected_engine_friendly}, Actual: {current_actual_engine}. Fixing...")
+            needs_recreation = True
+        
+        # Recreate if needed
+        if needs_recreation:
             st.session_state.selected_engine = selected_engine_friendly
-            st.session_state.dataset_manager = DatasetManager(preferred_engine=internal_key)
+            
+            # Create appropriate DatasetManager based on configuration
+            if internal_key == 'vllm' and st.session_state.get('gguf_config'):
+                # GGUF model configuration
+                from utils.inference_engines import VLLMEngine
+                engine = VLLMEngine(
+                    gguf_file=st.session_state.gguf_config['gguf_file'],
+                    tokenizer_name=st.session_state.gguf_config.get('tokenizer_name')
+                )
+                st.session_state.dataset_manager = DatasetManager(preferred_engine=None)
+                st.session_state.dataset_manager.inference_engine = engine
+            else:
+                # Regular model configuration
+                st.session_state.dataset_manager = DatasetManager(
+                    preferred_engine=internal_key,
+                    generation_model=st.session_state.get('generation_model')
+                )
             st.rerun()
         
         # Status indicator
@@ -370,13 +577,38 @@ def render_sidebar():
         """, unsafe_allow_html=True)
         
         # Current inference engine
-        engine_model = "PersonalityEngine-24B" if st.session_state.selected_engine == "vLLM" else "Auto-detected"
+        if st.session_state.selected_engine == "vLLM":
+            # Check if using GGUF
+            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
+                # GGUF model
+                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
+                # Shorten long GGUF paths
+                if '/' in display_name:
+                    parts = display_name.split('/')
+                    if len(parts) > 2:
+                        # Show repo/file format
+                        display_name = f"{parts[-2]}/{parts[-1]}"
+                if len(display_name) > 35:
+                    display_name = display_name[:32] + "..."
+                model_type = "GGUF"
+            else:
+                # Regular model
+                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
+                # Shorten long model names for display
+                display_name = model_name.split('/')[-1] if '/' in model_name else model_name
+                if len(display_name) > 30:
+                    display_name = display_name[:27] + "..."
+                model_type = "HF"
+        else:
+            display_name = "Auto-detected"
+            model_type = "Local"
+        
         st.markdown(f"""
             <div class="metric-card">
                 <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Data Generation</h4>
                 <p style="margin: 0; color: #06b6d4;"><strong>{st.session_state.selected_engine}</strong></p>
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #94a3b8;">
-                    Model: {engine_model}
+                    Model ({model_type}): {display_name}
                 </p>
             </div>
         """, unsafe_allow_html=True)
@@ -678,7 +910,15 @@ def page_dataset_preview():
         
         # Show current inference engine with model info
         if st.session_state.selected_engine == "vLLM":
-            engine_info = f"🔧 Using **{st.session_state.selected_engine}** with **PersonalityEngine-24B** for high-quality character responses"
+            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
+                # GGUF model
+                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
+                engine_info = f"🔧 Using **{st.session_state.selected_engine}** with GGUF model **{display_name}** for dataset generation"
+            else:
+                # Regular model
+                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
+                model_display = model_name.split('/')[-1] if '/' in model_name else model_name
+                engine_info = f"🔧 Using **{st.session_state.selected_engine}** with **{model_display}** for dataset generation"
         else:
             engine_info = f"🔧 Using **{st.session_state.selected_engine}** for text generation"
         
@@ -806,6 +1046,20 @@ def page_dataset_preview():
         
         This produces much higher quality datasets but takes more time.
         """)
+        
+        # Show current model info
+        if st.session_state.selected_engine == "vLLM":
+            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
+                # GGUF model
+                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
+                st.info(f"🔧 Using GGUF model **{display_name}** for generation")
+            else:
+                # Regular model
+                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
+                model_display = model_name.split('/')[-1] if '/' in model_name else model_name
+                st.info(f"🔧 Using **{model_display}** for generation")
+        else:
+            st.info(f"🔧 Using **{st.session_state.selected_engine}** for generation")
         
         # Quality generation settings
         col1, col2 = st.columns(2)
@@ -1020,6 +1274,67 @@ def page_training_config():
     col1, col2 = st.columns([2, 1])
     
     with col1:
+        st.markdown("### Training Configuration")
+        
+        # Base model selection
+        with st.expander("🤖 Base Model Selection", expanded=True):
+            st.markdown("**Select the base model for LoRA training**")
+            
+            # Popular small models for LoRA
+            base_model_options = [
+                "HuggingFaceTB/SmolLM2-135M-Instruct",  # Default
+                "HuggingFaceTB/SmolLM2-360M-Instruct",
+                "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+                "mistralai/Mistral-7B-Instruct-v0.2",
+                "meta-llama/Llama-3.2-1B-Instruct",
+                "meta-llama/Llama-3.2-3B-Instruct",
+                "microsoft/Phi-3.5-mini-instruct",
+                "Qwen/Qwen2.5-0.5B-Instruct",
+                "Qwen/Qwen2.5-1.5B-Instruct",
+                "Qwen/Qwen2.5-3B-Instruct",
+                "Custom (enter HF ID below)"
+            ]
+            
+            base_model_choice = st.selectbox(
+                "Select base model",
+                base_model_options,
+                help="Smaller models train faster and work better for character LoRAs"
+            )
+            
+            if base_model_choice == "Custom (enter HF ID below)":
+                custom_base_model = st.text_input(
+                    "HuggingFace Model ID",
+                    placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                    help="Enter any HuggingFace model ID compatible with PEFT/LoRA"
+                )
+                selected_base_model = custom_base_model if custom_base_model else base_model_options[0]
+            else:
+                selected_base_model = base_model_choice
+            
+            # Update the training manager's base model
+            if st.session_state.training_manager.base_model != selected_base_model:
+                st.session_state.training_manager.set_base_model(selected_base_model)
+                st.session_state.inference_manager.set_base_model(selected_base_model)
+                
+            # Model size info
+            model_size_info = {
+                "HuggingFaceTB/SmolLM2-135M-Instruct": "135M params - Very fast, good for testing",
+                "HuggingFaceTB/SmolLM2-360M-Instruct": "360M params - Fast, better quality",
+                "HuggingFaceTB/SmolLM2-1.7B-Instruct": "1.7B params - Balanced speed/quality",
+                "mistralai/Mistral-7B-Instruct-v0.2": "7B params - High quality, slower",
+                "meta-llama/Llama-3.2-1B-Instruct": "1B params - Good balance",
+                "meta-llama/Llama-3.2-3B-Instruct": "3B params - Better quality",
+                "microsoft/Phi-3.5-mini-instruct": "3.8B params - Efficient & capable",
+                "Qwen/Qwen2.5-0.5B-Instruct": "0.5B params - Very fast",
+                "Qwen/Qwen2.5-1.5B-Instruct": "1.5B params - Good balance",
+                "Qwen/Qwen2.5-3B-Instruct": "3B params - Better quality"
+            }
+            
+            if selected_base_model in model_size_info:
+                st.info(f"ℹ️ {model_size_info[selected_base_model]}")
+            
+            st.success(f"✅ Base model: {selected_base_model}")
+        
         st.markdown("### Hyperparameter Configuration")
         
         with st.form("training_config"):

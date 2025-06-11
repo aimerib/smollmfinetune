@@ -14,6 +14,7 @@ class InferenceManager:
     """Manages model inference and testing"""
     
     def __init__(self, base_model: str = "HuggingFaceTB/SmolLM2-135M-Instruct"):
+        self.default_base_model = base_model
         self.base_model = base_model
         # Better device handling
         if torch.cuda.is_available():
@@ -29,6 +30,13 @@ class InferenceManager:
         self.max_cached_models = 2  # Limit cache size to prevent memory issues
         self.cache_access_count = {}  # Track model usage for LRU eviction
         self.project_dir = Path("training_output")
+    
+    def set_base_model(self, model_name: str):
+        """Update the base model for inference"""
+        self.base_model = model_name
+        # Clear cache since base model changed
+        self.clear_model_cache()
+        logger.info(f"Base model updated to: {model_name}")
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""

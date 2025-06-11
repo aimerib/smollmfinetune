@@ -7,9 +7,14 @@ import os
 import asyncio
 from abc import ABC, abstractmethod
 import secrets
-from typing import Optional, List
+from typing import Optional, List, Tuple, Dict
 import logging
 import torch  # For memory management
+from pathlib import Path
+import hashlib
+import requests
+from tqdm import tqdm
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -89,15 +94,19 @@ class VLLMEngine(InferenceEngine):
     _llm = None
     _model_loaded = False
     _generation_lock = None  # Add class-level lock
+    _gguf_cache_dir = Path.home() / ".cache" / "vllm_gguf"  # GGUF cache directory
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, model_name: Optional[str] = None, tensor_parallel_size: int = 1):
+    def __init__(self, model_name: Optional[str] = None, 
+                 gguf_file: Optional[str] = None,
+                 tokenizer_name: Optional[str] = None,
+                 tensor_parallel_size: int = 1):
         # Only initialize once
-        if hasattr(self, '_initialized'):
+        if hasattr(self, '_initialized') and model_name == self.model_name:
             return
 
         # Allow override via environment variable
@@ -105,6 +114,15 @@ class VLLMEngine(InferenceEngine):
             model_name or
             os.getenv('VLLM_MODEL', 'PocketDoc/Dans-PersonalityEngine-V1.3.0-24b')
         )
+        
+        # GGUF configuration
+        self.gguf_file = gguf_file
+        self.tokenizer_name = tokenizer_name
+        
+        # Force reload if model changed
+        if hasattr(self, '_initialized') and model_name != getattr(self, 'model_name', None):
+            VLLMEngine._model_loaded = False
+            VLLMEngine._llm = None
 
         # Auto-detect tensor parallel size based on GPU count if not specified
         if tensor_parallel_size == 1:
@@ -131,6 +149,9 @@ class VLLMEngine(InferenceEngine):
         # Initialize the lock if not already done
         if VLLMEngine._generation_lock is None:
             VLLMEngine._generation_lock = asyncio.Lock()
+
+        # Create GGUF cache directory
+        VLLMEngine._gguf_cache_dir.mkdir(parents=True, exist_ok=True)
 
     @property
     def name(self) -> str:
@@ -163,6 +184,73 @@ class VLLMEngine(InferenceEngine):
 
         return self._available
 
+    def _download_gguf_file(self, repo_id: str, filename: str) -> Path:
+        """Download GGUF file from HuggingFace if not cached"""
+        # Create a unique cache key based on repo and filename
+        cache_key = hashlib.md5(f"{repo_id}/{filename}".encode()).hexdigest()
+        cached_path = self._gguf_cache_dir / f"{cache_key}_{filename}"
+        
+        # Check if already cached
+        if cached_path.exists():
+            logger.info(f"Using cached GGUF file: {cached_path}")
+            return cached_path
+        
+        # Download from HuggingFace
+        logger.info(f"Downloading GGUF file: {repo_id}/{filename}")
+        url = f"https://huggingface.co/{repo_id}/resolve/main/{filename}"
+        
+        try:
+            response = requests.get(url, stream=True)
+            response.raise_for_status()
+            
+            # Get file size
+            file_size = int(response.headers.get('content-length', 0))
+            
+            # Download with progress bar
+            with open(cached_path, 'wb') as f:
+                with tqdm(total=file_size, unit='B', unit_scale=True, desc=filename) as pbar:
+                    for chunk in response.iter_content(chunk_size=8192):
+                        if chunk:
+                            f.write(chunk)
+                            pbar.update(len(chunk))
+            
+            logger.info(f"Downloaded GGUF file to: {cached_path}")
+            return cached_path
+            
+        except Exception as e:
+            # Clean up partial download
+            if cached_path.exists():
+                cached_path.unlink()
+            raise RuntimeError(f"Failed to download GGUF file: {e}")
+
+    def _parse_gguf_model_string(self, model_string: str) -> Tuple[str, str, Optional[str]]:
+        """Parse GGUF model string format: 'repo_id/filename@tokenizer_repo'
+        
+        Examples:
+        - 'TheBloke/Llama-2-70B-GGUF/llama-2-70b.Q4_K_M.gguf@meta-llama/Llama-2-70b-hf'
+        - 'TheBloke/Mistral-7B-GGUF/mistral-7b-instruct-v0.2.Q5_K_M.gguf'
+        
+        Returns: (repo_id, gguf_filename, tokenizer_repo)
+        """
+        # Split by @ to separate tokenizer if provided
+        parts = model_string.split('@')
+        gguf_part = parts[0]
+        tokenizer_repo = parts[1] if len(parts) > 1 else None
+        
+        # Extract repo_id and filename
+        if '/' not in gguf_part:
+            raise ValueError(f"Invalid GGUF format: {model_string}. Expected 'repo_id/filename'")
+        
+        # Find the last / that separates repo from filename
+        last_slash = gguf_part.rfind('/')
+        repo_id = gguf_part[:last_slash]
+        filename = gguf_part[last_slash + 1:]
+        
+        if not filename.endswith('.gguf'):
+            raise ValueError(f"Invalid GGUF filename: {filename}. Must end with .gguf")
+        
+        return repo_id, filename, tokenizer_repo
+
     def _initialize_model(self):
         """Initialize vLLM model once (singleton pattern)"""
         if VLLMEngine._model_loaded:
@@ -177,25 +265,100 @@ class VLLMEngine(InferenceEngine):
             # Reduced for memory
             max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
 
-            logger.info(
-                f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
-
-            VLLMEngine._llm = LLM(
-                model=self.model_name,
-                tensor_parallel_size=self.tensor_parallel_size,
-                gpu_memory_utilization=gpu_memory_util,
-                max_model_len=max_model_len,
-                enforce_eager=False,
-                trust_remote_code=True,
-            )
+            # Check if this is a GGUF model
+            if self.gguf_file:
+                # Parse GGUF specification
+                repo_id, filename, tokenizer_repo = self._parse_gguf_model_string(self.gguf_file)
+                
+                # Download GGUF file if needed
+                gguf_path = self._download_gguf_file(repo_id, filename)
+                
+                # Use specified tokenizer or default to base model
+                if self.tokenizer_name:
+                    tokenizer = self.tokenizer_name
+                elif tokenizer_repo:
+                    tokenizer = tokenizer_repo
+                else:
+                    # Try to infer base model from repo name
+                    # e.g., TheBloke/Llama-2-70B-GGUF -> meta-llama/Llama-2-70b-hf
+                    logger.warning(f"No tokenizer specified for GGUF, using repo ID: {repo_id}")
+                    tokenizer = repo_id
+                
+                logger.info(f"Loading GGUF model from {gguf_path} with tokenizer {tokenizer}")
+                
+                VLLMEngine._llm = LLM(
+                    model=str(gguf_path),
+                    tokenizer=tokenizer,
+                    tensor_parallel_size=self.tensor_parallel_size,
+                    gpu_memory_utilization=gpu_memory_util,
+                    max_model_len=max_model_len,
+                    enforce_eager=False,
+                    trust_remote_code=True,
+                )
+                
+                # Store the model info for display
+                self.model_display_name = f"{repo_id}/{filename}"
+                
+            else:
+                # Regular HuggingFace model loading
+                logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
+                
+                VLLMEngine._llm = LLM(
+                    model=self.model_name,
+                    tensor_parallel_size=self.tensor_parallel_size,
+                    gpu_memory_utilization=gpu_memory_util,
+                    max_model_len=max_model_len,
+                    enforce_eager=False,
+                    trust_remote_code=True,
+                )
+                
+                self.model_display_name = self.model_name
 
             VLLMEngine._model_loaded = True
-            logger.info(f"vLLM model {self.model_name} loaded successfully!")
+            logger.info(f"vLLM model loaded successfully!")
 
         except Exception as e:
             logger.error(f"Failed to load vLLM model: {e}")
             VLLMEngine._model_loaded = False
             raise
+
+    @classmethod
+    def get_gguf_cache_info(cls) -> Dict[str, any]:
+        """Get information about cached GGUF files"""
+        cache_info = {
+            'cache_dir': str(cls._gguf_cache_dir),
+            'cached_files': [],
+            'total_size_gb': 0
+        }
+        
+        if cls._gguf_cache_dir.exists():
+            total_size = 0
+            for file in cls._gguf_cache_dir.glob('*.gguf'):
+                size = file.stat().st_size
+                total_size += size
+                cache_info['cached_files'].append({
+                    'filename': file.name,
+                    'size_gb': size / (1024**3),
+                    'path': str(file)
+                })
+            
+            cache_info['total_size_gb'] = total_size / (1024**3)
+        
+        return cache_info
+
+    @classmethod
+    def clear_gguf_cache(cls) -> int:
+        """Clear GGUF cache and return number of files deleted"""
+        if not cls._gguf_cache_dir.exists():
+            return 0
+        
+        count = 0
+        for file in cls._gguf_cache_dir.glob('*.gguf'):
+            file.unlink()
+            count += 1
+        
+        logger.info(f"Cleared {count} GGUF files from cache")
+        return count
 
     async def generate(self, prompt: str, max_tokens: int = 160,
                        temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,

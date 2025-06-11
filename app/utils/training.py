@@ -67,6 +67,7 @@ class TrainingManager:
     """Manages model training with pause/resume functionality"""
     
     def __init__(self, base_model: str = "HuggingFaceTB/SmolLM2-135M-Instruct"):
+        self.default_base_model = base_model
         self.base_model = base_model
         # Conservative device selection - prefer CPU for stability during debugging
         if torch.cuda.is_available():
@@ -108,6 +109,11 @@ class TrainingManager:
         self._last_character: Optional[Dict[str, Any]] = None
         self._last_dataset: Optional[List[Dict[str, Any]]] = None
         self._last_config: Optional[Dict[str, Any]] = None
+    
+    def set_base_model(self, model_name: str):
+        """Update the base model for training"""
+        self.base_model = model_name
+        logger.info(f"Base model updated to: {model_name}")
     
     def _load_base_model(self):
         """Load the base model and tokenizer"""

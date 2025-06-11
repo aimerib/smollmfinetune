@@ -23,10 +23,17 @@ logger = logging.getLogger(__name__)
 class DatasetManager:
     """Manages synthetic dataset generation and processing"""
 
-    def __init__(self, preferred_engine: Optional[str] = None, enable_intelligent_generation: bool = True):
+    def __init__(self, preferred_engine: Optional[str] = None, enable_intelligent_generation: bool = True, generation_model: Optional[str] = None):
         logger.info(
-            f"DatasetManager initializing with preferred_engine: {preferred_engine}")
-        self.inference_engine = get_inference_engine(preferred_engine)
+            f"DatasetManager initializing with preferred_engine: {preferred_engine}, model: {generation_model}")
+        
+        # If vLLM engine and custom model specified, create with that model
+        if preferred_engine == 'vllm' and generation_model:
+            from .inference_engines import VLLMEngine
+            self.inference_engine = VLLMEngine(model_name=generation_model)
+        else:
+            self.inference_engine = get_inference_engine(preferred_engine)
+        
         logger.info(
             f"DatasetManager created with engine: {self.inference_engine.name}")
         # For DanChat-2 we only need a *single* chat template – the chat
@@ -43,17 +50,17 @@ class DatasetManager:
         self._global_temporal_lock = asyncio.Lock()
 
         self.prompts_nsfw = [
-            "*leans in close* What’s the naughtiest thing you’ve ever done?",
-            "Tell me about a forbidden desire you can’t shake.",
+            "*leans in close* What's the naughtiest thing you've ever done?",
+            "Tell me about a forbidden desire you can't shake.",
             "*whispers softly* Where do you like to be touched the most?",
-            "What’s a fantasy you’ve never dared to share with anyone?",
+            "What's a fantasy you've never dared to share with anyone?",
             "Describe a moment of pure, unrestrained passion.",
-            "*smirks* What gets you going when no one’s watching?",
+            "*smirks* What gets you going when no one's watching?",
             "Have you ever been caught in a compromising position?",
-            "*teasingly* What’s the most scandalous thing you’d do with me?",
+            "*teasingly* What's the most scandalous thing you'd do with me?",
             "Tell me about a time you lost control completely.",
-            "What’s the most intimate secret you’re hiding?",
-            "What’s the most embarrassing thing you’ve ever done?",
+            "What's the most intimate secret you're hiding?",
+            "What's the most embarrassing thing you've ever done?",
             "Hey, that look's really hot on you! But you'd look hotter naked...",
             "I'm not sure if I should be doing this, but I can't help it...",
             "*gently squeezes her breasts* Do you like this?",
@@ -226,8 +233,8 @@ class DatasetManager:
             "How do you feel when I'm not around?",
             "What would you do if I left?",
             "What's something you've always wanted to tell me?",
-            "*whispers seductively* What’s a fantasy you want to explore with me?",  # NSFW addition
-            "Describe how you’d seduce me after all these years."  # NSFW addition
+            "*whispers seductively* What's a fantasy you want to explore with me?",  # NSFW addition
+            "Describe how you'd seduce me after all these years."  # NSFW addition
         ]
 
         # Temporal bucket distribution (Past, Present, Future)
@@ -401,11 +408,11 @@ class DatasetManager:
         os.makedirs(self.datasets_dir, exist_ok=True)
 
     @classmethod
-    def create_with_conservative_settings(cls, preferred_engine: Optional[str] = None):
+    def create_with_conservative_settings(cls, preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
         """Create DatasetManager with conservative settings for stability"""
         logger.info(
             "🛡️ Creating DatasetManager with conservative settings (intelligent generation disabled)")
-        return cls(preferred_engine=preferred_engine, enable_intelligent_generation=False)
+        return cls(preferred_engine=preferred_engine, enable_intelligent_generation=False, generation_model=generation_model)
 
     async def test_inference_engine(self) -> bool:
         """Test the inference engine with a simple prompt for debugging"""
@@ -542,12 +549,12 @@ class DatasetManager:
             prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_nsfw)
         else:
             prompt_list = getattr(self, f"prompts_{bucket}")
-        
-        prompt = random.choice(prompt_list)
-        prompt = self._add_noise(prompt.strip())
-        prompt = self._paraphrase(prompt)
-        prompt = self._backtranslate(prompt)
-        return prompt
+            
+            prompt = random.choice(prompt_list)
+            prompt = self._add_noise(prompt.strip())
+            prompt = self._paraphrase(prompt)
+            prompt = self._backtranslate(prompt)
+            return prompt
 
     async def suggest_user_questions(
         self,
@@ -897,7 +904,7 @@ class DatasetManager:
         # Build prompt metadata list
         prompts_data: list[Dict[str, Any]] = []
         char_name_for_prompts = character.get('name', 'Assistant')
-        
+
         # Process unique prompts with emotional variations and context enhancement
         for prompt_data in unique_prompt_data[:new_samples_needed * 2]:  # Generate extra for quality filtering
             # Skip if we already have enough
@@ -950,7 +957,7 @@ class DatasetManager:
             # Other engines (LM Studio, etc.) work better with smaller batches
             base_batch_size = 16 if hasattr(self.inference_engine, 'generate_batch') else 1
             logger.info(f"📦 Using standard batch size: {base_batch_size}")
-        
+
         processed_count = 0
         quality_filtered_count = 0
         
@@ -989,7 +996,7 @@ class DatasetManager:
                     for i, (prompt_data, reply) in enumerate(zip(batch_prompts_slice, replies)):
                         try:
                             reply_str = str(reply).strip()
-                            
+
                             # Evaluate response quality
                             quality_metrics = self.evaluate_response_quality(
                                 reply_str, 
@@ -1002,7 +1009,7 @@ class DatasetManager:
                                 quality_filtered_count += 1
                                 logger.debug(f"❌ Response filtered (score: {quality_metrics['overall_score']:.2f}): {quality_metrics['issues']}")
                                 continue
-                            
+
                             # Always use temporal system prompt during generation
                             system_prompt = self._generate_temporal_system_prompt(
                                 character,
@@ -1038,7 +1045,7 @@ class DatasetManager:
                         break
 
                     await asyncio.sleep(0.2)
-                    
+
                     # Clear CUDA cache periodically
                     try:
                         import torch
@@ -2625,14 +2632,14 @@ Format as a simple list:
             {
                 "context": f"{char_name} in a moment of intense attraction",
                 "prompts": [
-                    "I can’t stop thinking about you. Do you feel it too?",
+                    "I can't stop thinking about you. Do you feel it too?",
                     "*gazing intensely* What would you do if I kissed you right now?",
-                    "Tell me what you’d do if we were alone together.",
-                    "What’s stopping us from giving in to this tension?",
-                    "What’s the most intimate thing you’ve ever done?",
-                    "What’s the most embarrassing thing you’ve ever done?",
-                    "What’s the most scandalous thing you’ve ever done?",
-                    "What’s the most forbidden thing you’ve ever done?",
+                    "Tell me what you'd do if we were alone together.",
+                    "What's stopping us from giving in to this tension?",
+                    "What's the most intimate thing you've ever done?",
+                    "What's the most embarrassing thing you've ever done?",
+                    "What's the most scandalous thing you've ever done?",
+                    "What's the most forbidden thing you've ever done?",
                     "I know you're not into this, but I can't help it...",
                     "I'm not sure if I should be doing this, but I can't help it...",
                 ]
