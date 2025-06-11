@@ -602,15 +602,24 @@ def render_sidebar():
                 if internal_key == 'vllm' and st.session_state.get('gguf_config'):
                     # GGUF model configuration
                     logger.info(f"🔄 Creating GGUF engine: {st.session_state.gguf_config['gguf_file']}")
+                    
+                    # ✅ FIX: Reset VLLMEngine singleton to allow GGUF configuration
                     from utils.inference_engines import VLLMEngine
+                    VLLMEngine._instance = None  # Reset singleton
+                    VLLMEngine._llm = None       # Reset loaded model
+                    VLLMEngine._model_loaded = False  # Reset model state
+                    
                     engine = VLLMEngine(
                         gguf_file=st.session_state.gguf_config['gguf_file'],
                         tokenizer_name=st.session_state.gguf_config.get('tokenizer_name')
                     )
-                    # Use singleton pattern but override the engine
-                    st.session_state.dataset_manager = get_or_create_dataset_manager(preferred_engine=None)
+                    
+                    # ✅ FIX: Create DatasetManager without auto-engine creation, then assign GGUF engine
+                    from utils.dataset import DatasetManager
+                    st.session_state.dataset_manager = DatasetManager(preferred_engine=None)
+                    # Force override the inference engine with our GGUF engine
                     st.session_state.dataset_manager.inference_engine = engine
-                    logger.info("✅ GGUF engine created successfully")
+                    logger.info(f"✅ GGUF engine created and assigned successfully: {engine.gguf_file}")
                 else:
                     # Regular model configuration - use singleton pattern
                     logger.info(f"🔄 Creating regular engine: {internal_key}")
