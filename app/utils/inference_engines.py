@@ -404,27 +404,7 @@ class VLLMEngine(InferenceEngine):
         logger.info(f"Cleared {count} GGUF files from cache")
         return count
 
-    async def generate(self, prompt: str, max_tokens: int = 160,
-                       temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                       custom_stop_tokens: Optional[List[str]] = None) -> str:
-        """Generate a single prompt by delegating to `generate_batch` for consistency.
-
-        Delegating avoids code duplication, keeps validation/stop-token logic in
-        one place, and ensures any future fixes in `generate_batch` automatically
-        apply here.
-        """
-        results = await self.generate_batch(
-            prompts=[prompt],
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens,
-        )
-        # `generate_batch` returns one result per input prompt
-        return results[0] if results else ""
-
-    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
+    def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                              custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
@@ -458,8 +438,8 @@ class VLLMEngine(InferenceEngine):
             from vllm import SamplingParams
 
             # Base stop tokens list
-            stop_tokens = ["\n\n", "<|pad|>",
-                           "User:", "###", "<|endofcard|>"]
+            stop_tokens = ["\n\n", "<|endoftext|>",
+                           "User:", "###", "<|endofcard|>", "<|user|>"]
 
             # Allow caller to override stop tokens for special generation modes
             if custom_stop_tokens is not None:
@@ -478,7 +458,7 @@ class VLLMEngine(InferenceEngine):
                 seed=seed
             )
 
-            request_outputs = await asyncio.to_thread(_sync_generate, prompts, sampling_params)
+            request_outputs = _sync_generate(prompts, sampling_params)
 
             results = []
             for request_output in request_outputs:
@@ -503,6 +483,27 @@ class VLLMEngine(InferenceEngine):
         except Exception as e:
             logger.error(f"vLLM generation failed: {e}")
             raise
+
+
+    async def generate(self, prompt: str, max_tokens: int = 160,
+                       temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                       custom_stop_tokens: Optional[List[str]] = None) -> str:
+        """Generate a single prompt by delegating to `generate_batch` for consistency.
+
+        Delegating avoids code duplication, keeps validation/stop-token logic in
+        one place, and ensures any future fixes in `generate_batch` automatically
+        apply here.
+        """
+        results = self.generate_batch(
+            prompts=[prompt],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            character_name=character_name,
+            custom_stop_tokens=custom_stop_tokens,
+        )
+        # `generate_batch` returns one result per input prompt
+        return results[0] if results else ""
 
 
 class InferenceEngineFactory:
