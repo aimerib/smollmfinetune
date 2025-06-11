@@ -302,11 +302,11 @@ class LlamaCppEngine(InferenceEngine):
                     logger.warning(f"Failed to extract BOS token: {e}")
                     bos_token = None
             
-            # Fallback tokens if not found
-            if not eos_token:
-                eos_token = "</s>"
-            if not bos_token:
-                bos_token = "<s>"
+            # # Fallback tokens if not found
+            # if not eos_token:
+            #     eos_token = "</s>"
+            # if not bos_token:
+            #     bos_token = "<s>"
                 
             # If we have a chat template, use Jinja2ChatFormatter
             if chat_template:
