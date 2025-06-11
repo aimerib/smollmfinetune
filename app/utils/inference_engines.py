@@ -15,6 +15,7 @@ import hashlib
 import requests
 from tqdm import tqdm
 import json
+import threading
 
 
 logger = logging.getLogger(__name__)
@@ -160,7 +161,7 @@ class VLLMEngine(InferenceEngine):
 
             # Initialize the lock if not already done
             if VLLMEngine._generation_lock is None:
-                VLLMEngine._generation_lock = asyncio.Lock()
+                VLLMEngine._generation_lock = threading.Lock()
 
             # Create GGUF cache directory
             VLLMEngine._gguf_cache_dir.mkdir(parents=True, exist_ok=True)
