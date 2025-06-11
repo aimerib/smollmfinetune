@@ -458,11 +458,17 @@ def render_sidebar():
                         if tokenizer_repo:
                             gguf_model_string += f"@{tokenizer_repo}"
                         
-                        st.session_state.gguf_config = {
+                        # Only update if actually changed to prevent refresh loops
+                        new_gguf_config = {
                             'gguf_file': gguf_model_string,
                             'tokenizer_name': tokenizer_repo,
                             'display_name': f"{gguf_repo}/{gguf_filename}"
                         }
+                        
+                        # Check if config actually changed
+                        current_config = st.session_state.get('gguf_config', {})
+                        if current_config.get('gguf_file') != new_gguf_config['gguf_file']:
+                            st.session_state.gguf_config = new_gguf_config
                         
                         st.success(f"✅ GGUF: {gguf_filename}")
                         st.info(f"📊 Tokenizer: {tokenizer_repo or 'Auto-detect'}")
@@ -485,7 +491,9 @@ def render_sidebar():
                             st.text("No GGUF files cached yet")
                     else:
                         st.warning("⚠️ Please complete GGUF configuration")
-                        st.session_state.gguf_config = None
+                        # Only clear if it was previously set
+                        if st.session_state.get('gguf_config') is not None:
+                            st.session_state.gguf_config = None
         else:
             # For non-vLLM engines, use whatever model they have loaded
             st.session_state.generation_model = None
@@ -503,26 +511,31 @@ def render_sidebar():
             st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
             needs_recreation = True
         
-        # Check model change (for vLLM)
-        if selected_engine_friendly == "vLLM":
-            current_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
-            current_gguf = getattr(st.session_state.dataset_manager.inference_engine, 'gguf_file', None)
+        # Check model change (for vLLM) - only if engine didn't change
+        elif selected_engine_friendly == "vLLM":
+            # Get current state
+            current_engine = st.session_state.dataset_manager.inference_engine
+            current_model = getattr(current_engine, 'model_name', None)
+            current_gguf = getattr(current_engine, 'gguf_file', None)
             
-            # Check if switching between regular model and GGUF
-            if st.session_state.get('gguf_config'):
-                # Using GGUF
-                if not current_gguf or current_gguf != st.session_state.gguf_config['gguf_file']:
+            # Get desired state
+            desired_gguf = st.session_state.get('gguf_config', {}).get('gguf_file') if st.session_state.get('gguf_config') else None
+            desired_model = st.session_state.get('generation_model')
+            
+            # Only recreate if there's actually a meaningful change
+            if desired_gguf:
+                # User wants GGUF model
+                if not current_gguf or current_gguf != desired_gguf:
                     st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
                     needs_recreation = True
-            else:
-                # Using regular model
-                if current_gguf or current_model != st.session_state.generation_model:
-                    model_display = st.session_state.generation_model or "Default"
-                    st.info(f"🔄 Switching to model: {model_display}...")
+            elif desired_model:
+                # User wants regular model
+                if current_gguf or current_model != desired_model:
+                    st.info(f"🔄 Switching to model: {desired_model}...")
                     needs_recreation = True
         
-        # Also check if the actual engine doesn't match what's selected
-        if current_actual_engine != selected_engine_friendly:
+        # Also check if the actual engine doesn't match what's selected (only if no other changes)
+        elif current_actual_engine != selected_engine_friendly:
             st.warning(f"⚠️ Engine mismatch detected! Selected: {selected_engine_friendly}, Actual: {current_actual_engine}. Fixing...")
             needs_recreation = True
         
@@ -546,7 +559,14 @@ def render_sidebar():
                     preferred_engine=internal_key,
                     generation_model=st.session_state.get('generation_model')
                 )
+            
+            # Add a flag to prevent immediate re-checking
+            st.session_state._model_just_recreated = True
             st.rerun()
+        
+        # Clear the recreation flag after one cycle
+        if st.session_state.get('_model_just_recreated'):
+            st.session_state._model_just_recreated = False
         
         # Status indicator
         status_colors = {
