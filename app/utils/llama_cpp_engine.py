@@ -219,7 +219,7 @@ class LlamaCppEngine(InferenceEngine):
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers,
-                verbose=False,
+                verbose=True,
             )
             
             # Store the model info for display
