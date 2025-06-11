@@ -94,7 +94,10 @@ class VLLMEngine(InferenceEngine):
     _llm = None
     _model_loaded = False
     _generation_lock = None  # Add class-level lock
-    _gguf_cache_dir = Path.home() / ".cache" / "vllm_gguf"  # GGUF cache directory
+    if Path("/workspace").exists():
+        _gguf_cache_dir = Path("/workspace") / ".cache" / "vllm_gguf"  # GGUF cache directory
+    else:
+        _gguf_cache_dir = Path.home() / ".cache" / "vllm_gguf"  # GGUF cache directory
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
