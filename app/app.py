@@ -535,7 +535,10 @@ def render_sidebar():
                         preset_config = gguf_presets[preset]
                         gguf_repo = preset_config["repo"]
                         gguf_filename = preset_config["file"]
-                        tokenizer_repo = preset_config["tokenizer"]
+                        if "tokenizer" in preset_config:
+                            tokenizer_repo = preset_config["tokenizer"]
+                        else:
+                            tokenizer_repo = None
                         
                         with col2:
                             st.success(f"Using preset: {preset}")
@@ -550,7 +553,7 @@ def render_sidebar():
                         # Only update if actually changed to prevent refresh loops
                         new_gguf_config = {
                             'gguf_file': gguf_model_string,
-                            'tokenizer_name': tokenizer_repo,
+                            'tokenizer_name': tokenizer_repo if tokenizer_repo else "auto",
                             'display_name': f"{gguf_repo}/{gguf_filename}"
                         }
                         
