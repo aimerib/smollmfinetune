@@ -512,7 +512,16 @@ class DatasetManager:
         
         # For NSFW, randomly select from subcategories
         if chosen == "nsfw":
-            nsfw_subcategories = ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]
+            nsfw_subcategories = []
+            # Only include subcategories that exist as attributes
+            for subcategory in ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]:
+                if hasattr(self, f"prompts_{subcategory}"):
+                    nsfw_subcategories.append(subcategory)
+            
+            # If no subcategories found, default to regular nsfw
+            if not nsfw_subcategories:
+                return "nsfw"
+            
             return random.choice(nsfw_subcategories)
         
         return chosen
@@ -541,20 +550,32 @@ class DatasetManager:
         return text
 
     def _build_user_prompt(self) -> str:
+        """Build a random user prompt from the appropriate bucket."""
         bucket = self._choose_bucket()
         
         # Handle the various bucket types
-        if bucket in ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]:
-            # For intimate subcategories, use the appropriate list
-            prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_nsfw)
-        else:
-            prompt_list = getattr(self, f"prompts_{bucket}")
+        try:
+            if bucket in ["nsfw", "intimate_emotional", "intimate_playful", "intimate_romantic"]:
+                # For intimate subcategories, use the appropriate list
+                prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_nsfw)
+            else:
+                # Use getattr with a default value (casual prompts) in case the attribute doesn't exist
+                prompt_list = getattr(self, f"prompts_{bucket}", self.prompts_casual)
             
+            # Ensure we have a non-empty list
+            if not prompt_list:
+                logger.warning(f"Empty prompt list for bucket: {bucket}, falling back to casual prompts")
+                prompt_list = self.prompts_casual
+                
             prompt = random.choice(prompt_list)
             prompt = self._add_noise(prompt.strip())
             prompt = self._paraphrase(prompt)
             prompt = self._backtranslate(prompt)
             return prompt
+        except Exception as e:
+            logger.error(f"Error in _build_user_prompt: {e}")
+            # Fallback to a safe prompt
+            return "Hello there! How are you today?"
 
     async def suggest_user_questions(
         self,

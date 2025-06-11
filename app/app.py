@@ -467,7 +467,8 @@ def render_sidebar():
                         
                         # Check if config actually changed
                         current_config = st.session_state.get('gguf_config', {})
-                        if current_config.get('gguf_file') != new_gguf_config['gguf_file']:
+                        # Explicitly handle None case to prevent AttributeError
+                        if current_config is None or current_config.get('gguf_file') != new_gguf_config['gguf_file']:
                             st.session_state.gguf_config = new_gguf_config
                         
                         st.success(f"✅ GGUF: {gguf_filename}")
