@@ -46,34 +46,43 @@ logging.basicConfig(
 # Set specific loggers to DEBUG for more detail
 logging.getLogger('utils.inference').setLevel(logging.DEBUG)
 
-# ✅ FIX: Cache DatasetManager initialization to prevent infinite loops
-@st.cache_resource
-def get_cached_dataset_manager(preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
-    """Create and cache DatasetManager instance to prevent re-initialization"""
-    logger.info(f"Creating cached DatasetManager with engine: {preferred_engine}, model: {generation_model}")
-    return DatasetManager(
-        preferred_engine=preferred_engine,
-        generation_model=generation_model
-    )
+# ✅ FIX: Global singleton to prevent DatasetManager re-initialization
+_GLOBAL_DATASET_MANAGER = None
+
+def get_or_create_dataset_manager(preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
+    """Get or create a singleton DatasetManager instance to prevent re-initialization"""
+    global _GLOBAL_DATASET_MANAGER
+    
+    if _GLOBAL_DATASET_MANAGER is None:
+        logger.info(f"🔧 Creating singleton DatasetManager with engine: {preferred_engine}, model: {generation_model}")
+        _GLOBAL_DATASET_MANAGER = DatasetManager(
+            preferred_engine=preferred_engine,
+            generation_model=generation_model
+        )
+        logger.info("✅ Singleton DatasetManager created successfully")
+    else:
+        logger.info("♻️ Reusing existing singleton DatasetManager")
+    
+    return _GLOBAL_DATASET_MANAGER
 
 # Initialize session state
 def init_session_state():
     if 'character_manager' not in st.session_state:
         st.session_state.character_manager = CharacterManager()
     
-    # ✅ FIX: Use cached DatasetManager to prevent re-initialization and infinite loops
+    # ✅ FIX: Use singleton DatasetManager to prevent re-initialization and infinite loops
     if 'dataset_manager' not in st.session_state:
         # Auto-detect inference engine, but allow override
         preferred_engine = os.getenv('INFERENCE_ENGINE', None)
         generation_model = os.getenv('GENERATION_MODEL', None)
         
         try:
-            # Use cached function to prevent re-initialization
-            st.session_state.dataset_manager = get_cached_dataset_manager(
+            # Use singleton function to prevent re-initialization
+            st.session_state.dataset_manager = get_or_create_dataset_manager(
                 preferred_engine=preferred_engine,
                 generation_model=generation_model
             )
-            logger.info("✅ DatasetManager successfully initialized from cache")
+            logger.info("✅ DatasetManager successfully set in session state")
         except Exception as e:
             logger.error(f"❌ Failed to initialize DatasetManager: {e}")
             # Set a placeholder to prevent infinite retries
@@ -571,6 +580,21 @@ def render_sidebar():
         if needs_recreation:
             st.session_state.selected_engine = selected_engine_friendly
             
+            # ✅ FIX: Add cooldown to prevent rapid recreation cycles
+            import time
+            current_time = time.time()
+            last_recreation = st.session_state.get('_last_recreation_time', 0)
+            
+            if current_time - last_recreation < 2.0:  # 2 second cooldown
+                logger.warning("⚠️ DatasetManager recreation blocked - too frequent (cooldown active)")
+                return
+            
+            st.session_state._last_recreation_time = current_time
+            
+            # ✅ FIX: Reset global singleton to allow recreation with new parameters
+            global _GLOBAL_DATASET_MANAGER
+            _GLOBAL_DATASET_MANAGER = None
+            
             # Create appropriate DatasetManager based on configuration
             if internal_key == 'vllm' and st.session_state.get('gguf_config'):
                 # GGUF model configuration
@@ -579,11 +603,12 @@ def render_sidebar():
                     gguf_file=st.session_state.gguf_config['gguf_file'],
                     tokenizer_name=st.session_state.gguf_config.get('tokenizer_name')
                 )
-                st.session_state.dataset_manager = DatasetManager(preferred_engine=None)
+                # Use singleton pattern but override the engine
+                st.session_state.dataset_manager = get_or_create_dataset_manager(preferred_engine=None)
                 st.session_state.dataset_manager.inference_engine = engine
             else:
-                # Regular model configuration
-                st.session_state.dataset_manager = DatasetManager(
+                # Regular model configuration - use singleton pattern
+                st.session_state.dataset_manager = get_or_create_dataset_manager(
                     preferred_engine=internal_key,
                     generation_model=st.session_state.get('generation_model')
                 )
@@ -1769,8 +1794,6 @@ def page_model_testing():
                 st.warning("⚠️ No character uploaded for LoRA comparison")
         
         # System prompt selection
-        st.markdown("### System Prompt Configuration")
-        
         system_prompt = None
         if system_prompt_option == "Dataset System Prompt":
             system_prompt = system_prompt_config.get('prompt', '')
