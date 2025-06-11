@@ -154,7 +154,7 @@ class VLLMEngine(InferenceEngine):
             #         self.tensor_parallel_size = 1
             # else:
             #     self.tensor_parallel_size = tensor_parallel_size
-            self.tensor_parallel_size = 4
+            self.tensor_parallel_size = 1
 
             self._sampling_params = None
             self._available = None
