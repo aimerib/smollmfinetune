@@ -169,7 +169,7 @@ class VLLMEngine(InferenceEngine):
                 # Enable block management optimizations for large VRAM
                 enable_prefix_caching=True,
                 disable_custom_all_reduce=True,
-                kv_cache_dtype="int8",
+                kv_cache_dtype="fp8",
             )
             
             self.model_display_name = self.model_name
