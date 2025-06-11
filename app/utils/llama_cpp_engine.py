@@ -28,6 +28,7 @@ class LlamaCppEngine(InferenceEngine):
     _model_loaded = False
     _initializing = False
     _generation_lock = None
+    _generation_semaphore = None  # Prevent concurrent generation calls
 
     # GGUF cache directory
     if Path("/workspace").exists():
@@ -59,6 +60,7 @@ class LlamaCppEngine(InferenceEngine):
         if hasattr(self, '_initialized'):
             current_gguf = getattr(self, 'gguf_file', None)
             if gguf_file is None or gguf_file == current_gguf:
+                logger.debug(f"LlamaCppEngine already initialized with {current_gguf}, skipping")
                 return
 
         # Configuration
@@ -70,6 +72,7 @@ class LlamaCppEngine(InferenceEngine):
         
         # Force reload if model changed
         if hasattr(self, '_initialized') and gguf_file != getattr(self, 'gguf_file', None):
+            logger.info(f"🔄 Model changed from {getattr(self, 'gguf_file', None)} to {gguf_file}, forcing reload")
             LlamaCppEngine._model_loaded = False
             LlamaCppEngine._llm = None
 
@@ -211,15 +214,18 @@ class LlamaCppEngine(InferenceEngine):
             # Download GGUF file if needed
             gguf_path = self._download_gguf_file(repo_id, filename)
             
-            logger.info(f"Loading GGUF model from {gguf_path}")
+            logger.info(f"🚀 Loading GGUF model from {gguf_path} (threads={self.n_threads}, gpu_layers={self.n_gpu_layers})")
             
-            # Initialize llama-cpp-python
+            # Initialize llama-cpp-python with optimized settings
             LlamaCppEngine._llm = Llama(
                 model_path=str(gguf_path),
                 n_ctx=self.n_ctx,
                 n_threads=self.n_threads,
                 n_gpu_layers=self.n_gpu_layers,
                 verbose=True,
+                seed=-1,  # Allow random seeds per generation
+                n_batch=512,  # Optimize batch size
+                use_mlock=True,  # Keep model in memory
             )
             
             # Store the model info for display
@@ -277,67 +283,78 @@ class LlamaCppEngine(InferenceEngine):
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                              custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
-        """Generate multiple prompts sequentially (llama-cpp doesn't support true batching)"""
-        try:
-            logger.info(f"🚀 Llama.cpp generate_batch called with {len(prompts)} prompts")
-
-            # Validate inputs
-            if not prompts:
-                logger.warning("⚠️ Empty prompts list passed to generate_batch")
-                return []
-
-            # Filter out empty prompts
-            filtered_prompts = [p for p in prompts if p and isinstance(p, str)]
-            if len(filtered_prompts) != len(prompts):
-                logger.warning(f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
-                prompts = filtered_prompts
-
-            if not prompts:
-                logger.warning("⚠️ No valid prompts after filtering")
-                return []
-
-            # Initialize model if needed
-            self._initialize_model()
-
-            if not LlamaCppEngine._model_loaded or LlamaCppEngine._llm is None:
-                raise RuntimeError("Llama.cpp model failed to load")
-
-            # Base stop tokens list
-            stop_tokens = ["\n\n", "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
+        """Generate multiple prompts sequentially with thread safety"""
+        # Initialize semaphore if not already done (must be in async context)
+        if LlamaCppEngine._generation_semaphore is None:
+            LlamaCppEngine._generation_semaphore = asyncio.Semaphore(1)
             
-            # Allow caller to override stop tokens
-            if custom_stop_tokens is not None:
-                stop_tokens = list(custom_stop_tokens)
+        async with LlamaCppEngine._generation_semaphore:  # Ensure no concurrent generation
+            try:
+                logger.info(f"🚀 Llama.cpp generate_batch called with {len(prompts)} prompts")
 
-            # Generate responses sequentially (llama-cpp doesn't support true batching)
-            results = []
-            for prompt in prompts:
-                try:
-                    # Run synchronous generation in thread
-                    response = await asyncio.to_thread(
-                        self._sync_generate_single,
-                        prompt,
-                        max_tokens,
-                        temperature,
-                        top_p,
-                        stop_tokens
-                    )
-                    results.append(response)
-                    
-                except Exception as e:
-                    logger.error(f"Error generating response for prompt: {e}")
-                    results.append("Error: Generation failed")
+                # Validate inputs
+                if not prompts:
+                    logger.warning("⚠️ Empty prompts list passed to generate_batch")
+                    return []
 
-            return results
+                # Filter out empty prompts
+                filtered_prompts = [p for p in prompts if p and isinstance(p, str)]
+                if len(filtered_prompts) != len(prompts):
+                    logger.warning(f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
+                    prompts = filtered_prompts
 
-        except Exception as e:
-            logger.error("Llama.cpp generation failed: %s", e)
-            raise
+                if not prompts:
+                    logger.warning("⚠️ No valid prompts after filtering")
+                    return []
+
+                # Initialize model if needed
+                self._initialize_model()
+
+                if not LlamaCppEngine._model_loaded or LlamaCppEngine._llm is None:
+                    raise RuntimeError("Llama.cpp model failed to load")
+
+                # Better stop tokens - less aggressive to avoid empty responses
+                stop_tokens = ["<|endoftext|>", "\n\nUser:", "###", "<|user|>", "<|endofcard|>"]
+                
+                # Allow caller to override stop tokens
+                if custom_stop_tokens is not None:
+                    stop_tokens = list(custom_stop_tokens)
+
+                # Generate responses sequentially in a single thread
+                results = []
+                for i, prompt in enumerate(prompts):
+                    try:
+                        logger.debug(f"Generating prompt {i+1}/{len(prompts)}")
+                        
+                        # Generate with random seed for each prompt
+                        response = await asyncio.to_thread(
+                            self._sync_generate_single,
+                            prompt,
+                            max_tokens,
+                            temperature,
+                            top_p,
+                            stop_tokens
+                        )
+                        results.append(response)
+                        
+                    except Exception as e:
+                        logger.error(f"Error generating response for prompt {i+1}: {e}")
+                        results.append("Error: Generation failed")
+
+                return results
+
+            except Exception as e:
+                logger.error("Llama.cpp generation failed: %s", e)
+                raise
 
     def _sync_generate_single(self, prompt: str, max_tokens: int, temperature: float, 
                              top_p: float, stop_tokens: List[str]) -> str:
-        """Synchronous generation for a single prompt"""
+        """Synchronous generation for a single prompt with improved error handling"""
         try:
+            # Generate with a random seed for each call
+            import random
+            seed = random.randint(0, 2**31 - 1)
+            
             response = LlamaCppEngine._llm(
                 prompt,
                 max_tokens=max_tokens,
@@ -345,25 +362,39 @@ class LlamaCppEngine(InferenceEngine):
                 top_p=top_p,
                 stop=stop_tokens,
                 echo=False,  # Don't echo the prompt
+                seed=seed,   # Random seed for each generation
+                repeat_penalty=1.1,  # Reduce repetition
             )
             
-            # Extract text from response
-            if isinstance(response, dict) and 'choices' in response:
-                text = response['choices'][0]['text']
+            # Extract text from response - handle both dict and string formats
+            text = ""
+            if isinstance(response, dict):
+                if 'choices' in response and response['choices']:
+                    text = response['choices'][0].get('text', '')
+                elif 'content' in response:
+                    text = response['content']
+                else:
+                    # Fallback: convert to string
+                    text = str(response)
             else:
                 text = str(response)
             
             # Clean up the response
             text = text.strip()
-            if not text:
-                logger.warning("Empty response generated")
-                text = "Error: Empty response"
+            
+            # Check for empty or problematic responses
+            if not text or text in ['', ' ', '\n', '\\n']:
+                logger.warning(f"Empty or whitespace-only response generated for prompt: {prompt[:50]}...")
+                text = "I need more context to respond appropriately."
+            elif len(text) < 3:  # Very short responses are likely errors
+                logger.warning(f"Very short response generated: '{text}'")
+                text = "I apologize, but I need more information to provide a proper response."
             
             return text
             
         except Exception as e:
             logger.error(f"Single generation failed: {e}")
-            return "Error: Generation failed"
+            return f"Error: Generation failed - {str(e)}"
 
     async def generate(self, prompt: str, max_tokens: int = 160,
                        temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
