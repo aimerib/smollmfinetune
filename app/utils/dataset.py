@@ -1467,42 +1467,73 @@ Respond with ONLY the questions, one per line, no numbering:"""
                         pass
                         
                 except Exception as outer_e:
-                    # Handle CUDA/memory errors with appropriate batch size reduction
+                    # Handle vLLM and other errors with progressive batch size reduction
                     error_str = str(outer_e)
-                    if "CUDA" in error_str or "memory" in error_str.lower():
-                        logger.warning(f"⚠️ Memory error in batch processing: {error_str}")
+                    logger.warning(f"⚠️ Batch processing error: {error_str}")
+                    
+                    # Check if this is a vLLM-specific error (AssertionError, CUDA, memory, etc.)
+                    is_vllm_error = any(keyword in error_str for keyword in [
+                        "AssertionError", "CUDA", "memory", "vLLM", "tensor", "batch"
+                    ])
+                    
+                    if is_vllm_error and batch_size > 1:
+                        # Progressive batch size reduction for vLLM errors
+                        original_batch_size = batch_size
+                        retry_attempts = 0
+                        max_retries = 3
                         
-                        # Reduce batch size based on engine type
-                        if self.inference_engine.name == "vLLM" and batch_size > 100:
-                            # For vLLM, try cutting in half but keep it large
-                            new_batch_size = max(100, batch_size // 2)
-                            logger.info(f"🔄 Reducing vLLM batch size: {batch_size} → {new_batch_size}")
+                        while retry_attempts < max_retries and batch_size > 1:
+                            # Reduce batch size more aggressively for vLLM errors
+                            if retry_attempts == 0:
+                                new_batch_size = max(1, batch_size // 2)
+                            elif retry_attempts == 1:
+                                new_batch_size = max(1, batch_size // 2)
+                            else:
+                                new_batch_size = 1  # Last resort: sequential processing
+                            
+                            logger.info(f"🔄 Attempt {retry_attempts + 1}: Reducing batch size {batch_size} → {new_batch_size}")
                             batch_size = new_batch_size
                             
-                            # Retry with smaller batch
-                            batch_end = min(batch_start + batch_size, len(bucket_prompts))
-                            batch_prompts_slice = bucket_prompts[batch_start:batch_end]
-                            full_prompts = [item['full_prompt'] for item in batch_prompts_slice]
+                            # Prepare smaller batch
+                            small_batch_end = min(batch_start + batch_size, len(bucket_prompts))
+                            small_batch_prompts = bucket_prompts[batch_start:small_batch_end]
+                            small_full_prompts = [item['full_prompt'] for item in small_batch_prompts]
                             
-                            # Retry the batch
                             try:
-                                replies = await self._generate_text_batch(
-                                    prompts=full_prompts,
-                                    max_tokens=1000,
-                                    temperature=temperature,
-                                    top_p=top_p,
-                                    character_name=character.get('name')
-                                )
+                                # Retry with smaller batch
+                                if batch_size == 1:
+                                    # Sequential processing
+                                    replies = []
+                                    for prompt in small_full_prompts:
+                                        reply = await self._generate_text(
+                                            prompt=prompt,
+                                            max_tokens=1000,
+                                            temperature=temperature,
+                                            top_p=top_p,
+                                            character_name=character.get('name')
+                                        )
+                                        replies.append(reply)
+                                        await asyncio.sleep(0.1)  # Small delay
+                                else:
+                                    replies = await self._generate_text_batch(
+                                        prompts=small_full_prompts,
+                                        max_tokens=1000,
+                                        temperature=temperature,
+                                        top_p=top_p,
+                                        character_name=character.get('name')
+                                    )
                                 
-                                # Process results (same logic as above)
-                                for i, (prompt_data, reply) in enumerate(zip(batch_prompts_slice, replies)):
+                                # Process successful results
+                                for i, (prompt_data, reply) in enumerate(zip(small_batch_prompts, replies)):
                                     try:
                                         reply_str = str(reply).strip()
+                                        if not reply_str or "Error:" in reply_str:
+                                            continue
+                                            
                                         quality_metrics = self.evaluate_response_quality(
                                             reply_str, character, prompt_data['prompt']
                                         )
                                         if quality_metrics['overall_score'] >= 0.5:
-                                            # Always use temporal system prompt during generation
                                             system_prompt = self._generate_temporal_system_prompt(
                                                 character,
                                                 prompt_data.get('temporal_context', 'present'),
@@ -1521,19 +1552,30 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                                 progress_callback(min(len(samples) / num_samples, 1.0))
                                             if len(samples) >= num_samples:
                                                 break
-                                    except Exception:
+                                    except Exception as process_error:
+                                        logger.debug(f"Error processing sample: {process_error}")
                                         continue
-                                        
+                                
+                                logger.info(f"✅ Retry successful with batch size {batch_size}")
+                                break  # Success, exit retry loop
+                                
                             except Exception as retry_error:
-                                logger.error(f"💥 Retry with smaller batch also failed: {retry_error}")
-                                # Skip this batch
-                                continue
-                        else:
-                            # For other engines or if batch is already small, skip the batch
-                            logger.error(f"💥 Skipping batch due to error: {error_str}")
-                            continue
+                                retry_attempts += 1
+                                retry_error_str = str(retry_error)
+                                logger.warning(f"💥 Retry {retry_attempts} failed: {retry_error_str}")
+                                
+                                if retry_attempts >= max_retries:
+                                    logger.error(f"💥 All retries failed, skipping batch")
+                                    break
+                                    
+                                # Wait before next retry
+                                await asyncio.sleep(0.5)
+                        
+                        # Reset batch size for next iteration
+                        batch_size = original_batch_size
                     else:
-                        logger.error(f"💥 Batch generation error: {error_str}")
+                        # For non-vLLM errors or when batch size is already 1, just skip
+                        logger.error(f"💥 Skipping batch due to error: {error_str}")
                         continue
 
             # End grouped processing

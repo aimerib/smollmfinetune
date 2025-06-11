@@ -30,7 +30,8 @@ class VLLMEngine(InferenceEngine):
     _llm = None
     _model_loaded = False
     _initializing = False  # Add flag to prevent concurrent initialization
-    _generation_lock = None  # Add class-level lock
+    _generation_lock = None  # Add class-level async lock
+    _batch_lock = None  # Separate lock for batch operations
 
     def __new__(cls, *args, **kwargs):
         if cls._instance is None:
@@ -75,9 +76,11 @@ class VLLMEngine(InferenceEngine):
             # Mark as initialized to prevent future re-initialization
             self._initialized = True
 
-            # Initialize the lock if not already done
+            # Initialize the locks if not already done
             if VLLMEngine._generation_lock is None:
                 VLLMEngine._generation_lock = threading.Lock()
+            if VLLMEngine._batch_lock is None:
+                VLLMEngine._batch_lock = asyncio.Lock()
 
     @property
     def name(self) -> str:
@@ -220,84 +223,159 @@ class VLLMEngine(InferenceEngine):
                                   temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                                   custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
-        try:
-            logger.info(
-                f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
+        # Ensure we have the batch lock to prevent concurrent batch issues
+        if VLLMEngine._batch_lock is None:
+            VLLMEngine._batch_lock = asyncio.Lock()
+        
+        async with VLLMEngine._batch_lock:
+            try:
+                logger.info(
+                    f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
 
-            # Validate inputs to prevent tensor shape mismatches
-            if not prompts:
-                logger.warning(
-                    "⚠️ Empty prompts list passed to generate_batch")
-                return []
+                # Validate inputs to prevent tensor shape mismatches
+                if not prompts:
+                    logger.warning(
+                        "⚠️ Empty prompts list passed to generate_batch")
+                    return []
 
-            # Filter out empty prompts that can cause tensor dimension errors
-            filtered_prompts = [p for p in prompts if p and isinstance(p, str)]
-            if len(filtered_prompts) != len(prompts):
-                logger.warning(
-                    f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
-                prompts = filtered_prompts
+                # Filter out empty prompts that can cause tensor dimension errors
+                filtered_prompts = [p for p in prompts if p and isinstance(p, str) and len(p.strip()) > 0]
+                if len(filtered_prompts) != len(prompts):
+                    logger.warning(
+                        f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
 
-            if not prompts:
-                logger.warning("⚠️ No valid prompts after filtering")
-                return []
+                if not filtered_prompts:
+                    logger.warning("⚠️ No valid prompts after filtering")
+                    return []
 
-            # Initialize model if needed (only happens once)
-            self._initialize_model()
+                # Initialize model if needed (only happens once)
+                self._initialize_model()
 
-            if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
-                raise RuntimeError("vLLM model failed to load")
+                if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
+                    raise RuntimeError("vLLM model failed to load")
 
-            from vllm import SamplingParams
-            import asyncio
-            import secrets
+                from vllm import SamplingParams
+                import asyncio
+                import secrets
 
-            # Base stop tokens list
-            stop_tokens = ["\n\n", "<|endoftext|>",
-                           "User:", "###", "<|endofcard|>", "<|user|>"]
+                # Base stop tokens list
+                stop_tokens = ["\n\n", "<|endoftext|>",
+                               "User:", "###", "<|endofcard|>", "<|user|>"]
 
-            # Allow caller to override stop tokens for special generation modes
-            if custom_stop_tokens is not None:
-                stop_tokens = list(custom_stop_tokens)
+                # Allow caller to override stop tokens for special generation modes
+                if custom_stop_tokens is not None:
+                    stop_tokens = list(custom_stop_tokens)
 
-            # Use a cryptographically strong random seed for each batch
-            seed = secrets.randbits(64)
+                # Use a cryptographically strong random seed for each batch
+                seed = secrets.randbits(64)
 
-            # Sampling parameters
-            sampling_params = SamplingParams(
-                max_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                stop=stop_tokens,
-                seed=seed,
-            )
+                # Sampling parameters
+                sampling_params = SamplingParams(
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop_tokens,
+                    seed=seed,
+                )
 
-            # Run synchronous vLLM generate in a worker thread
-            request_outputs = await asyncio.to_thread(
-                _sync_generate, prompts, sampling_params
-            )
+                # Run synchronous vLLM generate with proper error handling
+                try:
+                    request_outputs = await asyncio.to_thread(
+                        _sync_generate, filtered_prompts, sampling_params
+                    )
+                except Exception as vllm_error:
+                    # If vLLM batch fails, try smaller batches or sequential processing
+                    logger.warning(f"⚠️ vLLM batch generation failed: {vllm_error}")
+                    
+                    # Try splitting into smaller batches
+                    if len(filtered_prompts) > 10:
+                        logger.info("🔄 Attempting smaller batch sizes...")
+                        batch_size = max(1, len(filtered_prompts) // 4)
+                        all_results = []
+                        
+                        for i in range(0, len(filtered_prompts), batch_size):
+                            small_batch = filtered_prompts[i:i + batch_size]
+                            try:
+                                small_outputs = await asyncio.to_thread(
+                                    _sync_generate, small_batch, sampling_params
+                                )
+                                # Extract text from outputs
+                                for output in small_outputs:
+                                    if output.outputs:
+                                        all_results.append(output.outputs[0].text)
+                                    else:
+                                        all_results.append("Error: No output generated")
+                                        
+                                # Small delay between batches to prevent overload
+                                await asyncio.sleep(0.1)
+                                
+                            except Exception as small_batch_error:
+                                logger.error(f"Small batch also failed: {small_batch_error}")
+                                # Fill with error responses for this batch
+                                all_results.extend(["Error: Generation failed"] * len(small_batch))
+                        
+                        return self._process_results(all_results, filtered_prompts)
+                    else:
+                        # For very small batches, fall back to sequential processing
+                        logger.info("🔄 Falling back to sequential processing...")
+                        return await self._sequential_fallback(filtered_prompts, sampling_params)
 
-            results: List[str] = []
-            for request_output in request_outputs:
-                if request_output.outputs:
-                    generated_text = request_output.outputs[0].text
-                    results.append(generated_text)
+                # Process successful batch results
+                results: List[str] = []
+                for request_output in request_outputs:
+                    if request_output.outputs:
+                        generated_text = request_output.outputs[0].text
+                        results.append(generated_text)
+                    else:
+                        logger.warning("No outputs for prompt: %s", request_output.prompt[:50])
+                        results.append("Error: No output generated")
+
+                return self._process_results(results, filtered_prompts)
+
+            except Exception as e:
+                logger.error("vLLM generation failed: %s", e)
+                # Return error responses to maintain expected output length
+                return ["Error: Generation failed"] * len(prompts)
+
+    def _process_results(self, results: List[str], original_prompts: List[str]) -> List[str]:
+        """Process and clean up generation results"""
+        processed_results = []
+        
+        for idx, txt in enumerate(results):
+            txt = txt.strip()
+            if not txt:
+                prompt_preview = original_prompts[idx][:50] if idx < len(original_prompts) else "unknown"
+                logger.warning(f"Empty result for prompt '{prompt_preview}...'")
+                txt = "Error: Empty response"
+            processed_results.append(txt)
+
+        return processed_results
+
+    async def _sequential_fallback(self, prompts: List[str], sampling_params) -> List[str]:
+        """Fallback to sequential generation when batch processing fails"""
+        results = []
+        
+        for i, prompt in enumerate(prompts):
+            try:
+                logger.debug(f"Sequential generation {i+1}/{len(prompts)}")
+                request_outputs = await asyncio.to_thread(
+                    _sync_generate, [prompt], sampling_params
+                )
+                
+                if request_outputs and request_outputs[0].outputs:
+                    results.append(request_outputs[0].outputs[0].text)
                 else:
-                    logger.warning("No outputs for prompt: %s", request_output.prompt)
                     results.append("Error: No output generated")
-
-            # Strip whitespace / handle empties
-            for idx, txt in enumerate(results):
-                txt = txt.strip()
-                if not txt:
-                    logger.warning("Empty result for prompt '%s'", prompts[idx])
-                    txt = "Error: Empty response"
-                results[idx] = txt
-
-            return results
-
-        except Exception as e:
-            logger.error("vLLM generation failed: %s", e)
-            raise
+                    
+                # Small delay to prevent overwhelming the engine
+                if i < len(prompts) - 1:
+                    await asyncio.sleep(0.05)
+                    
+            except Exception as seq_error:
+                logger.error(f"Sequential generation failed for prompt {i+1}: {seq_error}")
+                results.append("Error: Sequential generation failed")
+        
+        return results
 
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
