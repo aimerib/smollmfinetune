@@ -580,6 +580,18 @@ def render_sidebar():
         if needs_recreation:
             st.session_state.selected_engine = selected_engine_friendly
             
+            # ✅ FIX: Check if we're in the middle of navigation - defer recreation
+            if st.session_state.get('_navigating', False):
+                # Store recreation request for later
+                st.session_state._pending_recreation = {
+                    'engine': selected_engine_friendly,
+                    'internal_key': internal_key,
+                    'gguf_config': st.session_state.get('gguf_config'),
+                    'generation_model': st.session_state.get('generation_model')
+                }
+                logger.info("🔄 Model recreation deferred - navigation in progress")
+                return selected
+            
             # ✅ FIX: Add cooldown to prevent rapid recreation cycles
             import time
             current_time = time.time()
@@ -587,7 +599,7 @@ def render_sidebar():
             
             if current_time - last_recreation < 2.0:  # 2 second cooldown
                 logger.warning("⚠️ DatasetManager recreation blocked - too frequent (cooldown active)")
-                return
+                return selected
             
             st.session_state._last_recreation_time = current_time
             
@@ -615,7 +627,7 @@ def render_sidebar():
             
             # Add a flag to prevent immediate re-checking
             st.session_state._model_just_recreated = True
-            st.rerun()
+            logger.info("✅ Model recreation completed successfully")
         
         # Clear the recreation flag after one cycle
         if st.session_state.get('_model_just_recreated'):
@@ -2002,8 +2014,55 @@ def main():
     init_session_state()
     render_header()
     
-    # Sidebar navigation
+    # ✅ FIX: Track navigation state to prevent recreation loops
+    current_page = st.session_state.get('_current_page', "📁 Character Upload")
+    
+    # Set navigation flag during sidebar rendering
+    st.session_state._navigating = True
     selected_page = render_sidebar()
+    st.session_state._navigating = False
+    
+    # Check if page changed
+    page_changed = current_page != selected_page
+    if page_changed:
+        st.session_state._current_page = selected_page
+        logger.info(f"🔄 Page changed from '{current_page}' to '{selected_page}'")
+    
+    # ✅ FIX: Process any pending model recreation after navigation is complete
+    if st.session_state.get('_pending_recreation') and not page_changed:
+        logger.info("🔄 Processing pending model recreation...")
+        pending = st.session_state._pending_recreation
+        del st.session_state._pending_recreation
+        
+        # Add cooldown check
+        import time
+        current_time = time.time()
+        last_recreation = st.session_state.get('_last_recreation_time', 0)
+        
+        if current_time - last_recreation >= 2.0:  # 2 second cooldown
+            st.session_state._last_recreation_time = current_time
+            
+            # Reset global singleton
+            global _GLOBAL_DATASET_MANAGER
+            _GLOBAL_DATASET_MANAGER = None
+            
+            # Recreate DatasetManager
+            if pending['internal_key'] == 'vllm' and pending.get('gguf_config'):
+                from utils.inference_engines import VLLMEngine
+                engine = VLLMEngine(
+                    gguf_file=pending['gguf_config']['gguf_file'],
+                    tokenizer_name=pending['gguf_config'].get('tokenizer_name')
+                )
+                st.session_state.dataset_manager = get_or_create_dataset_manager(preferred_engine=None)
+                st.session_state.dataset_manager.inference_engine = engine
+            else:
+                st.session_state.dataset_manager = get_or_create_dataset_manager(
+                    preferred_engine=pending['internal_key'],
+                    generation_model=pending.get('generation_model')
+                )
+            
+            logger.info("✅ Pending model recreation completed successfully")
+            st.rerun()
     
     # Page routing
     if selected_page == "📁 Character Upload":
