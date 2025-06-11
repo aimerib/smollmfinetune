@@ -663,24 +663,24 @@ class DatasetManager:
         prompt_texts = [p[0] for p in prompts]
 
         # Generate the questions (batched when supported)
-        if batch_size > 1:
-            raw_outputs = await self._generate_text_batch(
-                prompts=prompt_texts,
-                max_tokens=1000,
-                temperature=temperature,
-                top_p=top_p
-            )
-        else:
-            raw_outputs = []
-            for _ in range(num_questions):
-                pt, _ctx = prompts[_]
-                out = await self._generate_text(
-                    prompt=pt,
-                    max_tokens=1000,
-                    temperature=temperature,
-                    top_p=top_p
-                )
-                raw_outputs.append(out)
+        # if batch_size > 1:
+        raw_outputs = await self._generate_text_batch(
+            prompts=prompt_texts,
+            max_tokens=1000,
+            temperature=temperature,
+            top_p=top_p
+        )
+        # else:
+        #     raw_outputs = []
+        #     for _ in range(num_questions):
+        #         pt, _ctx = prompts[_]
+        #         out = await self._generate_text(
+        #             prompt=pt,
+        #             max_tokens=1000,
+        #             temperature=temperature,
+        #             top_p=top_p
+        #         )
+        #         raw_outputs.append(out)
 
         results: List[Dict[str, Any]] = []
         seen = set()
