@@ -467,24 +467,22 @@ def render_sidebar():
                         st.success(f"✅ GGUF: {gguf_filename}")
                         st.info(f"📊 Tokenizer: {tokenizer_repo or 'Auto-detect'}")
                         
-                        # Show cache info
-                        with st.expander("💾 GGUF Cache Management", expanded=False):
-                            from utils.inference_engines import VLLMEngine
-                            cache_info = VLLMEngine.get_gguf_cache_info()
+                        # Show cache info as regular section instead of nested expander
+                        st.markdown("**💾 GGUF Cache Info:**")
+                        from utils.inference_engines import VLLMEngine
+                        cache_info = VLLMEngine.get_gguf_cache_info()
+                        
+                        st.text(f"Cache: {cache_info['cache_dir']}")
+                        
+                        if cache_info['cached_files']:
+                            st.text(f"Files: {len(cache_info['cached_files'])} ({cache_info['total_size_gb']:.1f} GB)")
                             
-                            st.info(f"Cache directory: `{cache_info['cache_dir']}`")
-                            
-                            if cache_info['cached_files']:
-                                st.write(f"**Cached files ({cache_info['total_size_gb']:.1f} GB total):**")
-                                for file in cache_info['cached_files']:
-                                    st.write(f"- {file['filename']} ({file['size_gb']:.1f} GB)")
-                                
-                                if st.button("🗑️ Clear GGUF Cache"):
-                                    count = VLLMEngine.clear_gguf_cache()
-                                    st.success(f"Cleared {count} GGUF files")
-                                    st.rerun()
-                            else:
-                                st.info("No GGUF files cached yet")
+                            if st.button("🗑️ Clear GGUF Cache", key="clear_gguf_cache_btn"):
+                                count = VLLMEngine.clear_gguf_cache()
+                                st.success(f"Cleared {count} GGUF files")
+                                st.rerun()
+                        else:
+                            st.text("No GGUF files cached yet")
                     else:
                         st.warning("⚠️ Please complete GGUF configuration")
                         st.session_state.gguf_config = None
