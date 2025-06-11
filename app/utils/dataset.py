@@ -1361,11 +1361,12 @@ Respond with ONLY the questions, one per line, no numbering:"""
         for item in prompts_data:
             prompts_grouped.setdefault(item['max_tokens'], []).append(item)
 
-        # Determine optimal batch size based on inference engine
+        # Determine optimal batch size based on inference engine and prevent KV cache preemption
         if hasattr(self.inference_engine, 'name') and self.inference_engine.name == "vLLM":
-            # vLLM excels with large batches - use entire groups at once
-            base_batch_size = 500  # Can handle much larger batches
-            logger.info("🚀 Using vLLM optimized batch size: 500")
+            # Adaptive batch sizing for vLLM to prevent KV cache pressure
+            # Start with smaller batches to avoid preemption warnings
+            base_batch_size = int(os.getenv('VLLM_DATASET_BATCH_SIZE', '128'))
+            logger.info(f"🚀 Using vLLM adaptive batch size: {base_batch_size} (prevents KV cache preemption)")
         else:
             # Other engines (LM Studio, etc.) work better with smaller batches
             base_batch_size = 100 if hasattr(self.inference_engine, 'generate_batch') else 1

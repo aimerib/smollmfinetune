@@ -144,22 +144,32 @@ class VLLMEngine(InferenceEngine):
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
             from vllm import LLM, SamplingParams
 
-            # Get configuration from environment or use defaults
+            # Get configuration from environment or use optimized defaults for A100 80GB
             gpu_memory_util = float(
-                os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.90'))  # Increased
-            # Reduced for memory
+                os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.95'))  # Reduced to leave more KV cache space
             max_model_len = int(os.getenv('MAX_MODEL_LEN', '4096'))
+            
+            # KV cache optimization for high-memory GPUs
+            max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '100'))  # Increase concurrent sequences
+            max_num_batched_tokens = int(os.getenv('VLLM_MAX_BATCHED_TOKENS', '8192'))  # Optimize batch token limit
 
             # Regular HuggingFace model loading only
             logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
+            logger.info(f"🔧 vLLM config: gpu_mem={gpu_memory_util}, max_seqs={max_num_seqs}, max_tokens={max_num_batched_tokens}")
             
             VLLMEngine._llm = LLM(
                 model=self.model_name,
                 tensor_parallel_size=self.tensor_parallel_size,
                 gpu_memory_utilization=gpu_memory_util,
                 max_model_len=max_model_len,
+                max_num_seqs=max_num_seqs,
+                max_num_batched_tokens=max_num_batched_tokens,
                 enforce_eager=False,
                 trust_remote_code=True,
+                # Enable block management optimizations for large VRAM
+                enable_prefix_caching=True,
+                disable_custom_all_reduce=True,
+                kv_cache_dtype="int8",
             )
             
             self.model_display_name = self.model_name
