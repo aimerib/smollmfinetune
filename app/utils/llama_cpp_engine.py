@@ -7,6 +7,7 @@ import os
 import asyncio
 import threading
 import secrets
+import traceback
 from typing import Optional, List, Tuple, Dict
 import logging
 from pathlib import Path
@@ -328,6 +329,7 @@ class LlamaCppEngine(InferenceEngine):
                 return "\n\n".join(formatted_parts) + "\n\nAssistant:"
                 
         except Exception as e:
+            traceback.print_exc()
             logger.error(f"Error applying chat template: {e}")
             # Ultimate fallback
             formatted_parts = []
