@@ -549,9 +549,6 @@ class DatasetManager:
     # ---------------- paraphrasing & back-translation ----------------
     async def _paraphrase(self, text: str) -> str:
         """Paraphrase text using the inference engine for variation"""
-        if random.random() > 0.3:  # 70% chance to keep original for performance
-            return text
-            
         try:
             if not self.inference_engine:
                 return text
@@ -572,11 +569,7 @@ Rewritten:"""
             
             # Clean up the response
             paraphrased = paraphrased.strip()
-            
-            # If paraphrasing failed or is too different, return original
-            if len(paraphrased) < 5 or len(paraphrased) > len(text) * 3:
-                return text
-                
+
             return paraphrased
             
         except Exception as e:
