@@ -430,6 +430,7 @@ def render_sidebar():
                     # Popular model suggestions
                     popular_models = [
                         "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
+                        "ArliAI/QwQ-32B-ArliAI-RpR-v4",
                         "meta-llama/Llama-3.1-70B-Instruct",
                         "meta-llama/Llama-3.1-8B-Instruct",
                         "mistralai/Mixtral-8x7B-Instruct-v0.1",
@@ -472,8 +473,8 @@ def render_sidebar():
                         gguf_presets = {
                             "Custom": None,
                             "Fallen Command A 111B v1.1": {
-                                "repo": "TheDrummer/Fallen-Command-A-111B-v1.1-GGUF",
-                                "file": ["Fallen-Command-A-111B-v1c-Q4_K_M-00001-of-00002.gguf", "Fallen-Command-A-111B-v1c-Q4_K_M-00002-of-00002.gguf"],
+                                "repo": "bartowski/ArliAI_QwQ-32B-ArliAI-RpR-v4-GGUF",
+                                "file": "ArliAI_QwQ-32B-ArliAI-RpR-v4-Q6_K_L.gguf",
                             },
                             "Fallen Llama 3.3 R1": {
                                 "repo": "bartowski/TheDrummer_Fallen-Llama-3.3-R1-70B-v1-GGUF",
