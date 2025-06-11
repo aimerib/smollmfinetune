@@ -141,19 +141,20 @@ class VLLMEngine(InferenceEngine):
                 VLLMEngine._llm = None
 
             # Auto-detect tensor parallel size based on GPU count if not specified
-            if tensor_parallel_size == 1:
-                try:
-                    import torch
-                    gpu_count = torch.cuda.device_count()
-                    # Use multiple GPUs for 24B model if available
-                    if gpu_count >= 2 and "24b" in self.model_name.lower():
-                        self.tensor_parallel_size = min(gpu_count, 4)  # Max 4 GPUs
-                    else:
-                        self.tensor_parallel_size = 1
-                except:
-                    self.tensor_parallel_size = 1
-            else:
-                self.tensor_parallel_size = tensor_parallel_size
+            # if tensor_parallel_size == 1:
+            #     try:
+            #         import torch
+            #         gpu_count = torch.cuda.device_count()
+            #         # Use multiple GPUs for 24B model if available
+            #         if gpu_count >= 2 and "24b" in self.model_name.lower():
+            #             self.tensor_parallel_size = min(gpu_count, 4)  # Max 4 GPUs
+            #         else:
+            #             self.tensor_parallel_size = 1
+            #     except:
+            #         self.tensor_parallel_size = 1
+            # else:
+            #     self.tensor_parallel_size = tensor_parallel_size
+            self.tensor_parallel_size = 4
 
             self._sampling_params = None
             self._available = None
