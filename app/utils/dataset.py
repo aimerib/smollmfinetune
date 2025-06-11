@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Union
 from datasets import Dataset
-from .inference_engines import get_inference_engine
+from .inference_engines import get_inference_engine, apply_thinking_template_to_messages
 import torch
 import json
 import os
@@ -666,7 +666,7 @@ class DatasetManager:
         if batch_size > 1:
             raw_outputs = await self._generate_text_batch(
                 prompts=prompt_texts,
-                max_tokens=60,
+                max_tokens=1000,
                 temperature=temperature,
                 top_p=top_p
             )
@@ -676,7 +676,7 @@ class DatasetManager:
                 pt, _ctx = prompts[_]
                 out = await self._generate_text(
                     prompt=pt,
-                    max_tokens=60,
+                    max_tokens=1000,
                     temperature=temperature,
                     top_p=top_p
                 )
@@ -947,25 +947,17 @@ class DatasetManager:
         char_name_for_prompts = character.get('name', 'Assistant')
 
         # Process unique prompts with emotional variations and context enhancement
-        for prompt_data in unique_prompt_data[:new_samples_needed * 2]:  # Generate extra for quality filtering
+        for prompt_data in unique_prompt_data[:new_samples_needed * 3]:  # Generate extra for quality filtering
             # Skip if we already have enough
-            if len(prompts_data) >= new_samples_needed * 1.5:
+            if len(prompts_data) >= new_samples_needed * 3:
                 break
             
             prompt_text = prompt_data['prompt']
             prompt_context = prompt_data.get('context')
-            
-            # Add emotional variations (30% chance)
-            if random.random() < 0.3:
-                emotions = random.sample(['happy', 'sad', 'angry', 'worried', 'excited', 'curious'], k=2)
-                variations = self.generate_emotional_variations(prompt_text, emotions)
-                for var in variations[:1]:  # Just one variation per prompt
-                    enhanced_prompt = self.enhance_prompt_with_context(var, character, prompt_context)
-                    prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
-            else:
-                # Regular prompt with possible context enhancement
-                enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
-                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
+
+            # Regular prompt with possible context enhancement
+            enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
+            prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
         
         # Add multi-turn conversations
         for convo in multi_turn_convos[:5]:  # Limit multi-turn to avoid overwhelming
@@ -996,7 +988,7 @@ class DatasetManager:
             logger.info("🚀 Using vLLM optimized batch size: 500")
         else:
             # Other engines (LM Studio, etc.) work better with smaller batches
-            base_batch_size = 16 if hasattr(self.inference_engine, 'generate_batch') else 1
+            base_batch_size = 100 if hasattr(self.inference_engine, 'generate_batch') else 1
             logger.info(f"📦 Using standard batch size: {base_batch_size}")
 
         processed_count = 0
@@ -1019,7 +1011,7 @@ class DatasetManager:
                     if batch_size > 1:
                         replies = await self._generate_text_batch(
                             prompts=full_prompts,
-                            max_tokens=bucket_max_tokens,
+                            max_tokens=1000,
                             temperature=temperature,
                             top_p=top_p,
                             character_name=character.get('name')
@@ -1027,7 +1019,7 @@ class DatasetManager:
                     else:
                         replies = [await self._generate_text(
                             prompt=full_prompts[0],
-                            max_tokens=bucket_max_tokens,
+                            max_tokens=1000,
                             temperature=temperature,
                             top_p=top_p,
                             character_name=character.get('name')
@@ -1117,7 +1109,7 @@ class DatasetManager:
                             try:
                                 replies = await self._generate_text_batch(
                                     prompts=full_prompts,
-                                    max_tokens=bucket_max_tokens,
+                                    max_tokens=1000,
                                     temperature=temperature,
                                     top_p=top_p,
                                     character_name=character.get('name')
@@ -1282,11 +1274,24 @@ class DatasetManager:
             character, temporal_context
         )
         
-        danschat_prompt = f"<|system|>{temporal_system_prompt}<|endoftext|><|user|>{prompt}<|endoftext|><|assistant|>{char_name}:"
+        # Create messages structure for proper chat templating
+        messages = [
+            {'role': 'system', 'content': temporal_system_prompt},
+            {'role': 'user', 'content': prompt}
+        ]
+        
+        # Apply thinking template modifications and chat templating
+        modified_messages, prefill_text = apply_thinking_template_to_messages(messages, self.inference_engine.thinking_config)
+        templated_prompt = self.inference_engine.apply_chat_template(modified_messages)
+        
+        # Add prefill text if needed (for Deepseek)
+        if prefill_text:
+            templated_prompt += prefill_text
         
         return {
             'prompt': prompt,
-            'full_prompt': danschat_prompt,
+            'full_prompt': templated_prompt,
+            'messages': messages,  # Store original messages for reference
             'template_mode': 'enhanced',
             'temporal_context': temporal_context,
             'relationship_context': context,
@@ -1785,15 +1790,18 @@ Format as a simple list:
                 # multi-line JSON without being truncated.
                 reduced_stop_tokens = [
                     "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
-
-                # ✅ FIX: Wrap the analytical prompt in proper DanChat format
-                # The model expects: <|system|>{system}<|endoftext|><|user|>{user}<|endoftext|><|assistant|>{char}:
+                
                 system_prompt = "You are a helpful assistant who creates engaging roleplay questions for character interactions."
-                danschat_prompt = f"<|system|>{system_prompt}<|endoftext|><|user|>{current_prompt}<|endoftext|><|assistant|>I'll help you create some engaging questions for {char_name}:\n\n"
+                
+                # Use proper chat templating
+                messages = [
+                    {'role': 'system', 'content': system_prompt}, 
+                    {'role': 'user', 'content': current_prompt}
+                ]
 
-                response = await self._generate_text(
-                    prompt=danschat_prompt,  # Use properly formatted DanChat prompt
-                    max_tokens=300,  # Reduced for simpler responses
+                response = await self.inference_engine.generate_with_messages(
+                    messages=messages,
+                    max_tokens=1000,  # Reduced for simpler responses
                     temperature=0.9,  # Slightly lower for more focused responses
                     top_p=0.9,       # Less restrictive sampling
                     character_name=None,  # Don't add character name for analytical task
@@ -2236,8 +2244,8 @@ Format as a simple list:
                 return None
 
             def _sample_max_tokens() -> int:
-                length_buckets = [("short", 0.40, 200),
-                                  ("medium", 0.45, 500), ("long", 0.15, 800)]
+                length_buckets = [("short", 0.40, 800),
+                                  ("medium", 0.45, 2000), ("long", 0.15, 4000)]
                 names, probs, toks = zip(*[(n, p, t)
                                          for n, p, t in length_buckets])
                 bucket_name = random.choices(names, weights=probs, k=1)[0]
@@ -3587,7 +3595,7 @@ Respond with ONLY a JSON object with numeric scores:
         try:
             response = await judge_engine.generate(
                 prompt=judgment_prompt,
-                max_tokens=100,
+                max_tokens=1000,
                 temperature=0.1,
                 top_p=0.95
             )
@@ -4207,7 +4215,7 @@ Respond with ONLY a JSON object with numeric scores:
                     # Use batch generation for efficiency
                     responses = await judge_engine.generate_batch(
                         prompts=non_nsfw_prompts,
-                        max_tokens=100,
+                        max_tokens=1000,
                         temperature=0.1,  # Low temperature for consistent judging
                         top_p=0.95
                     )
@@ -4217,7 +4225,7 @@ Respond with ONLY a JSON object with numeric scores:
                     for prompt in non_nsfw_prompts:
                         response = await judge_engine.generate(
                             prompt=prompt,
-                            max_tokens=100,
+                            max_tokens=1000,
                             temperature=0.1,
                             top_p=0.95
                         )

@@ -70,7 +70,7 @@ class LlamaCppEngine(InferenceEngine):
         self.gguf_file = gguf_file
         self.tokenizer_name = tokenizer_name
         self.n_ctx = n_ctx
-        self.n_threads = 8 # n_threads or os.cpu_count()
+        self.n_threads = n_threads or os.cpu_count()
         self.n_gpu_layers = n_gpu_layers
         
         # Force reload if model changed
@@ -253,6 +253,81 @@ class LlamaCppEngine(InferenceEngine):
             # Always clear the initializing flag
             LlamaCppEngine._initializing = False
 
+    def apply_chat_template(self, messages: List[Dict[str, str]]) -> str:
+        """Apply chat template to messages using the jinja2 and token information embedded in the gguf file"""
+        if not LlamaCppEngine._model_loaded or LlamaCppEngine._llm is None:
+            self._initialize_model()
+            
+        try:
+            # Extract chat template from the model metadata
+            chat_template = None
+            eos_token = None
+            bos_token = None
+            
+            # Get model metadata
+            model_metadata = LlamaCppEngine._llm.metadata
+            
+            # Extract template and tokens from metadata
+            if 'tokenizer.chat_template' in model_metadata:
+                chat_template = model_metadata['tokenizer.chat_template']
+            
+            if 'tokenizer.ggml.eos_token_id' in model_metadata:
+                eos_token_id = model_metadata['tokenizer.ggml.eos_token_id']
+                # Get the actual token string
+                eos_token = LlamaCppEngine._llm.detokenize([eos_token_id]).decode('utf-8', errors='ignore')
+            
+            if 'tokenizer.ggml.bos_token_id' in model_metadata:
+                bos_token_id = model_metadata['tokenizer.ggml.bos_token_id']
+                # Get the actual token string  
+                bos_token = LlamaCppEngine._llm.detokenize([bos_token_id]).decode('utf-8', errors='ignore')
+            
+            # Fallback tokens if not found
+            if not eos_token:
+                eos_token = "</s>"
+            if not bos_token:
+                bos_token = "<s>"
+                
+            # If we have a chat template, use Jinja2ChatFormatter
+            if chat_template:
+                from llama_cpp.llama_chat_format import Jinja2ChatFormatter
+                
+                formatter = Jinja2ChatFormatter(
+                    template=chat_template,
+                    eos_token=eos_token,
+                    bos_token=bos_token,
+                    stop_token_ids=[LlamaCppEngine._llm.token_eos()],
+                )
+                
+                # Format the messages
+                formatted = formatter(llama=LlamaCppEngine._llm, messages=messages)
+                return formatted.prompt
+            else:
+                # Fallback to simple format if no template found
+                logger.warning("No chat template found in model, using simple fallback format")
+                formatted_parts = []
+                for message in messages:
+                    role = message.get('role', 'user')
+                    content = message.get('content', '')
+                    if role == 'system':
+                        formatted_parts.append(f"System: {content}")
+                    elif role == 'user':
+                        formatted_parts.append(f"User: {content}")
+                    elif role == 'assistant':
+                        formatted_parts.append(f"Assistant: {content}")
+                
+                return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+                
+        except Exception as e:
+            logger.error(f"Error applying chat template: {e}")
+            # Ultimate fallback
+            formatted_parts = []
+            for message in messages:
+                role = message.get('role', 'user')
+                content = message.get('content', '')
+                formatted_parts.append(f"{role.title()}: {content}")
+            
+            return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+
     @classmethod
     def get_gguf_cache_info(cls) -> Dict[str, any]:
         """Get information about cached GGUF files"""
@@ -325,7 +400,7 @@ class LlamaCppEngine(InferenceEngine):
                     raise RuntimeError("Llama.cpp model failed to load")
 
                 # Better stop tokens - less aggressive to avoid empty responses
-                stop_tokens = ["<|endoftext|>", "\n\nUser:", "###", "<|user|>", "<|endofcard|>"]
+                stop_tokens = ["<|endoftext|>", "User:", "###", "<|user|>", "<|endofcard|>"]
                 
                 # Allow caller to override stop tokens
                 if custom_stop_tokens is not None:
@@ -365,11 +440,11 @@ class LlamaCppEngine(InferenceEngine):
         from .inference_engines import apply_thinking_template, filter_thinking_tokens
         
         # Apply thinking templates to all prompts
-        modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
+        # modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
         
         # Generate responses
         responses = await self._generate_batch_raw(
-            prompts=modified_prompts,
+            prompts=prompts,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,

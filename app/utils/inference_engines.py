@@ -61,16 +61,51 @@ def filter_thinking_tokens(response: str) -> str:
     return response
 
 
-def apply_thinking_template(prompt: str, thinking_config: Dict) -> str:
+def apply_thinking_template_to_messages(messages: List[Dict[str, str]], thinking_config: Dict) -> tuple[List[Dict[str, str]], str]:
     """
-    Apply thinking template modifications to prompts.
+    Apply thinking template modifications to messages before chat templating.
     
     Args:
-        prompt: The original prompt (should already be chat-templated)
+        messages: List of message dicts with 'role' and 'content' keys
         thinking_config: Configuration dict with 'enabled', 'template', 'qwen_thinking' keys
         
     Returns:
-        Modified prompt with thinking template applied
+        Tuple of (modified_messages, prefill_text)
+        - modified_messages: Messages with thinking modifications applied
+        - prefill_text: Any text that should be appended after chat templating
+    """
+    if not thinking_config.get('enabled', False):
+        return messages, ""
+    
+    template = thinking_config.get('template', '')
+    modified_messages = messages.copy()
+    prefill_text = ""
+    
+    if template == "Deepseek Template":
+        # For Deepseek: Messages stay the same, but we add prefill after templating
+        prefill_text = "<think>\n\n"
+    
+    elif template == "Qwen3 Template":
+        # For Qwen3: Modify the last user message to include /think or /nothink
+        qwen_thinking = thinking_config.get('qwen_thinking', True)
+        suffix = " /think" if qwen_thinking else " /nothink"
+        
+        # Find the last user message and append the suffix
+        for i in range(len(modified_messages) - 1, -1, -1):
+            if modified_messages[i]['role'] == 'user':
+                modified_messages[i] = {
+                    'role': 'user',
+                    'content': modified_messages[i]['content'] + suffix
+                }
+                break
+    
+    return modified_messages, prefill_text
+
+
+def apply_thinking_template(prompt: str, thinking_config: Dict) -> str:
+    """
+    Legacy function for backward compatibility.
+    This is a fallback for when we only have a pre-templated prompt.
     """
     if not thinking_config.get('enabled', False):
         return prompt
@@ -78,38 +113,11 @@ def apply_thinking_template(prompt: str, thinking_config: Dict) -> str:
     template = thinking_config.get('template', '')
     
     if template == "Deepseek Template":
-        # For Deepseek: Apply chat template first, then append prefill
-        # The prompt should already be chat-templated at this point
         return prompt + "<think>\n\n"
-    
     elif template == "Qwen3 Template":
-        # For Qwen3: Append /think or /nothink to user message
         qwen_thinking = thinking_config.get('qwen_thinking', True)
         suffix = " /think" if qwen_thinking else " /nothink"
-        
-        # Try to parse and modify the user part of the chat template
-        # Look for common patterns like <|user|>content<|endoftext|> or similar
-        if '<|user|>' in prompt and '<|endoftext|>' in prompt:
-            # DanChat format: find the user section and append suffix before <|endoftext|>
-            parts = prompt.split('<|endoftext|>')
-            for i, part in enumerate(parts):
-                if '<|user|>' in part:
-                    # Extract the user content and append suffix
-                    user_content = part.split('<|user|>')[-1]
-                    parts[i] = part.replace(user_content, user_content + suffix)
-                    break
-            return '<|endoftext|>'.join(parts)
-        elif '<|im_start|>user' in prompt and '<|im_end|>' in prompt:
-            # ChatML format: find user section and append suffix before <|im_end|>
-            parts = prompt.split('<|im_end|>')
-            for i, part in enumerate(parts):
-                if '<|im_start|>user' in part:
-                    parts[i] = part + suffix
-                    break
-            return '<|im_end|>'.join(parts)
-        else:
-            # Fallback: append to the end of the prompt
-            return prompt + suffix
+        return prompt + suffix
     
     return prompt
 
@@ -129,6 +137,32 @@ class InferenceEngine(ABC):
                            temperature: float = 0.8, top_p: float = 0.9) -> str:
         """Generate text from prompt (raw implementation without thinking filtering)"""
         pass
+
+    @abstractmethod
+    def apply_chat_template(self, messages: List[Dict[str, str]]) -> str:
+        """Apply chat template to messages using engine-specific method"""
+        pass
+
+    async def generate_with_messages(self, messages: List[Dict[str, str]], max_tokens: int = 160,
+                                    temperature: float = 0.8, top_p: float = 0.9) -> str:
+        """Generate text from messages with proper chat templating and thinking support"""
+        # Apply thinking template modifications to messages
+        modified_messages, prefill_text = apply_thinking_template_to_messages(messages, self.thinking_config)
+        
+        # Apply chat template
+        templated_prompt = self.apply_chat_template(modified_messages)
+        
+        # Add prefill text if needed (for Deepseek)
+        if prefill_text:
+            templated_prompt += prefill_text
+        
+        # Generate response
+        response = await self._generate_raw(templated_prompt, max_tokens, temperature, top_p)
+        
+        # Filter thinking tokens from response
+        filtered_response = filter_thinking_tokens(response)
+        
+        return filtered_response
 
     async def generate(self, prompt: str, max_tokens: int = 160,
                        temperature: float = 0.8, top_p: float = 0.9) -> str:
@@ -194,6 +228,29 @@ class LMStudioEngine(InferenceEngine):
             logger.debug(f"LM Studio not available: {e}")
 
         return self._available
+
+    def apply_chat_template(self, messages: List[Dict[str, str]]) -> str:
+        """Apply chat template to messages - LM Studio handles this automatically"""
+        # LM Studio typically handles chat formatting automatically
+        # For now, we'll use a simple fallback format
+        try:
+            formatted_parts = []
+            for message in messages:
+                role = message.get('role', 'user')
+                content = message.get('content', '')
+                if role == 'system':
+                    formatted_parts.append(f"System: {content}")
+                elif role == 'user':
+                    formatted_parts.append(f"User: {content}")
+                elif role == 'assistant':
+                    formatted_parts.append(f"Assistant: {content}")
+            
+            return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+            
+        except Exception as e:
+            logger.error(f"Error applying chat template in LM Studio: {e}")
+            # Ultimate fallback
+            return f"User: {messages[-1].get('content', '')}\n\nAssistant:"
 
     async def _generate_raw(self, prompt: str, max_tokens: int = 160,
                            temperature: float = 0.8, top_p: float = 0.9) -> str:

@@ -172,6 +172,50 @@ class VLLMEngine(InferenceEngine):
             # Always clear the initializing flag
             VLLMEngine._initializing = False
 
+    def apply_chat_template(self, messages: List[Dict[str, str]]) -> str:
+        """Apply chat template to messages using the transformers tokenizer"""
+        if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
+            self._initialize_model()
+            
+        try:
+            # Get the tokenizer from vLLM
+            tokenizer = VLLMEngine._llm.get_tokenizer()
+            
+            # Use transformers apply_chat_template if available
+            if hasattr(tokenizer, 'apply_chat_template'):
+                formatted = tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False,
+                    add_generation_prompt=True
+                )
+                return formatted
+            else:
+                # Fallback to simple format if apply_chat_template not available
+                logger.warning("Tokenizer doesn't have apply_chat_template, using simple fallback format")
+                formatted_parts = []
+                for message in messages:
+                    role = message.get('role', 'user')
+                    content = message.get('content', '')
+                    if role == 'system':
+                        formatted_parts.append(f"System: {content}")
+                    elif role == 'user':
+                        formatted_parts.append(f"User: {content}")
+                    elif role == 'assistant':
+                        formatted_parts.append(f"Assistant: {content}")
+                
+                return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+                
+        except Exception as e:
+            logger.error(f"Error applying chat template in vLLM: {e}")
+            # Ultimate fallback
+            formatted_parts = []
+            for message in messages:
+                role = message.get('role', 'user')
+                content = message.get('content', '')
+                formatted_parts.append(f"{role.title()}: {content}")
+            
+            return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+
     async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
                                   temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                                   custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
@@ -262,11 +306,11 @@ class VLLMEngine(InferenceEngine):
         from .inference_engines import apply_thinking_template, filter_thinking_tokens
         
         # Apply thinking templates to all prompts
-        modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
+        # modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
         
         # Generate responses
         responses = await self._generate_batch_raw(
-            prompts=modified_prompts,
+            prompts=prompts,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
