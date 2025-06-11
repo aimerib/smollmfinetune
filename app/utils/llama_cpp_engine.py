@@ -95,7 +95,7 @@ class LlamaCppEngine(InferenceEngine):
             return self._available
 
         try:
-            from llama_cpp_python import Llama
+            from llama_cpp import Llama
             self._available = True
             logger.info("llama-cpp-python detected and available")
         except ImportError:
@@ -200,7 +200,7 @@ class LlamaCppEngine(InferenceEngine):
             LlamaCppEngine._initializing = True
 
         try:
-            from llama_cpp_python import Llama
+            from llama_cpp import Llama
             
             if not self.gguf_file:
                 raise ValueError("GGUF file must be specified for LlamaCppEngine")
