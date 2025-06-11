@@ -145,7 +145,7 @@ class VLLMEngine(InferenceEngine):
             gpu_memory_util = float(
                 os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.90'))  # Increased
             # Reduced for memory
-            max_model_len = int(os.getenv('VLLM_MAX_MODEL_LEN', '4096'))
+            max_model_len = int(os.getenv('MAX_MODEL_LEN', '4096'))
 
             # Regular HuggingFace model loading only
             logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")

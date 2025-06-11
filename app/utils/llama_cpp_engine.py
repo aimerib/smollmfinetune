@@ -72,6 +72,7 @@ class LlamaCppEngine(InferenceEngine):
         self.n_ctx = n_ctx
         self.n_threads = n_threads or os.cpu_count()
         self.n_gpu_layers = n_gpu_layers
+        self.n_ctx = int(os.getenv('MAX_MODEL_LEN', '4096'))
         
         # Force reload if model changed
         if hasattr(self, '_initialized') and gguf_file != getattr(self, 'gguf_file', None):

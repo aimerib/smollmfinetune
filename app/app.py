@@ -490,6 +490,11 @@ def render_sidebar():
                                 "repo": "Qwen/Qwen2.5-72B-Instruct-GGUF",
                                 "file": "qwen2.5-72b-instruct-q4_k_m.gguf",
                                 "tokenizer": "Qwen/Qwen2.5-72B-Instruct"
+                            },
+                            "Gemmasutra Mini 2B (Q6_K_M)": {
+                                "repo": "MarsupialAI/Gemmasutra-Mini-2B-v1_iMatrix_GGUF",
+                                "file": "Gemmasutra-Mini-2B-v1_Q6k.gguf",
+                                "tokenizer": "google/gemma-2-2b-it"
                             }
                         }
                         
@@ -675,7 +680,8 @@ def render_sidebar():
                     
                     engine = LlamaCppEngine(
                         gguf_file=st.session_state.gguf_config['gguf_file'],
-                        tokenizer_name=st.session_state.gguf_config.get('tokenizer_name')
+                        tokenizer_name=st.session_state.gguf_config.get('tokenizer_name'),
+                        n_ctx=s
                     )
                     
                     # Create DatasetManager without auto-engine creation, then assign GGUF engine
