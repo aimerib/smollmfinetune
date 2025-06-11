@@ -471,6 +471,10 @@ def render_sidebar():
                     with col1:
                         gguf_presets = {
                             "Custom": None,
+                            "Fallen Command A 111B v1.1": {
+                                "repo": "TheDrummer/Fallen-Command-A-111B-v1.1-GGUF",
+                                "file": ["Fallen-Command-A-111B-v1c-Q4_K_M-00001-of-00002.gguf", "Fallen-Command-A-111B-v1c-Q4_K_M-00002-of-00002.gguf"],
+                            },
                             "Fallen Llama 3.3 R1": {
                                 "repo": "bartowski/TheDrummer_Fallen-Llama-3.3-R1-70B-v1-GGUF",
                                 "file": "TheDrummer_Fallen-Llama-3.3-R1-70B-v1-IQ4_NL.gguf",
