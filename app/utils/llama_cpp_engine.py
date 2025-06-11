@@ -181,6 +181,7 @@ class LlamaCppEngine(InferenceEngine):
             files_array = json.loads(filename)
             filename = files_array
         except json.JSONDecodeError:
+            traceback.print_exc()
             pass
         
         if not filename.endswith('.gguf') and not isinstance(filename, list):
