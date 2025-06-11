@@ -811,11 +811,6 @@ class DatasetManager:
                 self.enable_intelligent_generation = False
 
         card_block = self._make_card_block(character)
-        
-        # Extract character knowledge for better prompt generation
-        logger.info("🧠 Extracting character knowledge...")
-        character_knowledge = self.extract_character_knowledge(character)
-        logger.info(f"📊 Extracted: {len(character_knowledge['traits'])} traits, {len(character_knowledge['skills'])} skills, {len(character_knowledge['goals'])} goals")
 
         # Load existing dataset if append_to_existing is True
         existing_samples = []
@@ -856,67 +851,141 @@ class DatasetManager:
                 'type': 'baseline'
             })
         
-        # 2. Scenario-based prompts
-        logger.info("🎭 Generating scenario-based prompts...")
-        scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=10)
-        for scenario in scenarios:
-            for prompt in scenario['prompts']:
-                if prompt not in seen_user_prompts:
-                    all_prompts.append({
-                        'prompt': prompt,
-                        'context': scenario['context'],
-                        'type': 'scenario'
-                    })
+        # 2. LLM-generated character-specific prompts (PRIMARY SOURCE)
+        if self.enable_intelligent_generation:
+            try:
+                logger.info("🧠 Generating LLM-tailored questions...")
+                
+                # Generate a large pool of character-specific questions
+                num_llm_questions = min(new_samples_needed * 2, 100)  # Generate 2x what we need for variety
+                
+                llm_questions = await self.suggest_user_questions(
+                    character=character,
+                    num_questions=num_llm_questions,
+                    temperature=0.9,  # Higher creativity for diverse questions
+                    top_p=0.95,
+                    existing_dataset=existing_samples,
+                    context_samples=8
+                )
+                
+                logger.info(f"✅ Generated {len(llm_questions)} LLM-tailored questions")
+                
+                # Add these high-quality questions to the prompt pool
+                for question_data in llm_questions:
+                    question_text = question_data['question']
+                    if question_text not in seen_user_prompts:
+                        all_prompts.append({
+                            'prompt': question_text,
+                            'type': 'llm_generated',
+                            'context': question_data.get('context', [])
+                        })
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ LLM question generation failed: {e}")
+                logger.info("🔄 Falling back to algorithmic prompt generation")
+                # Fall back to algorithmic generation if LLM fails
+                self.enable_intelligent_generation = False
         
-        # 2b. Intimate scenarios (if character traits suggest romance/intimacy)
-        personality = character.get('personality', '').lower()
-        if any(word in personality for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate', 'flirty']):
-            logger.info("💕 Generating intimate scenarios...")
-            # Mix of relationship stages
-            intimate_scenarios = []
-            intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'first_time'))
-            intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'established'))
+        # 3. Algorithmic fallback prompts (only if LLM generation failed or disabled)
+        if not self.enable_intelligent_generation:
+            logger.info("🔧 Using algorithmic prompt generation as fallback")
             
-            for scenario in intimate_scenarios[:5]:  # Limit to avoid overwhelming
-                for prompt in scenario['prompts'][:3]:  # Select a few prompts per scenario
+            # Extract character knowledge for better prompt generation
+            character_knowledge = self.extract_character_knowledge(character)
+            logger.info(f"📊 Extracted: {len(character_knowledge['traits'])} traits, {len(character_knowledge['skills'])} skills, {len(character_knowledge['goals'])} goals")
+            
+            # Scenario-based prompts
+            logger.info("🎭 Generating scenario-based prompts...")
+            scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=10)
+            for scenario in scenarios:
+                for prompt in scenario['prompts']:
                     if prompt not in seen_user_prompts:
                         all_prompts.append({
                             'prompt': prompt,
                             'context': scenario['context'],
-                            'type': 'intimate_scenario'
+                            'type': 'scenario'
                         })
-        
-        # 3. Character exploration prompts
-        logger.info("🔍 Generating character exploration prompts...")
-        exploration_prompts = self.generate_exploration_prompts(character, character_knowledge)
-        for prompt in exploration_prompts:
-            if prompt not in seen_user_prompts:
-                all_prompts.append({
-                    'prompt': prompt,
-                    'type': 'exploration'
-                })
-        
-        # 4. Greeting-based prompts
-        logger.info("🎭 Generating prompts from greetings...")
-        greeting_scenarios = self.generate_prompts_from_greetings(character, character_knowledge)
-        for scenario in greeting_scenarios:
-            for prompt in scenario['prompts']:
+            
+            # Intimate scenarios (if character traits suggest romance/intimacy)
+            personality = character.get('personality', '').lower()
+            if any(word in personality for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate', 'flirty']):
+                logger.info("💕 Generating intimate scenarios...")
+                # Mix of relationship stages
+                intimate_scenarios = []
+                intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'first_time'))
+                intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'established'))
+                
+                for scenario in intimate_scenarios[:5]:  # Limit to avoid overwhelming
+                    for prompt in scenario['prompts'][:3]:  # Select a few prompts per scenario
+                        if prompt not in seen_user_prompts:
+                            all_prompts.append({
+                                'prompt': prompt,
+                                'context': scenario['context'],
+                                'type': 'intimate_scenario'
+                            })
+            
+            # Character exploration prompts
+            logger.info("🔍 Generating character exploration prompts...")
+            exploration_prompts = self.generate_exploration_prompts(character, character_knowledge)
+            for prompt in exploration_prompts:
                 if prompt not in seen_user_prompts:
                     all_prompts.append({
                         'prompt': prompt,
-                        'context': scenario['context'],
-                        'type': 'greeting_based'
+                        'type': 'exploration'
                     })
+            
+            # Greeting-based prompts
+            logger.info("🎭 Generating prompts from greetings...")
+            greeting_scenarios = self.generate_prompts_from_greetings(character, character_knowledge)
+            for scenario in greeting_scenarios:
+                for prompt in scenario['prompts']:
+                    if prompt not in seen_user_prompts:
+                        all_prompts.append({
+                            'prompt': prompt,
+                            'context': scenario['context'],
+                            'type': 'greeting_based'
+                        })
+            
+            # Multi-turn conversations (select a few scenarios for depth)
+            logger.info("💬 Generating multi-turn conversation flows...")
+            selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
+            multi_turn_convos = []
+            for scenario in selected_scenarios:
+                convos = self.generate_multi_turn_conversation(character, scenario, turns=3)
+                multi_turn_convos.extend(convos)
+        else:
+            # If LLM generation succeeded, only add a few algorithmic prompts for variety
+            character_knowledge = self.extract_character_knowledge(character)
+            
+            # Add a small selection of algorithmic prompts for diversity
+            scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=3)
+            for scenario in scenarios[:2]:  # Only use 2 scenarios
+                for prompt in scenario['prompts'][:2]:  # Only 2 prompts per scenario
+                    if prompt not in seen_user_prompts:
+                        all_prompts.append({
+                            'prompt': prompt,
+                            'context': scenario['context'],
+                            'type': 'scenario_supplement'
+                        })
         
-        # 5. Multi-turn conversations (select a few scenarios for depth)
-        logger.info("💬 Generating multi-turn conversation flows...")
-        selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
+        # Generate multi-turn conversations for all modes
         multi_turn_convos = []
-        for scenario in selected_scenarios:
-            convos = self.generate_multi_turn_conversation(character, scenario, turns=3)
-            multi_turn_convos.extend(convos)
+        if self.enable_intelligent_generation:
+            # For LLM mode, create a few simple scenarios for multi-turn
+            logger.info("💬 Generating multi-turn conversation flows...")
+            character_knowledge = self.extract_character_knowledge(character)
+            simple_scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=2)
+            for scenario in simple_scenarios:
+                convos = self.generate_multi_turn_conversation(character, scenario, turns=2)  # 2 turns = 4 total messages
+                multi_turn_convos.extend(convos)
+        elif 'scenarios' in locals():  # Only if scenarios were generated in fallback mode
+            logger.info("💬 Generating multi-turn conversation flows...")
+            selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
+            for scenario in selected_scenarios:
+                convos = self.generate_multi_turn_conversation(character, scenario, turns=2)  # 2 turns = 4 total messages
+                multi_turn_convos.extend(convos)
         
-        # 6. Deduplicate all prompts while preserving metadata
+        # 4. Deduplicate all prompts while preserving metadata
         logger.info("🔄 Deduplicating prompts...")
         seen_prompts = set()
         unique_prompt_data = []
