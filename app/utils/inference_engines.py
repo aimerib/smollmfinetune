@@ -445,10 +445,23 @@ class VLLMEngine(InferenceEngine):
                 stop=stop_tokens,
             )
 
+            request_outputs = None
+
             # Acquire the lock to prevent concurrent generation
-            async with VLLMEngine._generation_lock:
+            with VLLMEngine._generation_lock:
                 # Generate text
-                results = await VLLMEngine._llm.generate_batch(prompts, sampling_params)
+                request_outputs = VLLMEngine._llm.generate(prompts, sampling_params)
+
+            results = []
+            for request_output in request_outputs:
+                # Each RequestOutput contains a list of CompletionOutput objects
+                # We take the first (and typically only) completion
+                if request_output.outputs:
+                    generated_text = request_output.outputs[0].text
+                    results.append(generated_text)
+                else:
+                    logger.warning(f"No outputs for prompt: {request_output.prompt}")
+                    results.append("Error: No output generated")
 
             # Post-processing: remove trailing whitespace and handle errors
             results = [r.strip() for r in results]
