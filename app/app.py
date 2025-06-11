@@ -1139,6 +1139,13 @@ def page_dataset_preview():
                     help="Desired total size of the synthetic dataset. Research shows 20-100 samples is optimal for character LoRAs, with 200-500 for more complex characters. Larger datasets risk overfitting."
                 )
                 temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
+                
+                # Extra quality checkbox
+                extra_quality = st.checkbox(
+                    "🌟 EXTRA QUALITY", 
+                    value=False, 
+                    help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality."
+                )
             
             with col_b:
                 top_p = st.slider("Top-p", 0.7, 1.0, 0.9, step=0.05)
@@ -1150,6 +1157,10 @@ def page_dataset_preview():
                     st.info(f"📈 Will generate {num_samples - current_count} new samples to reach {num_samples} total")
                 else:
                     st.info(f"✅ Target already reached ({current_count} samples)")
+            
+            # Show extra quality warning if enabled
+            if extra_quality:
+                st.warning("🌟 EXTRA QUALITY enabled - Generation will take longer but produce cleaner, more varied prompts")
             
             generate_button = st.form_submit_button(
                 "🚀 Generate/Add to Dataset" if dataset_info['exists'] else "🚀 Generate Dataset", 
@@ -1180,7 +1191,8 @@ def page_dataset_preview():
                             top_p=top_p,
                             progress_callback=lambda p: progress_bar.progress(p),
                             append_to_existing=True,
-                            custom_system_prompt=system_prompt if use_custom_system else None
+                            custom_system_prompt=system_prompt if use_custom_system else None,
+                            extra_quality=extra_quality
                         )
                     )
                 finally:
@@ -1292,6 +1304,14 @@ def page_dataset_preview():
                 index=2,
                 help="Larger batches are more efficient with vLLM"
             )
+            
+            # Extra quality checkbox for quality generation
+            extra_quality_advanced = st.checkbox(
+                "🌟 EXTRA QUALITY", 
+                value=False, 
+                help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality.",
+                key="quality_extra_quality"
+            )
         
         # System prompt configuration for quality generation
         st.markdown("### System Prompt Configuration for Training")
@@ -1330,11 +1350,28 @@ def page_dataset_preview():
         est_judge_time = raw_samples / judge_per_sec / 60
         est_total_time = est_gen_time + est_judge_time
         
-        st.info(f"""
-        📊 **Estimated Processing Time**: ~{est_total_time:.1f} minutes
+        # Adjust estimated time for extra quality
+        extra_quality_time = 0
+        if 'extra_quality_advanced' in locals() and extra_quality_advanced:
+            # Estimate paraphrasing time: ~0.5 seconds per prompt, assuming ~100-200 prompts
+            estimated_prompts = min(raw_samples // 50, 200)  # Rough estimate
+            extra_quality_time = estimated_prompts * 0.5 / 60  # Convert to minutes
+            
+        total_with_extra = est_total_time + extra_quality_time
+        
+        time_info = f"""
+        📊 **Estimated Processing Time**: ~{total_with_extra:.1f} minutes
         - Generation: ~{est_gen_time:.1f} minutes
-        - Evaluation: ~{est_judge_time:.1f} minutes
-        """)
+        - Evaluation: ~{est_judge_time:.1f} minutes"""
+        
+        if extra_quality_time > 0:
+            time_info += f"\n        - Extra Quality (Paraphrasing): ~{extra_quality_time:.1f} minutes"
+            
+        st.info(time_info)
+        
+        # Show extra quality warning if enabled
+        if extra_quality_advanced:
+            st.warning("🌟 EXTRA QUALITY enabled - Generation will take longer but produce cleaner, more varied prompts")
         
         # Quality generation button
         if st.button("⭐ Start Quality-First Generation", use_container_width=True, type="primary"):
@@ -1367,7 +1404,8 @@ def page_dataset_preview():
                         temperature=temperature,
                         progress_callback=update_progress,
                         stage_callback=update_stage,
-                        custom_system_prompt=system_prompt_quality if use_custom_system_quality else None
+                        custom_system_prompt=system_prompt_quality if use_custom_system_quality else None,
+                        extra_quality=extra_quality_advanced
                     )
                 )
                 

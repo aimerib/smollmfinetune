@@ -929,7 +929,8 @@ French version:"""
     async def generate_dataset(self, character: Dict[str, Any], num_samples: int = 80,
                                max_tokens: Optional[int] = None, temperature: float = 0.8,
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
-                               append_to_existing: bool = True, custom_system_prompt: Optional[str] = None) -> List[Dict[str, Any]]:
+                               append_to_existing: bool = True, custom_system_prompt: Optional[str] = None,
+                               extra_quality: bool = False) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         # Suppress coroutine warnings in Streamlit environment
         warnings.filterwarnings(
@@ -1147,6 +1148,38 @@ French version:"""
                 unique_prompt_data.append(prompt_data)
         
         logger.info(f"📊 Reduced from {len(all_prompts)} to {len(unique_prompt_data)} unique prompts")
+        
+        # Apply EXTRA QUALITY paraphrasing if requested
+        if extra_quality:
+            logger.info("🌟 EXTRA QUALITY enabled - paraphrasing all prompts for enhanced variety...")
+            paraphrased_prompts = []
+            total_prompts_to_paraphrase = len(unique_prompt_data)
+            
+            for i, prompt_data in enumerate(unique_prompt_data):
+                try:
+                    original_prompt = prompt_data['prompt']
+                    logger.debug(f"   Paraphrasing {i+1}/{total_prompts_to_paraphrase}: {original_prompt[:50]}...")
+                    
+                    # Apply paraphrasing to the prompt
+                    paraphrased_prompt = await self._paraphrase(original_prompt)
+                    
+                    # Create new prompt data with paraphrased prompt
+                    new_prompt_data = prompt_data.copy()
+                    new_prompt_data['prompt'] = paraphrased_prompt
+                    new_prompt_data['type'] = f"{prompt_data['type']}_paraphrased"
+                    
+                    paraphrased_prompts.append(new_prompt_data)
+                    
+                    if i % 10 == 0:  # Log progress every 10 prompts
+                        logger.info(f"   Paraphrased {i+1}/{total_prompts_to_paraphrase} prompts...")
+                    
+                except Exception as e:
+                    logger.debug(f"   Failed to paraphrase prompt {i+1}: {e}")
+                    # Keep original prompt on failure
+                    paraphrased_prompts.append(prompt_data)
+            
+            unique_prompt_data = paraphrased_prompts
+            logger.info(f"✅ EXTRA QUALITY complete - paraphrased {len(unique_prompt_data)} prompts")
         
         # Length buckets following best practices
         length_buckets = [
@@ -4089,7 +4122,8 @@ Respond with ONLY a JSON object with numeric scores:
         top_p: float = 0.95,
         progress_callback: Optional[Callable] = None,
         stage_callback: Optional[Callable] = None,
-        custom_system_prompt: Optional[str] = None
+        custom_system_prompt: Optional[str] = None,
+        extra_quality: bool = False
     ) -> List[Dict[str, Any]]:
         """Generate a large dataset then curate the highest quality samples using LLM-as-judge.
         
@@ -4158,7 +4192,8 @@ Respond with ONLY a JSON object with numeric scores:
                     top_p=top_p,
                     progress_callback=lambda p: progress_callback((chunk_start + p * chunk_target) / raw_samples_target) if progress_callback else None,
                     append_to_existing=False,  # Don't save to disk yet
-                    custom_system_prompt=custom_system_prompt
+                    custom_system_prompt=custom_system_prompt,
+                    extra_quality=extra_quality
                 )
                 
                 # Save chunk to disk to free memory
