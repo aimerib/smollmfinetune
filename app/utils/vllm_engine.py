@@ -39,6 +39,9 @@ class VLLMEngine(InferenceEngine):
 
     def __init__(self, model_name: Optional[str] = None, 
                  tensor_parallel_size: int = 1):
+        # Initialize parent class first
+        super().__init__()
+        
         # ✅ FIX: Prevent re-initialization to avoid Streamlit infinite loops
         # Check if already initialized with same parameters
         if hasattr(self, '_initialized'):
@@ -169,9 +172,9 @@ class VLLMEngine(InferenceEngine):
             # Always clear the initializing flag
             VLLMEngine._initializing = False
 
-    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
-                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+    async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
+                                  temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                                  custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
         try:
             logger.info(
@@ -252,22 +255,38 @@ class VLLMEngine(InferenceEngine):
             logger.error("vLLM generation failed: %s", e)
             raise
 
-    async def generate(self, prompt: str, max_tokens: int = 160,
-                       temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                       custom_stop_tokens: Optional[List[str]] = None) -> str:
-        """Generate a single prompt by delegating to `generate_batch` for consistency.
-
-        Delegating avoids code duplication, keeps validation/stop-token logic in
-        one place, and ensures any future fixes in `generate_batch` automatically
-        apply here.
-        """
-        results = await self.generate_batch(
-            prompts=[prompt],
+    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
+                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+        """Generate multiple prompts in a single batch with thinking support"""
+        from .inference_engines import apply_thinking_template, filter_thinking_tokens
+        
+        # Apply thinking templates to all prompts
+        modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
+        
+        # Generate responses
+        responses = await self._generate_batch_raw(
+            prompts=modified_prompts,
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
             character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens,
+            custom_stop_tokens=custom_stop_tokens
         )
-        # `generate_batch` returns one result per input prompt
+        
+        # Filter thinking tokens from all responses
+        filtered_responses = [filter_thinking_tokens(response) for response in responses]
+        
+        return filtered_responses
+
+    async def _generate_raw(self, prompt: str, max_tokens: int = 160,
+                           temperature: float = 0.8, top_p: float = 0.9) -> str:
+        """Generate a single prompt by delegating to `_generate_batch_raw` for consistency."""
+        results = await self._generate_batch_raw(
+            prompts=[prompt],
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+        )
+        # `_generate_batch_raw` returns one result per input prompt
         return results[0] if results else "" 

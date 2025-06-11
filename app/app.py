@@ -383,6 +383,47 @@ def render_sidebar():
                     help=model_type_help
                 )
                 
+                # Thinking Model Configuration
+                st.markdown("**🧠 Thinking Model Settings**")
+                
+                thinking_model = st.checkbox(
+                    "Thinking Model",
+                    value=False,
+                    help="Enable if your model uses <think></think> tokens for reasoning (e.g., Deepseek R1, Qwen QwQ)"
+                )
+                
+                if thinking_model:
+                    thinking_template_options = [
+                        "Deepseek Template",
+                        "Qwen3 Template"
+                    ]
+                    
+                    thinking_template = st.selectbox(
+                        "Thinking Template",
+                        thinking_template_options,
+                        help="Select the appropriate thinking template for your model"
+                    )
+                    
+                    # Qwen3 specific controls
+                    if thinking_template == "Qwen3 Template":
+                        enable_thinking = st.checkbox(
+                            "Enable Thinking",
+                            value=True,
+                            help="Toggle thinking on/off for Qwen3 models (/think vs /nothink)"
+                        )
+                        st.session_state.qwen_enable_thinking = enable_thinking
+                    
+                    # Store thinking configuration
+                    st.session_state.thinking_config = {
+                        'enabled': thinking_model,
+                        'template': thinking_template,
+                        'qwen_thinking': st.session_state.get('qwen_enable_thinking', True)
+                    }
+                    
+                    st.info(f"🧠 Using {thinking_template} - responses will be filtered for thinking tokens")
+                else:
+                    st.session_state.thinking_config = {'enabled': False}
+                
                 if model_type == "Regular HuggingFace Model":
                     st.markdown("**Generation Model**")
                     
@@ -552,6 +593,14 @@ def render_sidebar():
             st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
             needs_recreation = True
         
+        # Check thinking configuration change
+        elif st.session_state.get('thinking_config') != st.session_state.get('_last_thinking_config'):
+            st.info("🧠 Thinking configuration changed, updating engine...")
+            # Don't recreate, just update the thinking config
+            if hasattr(st.session_state.dataset_manager, 'inference_engine') and hasattr(st.session_state.dataset_manager.inference_engine, 'set_thinking_config'):
+                st.session_state.dataset_manager.inference_engine.set_thinking_config(st.session_state.get('thinking_config', {'enabled': False}))
+                st.session_state._last_thinking_config = st.session_state.get('thinking_config')
+            
         # Check model change (for vLLM and Llama.cpp) - only if engine didn't change
         elif selected_engine_friendly in ["vLLM", "Llama.cpp"]:
             # Get current state
@@ -709,6 +758,18 @@ def render_sidebar():
             display_name = "Auto-detected"
             model_type = "Local"
         
+        # Get thinking configuration info
+        thinking_info = ""
+        thinking_config = st.session_state.get('thinking_config', {'enabled': False})
+        if thinking_config.get('enabled'):
+            template = thinking_config.get('template', 'Unknown')
+            if template == "Qwen3 Template":
+                qwen_thinking = thinking_config.get('qwen_thinking', True)
+                thinking_status = "/think" if qwen_thinking else "/nothink"
+                thinking_info = f"<p style=\"margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #8b5cf6;\">🧠 {template} ({thinking_status})</p>"
+            else:
+                thinking_info = f"<p style=\"margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #8b5cf6;\">🧠 {template}</p>"
+        
         st.markdown(f"""
             <div class="metric-card">
                 <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Data Generation</h4>
@@ -716,6 +777,7 @@ def render_sidebar():
                 <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #94a3b8;">
                     Model ({model_type}): {display_name}
                 </p>
+                {thinking_info}
             </div>
         """, unsafe_allow_html=True)
         

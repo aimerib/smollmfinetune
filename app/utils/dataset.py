@@ -457,6 +457,9 @@ class DatasetManager:
                 raise RuntimeError(
                     "Inference engine does not implement `generate` method")
 
+            # Update thinking configuration from session state if available
+            self._update_thinking_config()
+
             # Dynamically build keyword arguments based on the engine's accepted parameters
             sig_params = self.inference_engine.generate.__code__.co_varnames
             gen_kwargs = {
@@ -475,11 +478,28 @@ class DatasetManager:
             raise RuntimeError(
                 f"Text generation failed ({self.inference_engine.name}): {str(e)}")
 
+    def _update_thinking_config(self):
+        """Update thinking configuration from session state if available"""
+        try:
+            # Try to get thinking config from Streamlit session state
+            import streamlit as st
+            if hasattr(st, 'session_state') and hasattr(st.session_state, 'thinking_config'):
+                thinking_config = st.session_state.thinking_config
+                if thinking_config and hasattr(self.inference_engine, 'set_thinking_config'):
+                    self.inference_engine.set_thinking_config(thinking_config)
+                    logger.debug(f"Updated thinking config: {thinking_config}")
+        except Exception as e:
+            # Silent fail if Streamlit is not available or other issues
+            logger.debug(f"Could not update thinking config: {e}")
+
     async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
                                    temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
                                    custom_stop_tokens: Optional[List[str]] = None) -> list[str]:
         """Generate text for multiple prompts using batching (if supported)"""
         try:
+            # Update thinking configuration from session state if available
+            self._update_thinking_config()
+            
             if hasattr(self.inference_engine, 'generate_batch'):
                 sig_params = self.inference_engine.generate_batch.__code__.co_varnames
                 gen_kwargs = {

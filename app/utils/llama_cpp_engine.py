@@ -56,6 +56,9 @@ class LlamaCppEngine(InferenceEngine):
             n_threads: Number of threads (auto-detect if None)
             n_gpu_layers: Number of layers to offload to GPU (-1 = all, 0 = CPU only)
         """
+        # Initialize parent class first
+        super().__init__()
+        
         # Prevent re-initialization to avoid Streamlit infinite loops
         if hasattr(self, '_initialized'):
             current_gguf = getattr(self, 'gguf_file', None)
@@ -288,9 +291,9 @@ class LlamaCppEngine(InferenceEngine):
         logger.info(f"Cleared {count} GGUF files from cache")
         return count
 
-    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
-                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+    async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
+                                  temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                                  custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
         """Generate multiple prompts sequentially with thread safety"""
         # Initialize semaphore if not already done (must be in async context)
         if LlamaCppEngine._generation_semaphore is None:
@@ -355,6 +358,30 @@ class LlamaCppEngine(InferenceEngine):
                 logger.error("Llama.cpp generation failed: %s", e)
                 raise
 
+    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
+                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
+                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+        """Generate multiple prompts with thinking support"""
+        from .inference_engines import apply_thinking_template, filter_thinking_tokens
+        
+        # Apply thinking templates to all prompts
+        modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
+        
+        # Generate responses
+        responses = await self._generate_batch_raw(
+            prompts=modified_prompts,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            character_name=character_name,
+            custom_stop_tokens=custom_stop_tokens
+        )
+        
+        # Filter thinking tokens from all responses
+        filtered_responses = [filter_thinking_tokens(response) for response in responses]
+        
+        return filtered_responses
+
     def _sync_generate_single(self, prompt: str, max_tokens: int, temperature: float, 
                              top_p: float, stop_tokens: List[str]) -> str:
         """Synchronous generation for a single prompt with improved error handling"""
@@ -404,16 +431,13 @@ class LlamaCppEngine(InferenceEngine):
             logger.error(f"Single generation failed: {e}")
             return f"Error: Generation failed - {str(e)}"
 
-    async def generate(self, prompt: str, max_tokens: int = 160,
-                       temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                       custom_stop_tokens: Optional[List[str]] = None) -> str:
-        """Generate a single prompt by delegating to generate_batch for consistency"""
-        results = await self.generate_batch(
+    async def _generate_raw(self, prompt: str, max_tokens: int = 160,
+                           temperature: float = 0.8, top_p: float = 0.9) -> str:
+        """Generate a single prompt by delegating to _generate_batch_raw for consistency"""
+        results = await self._generate_batch_raw(
             prompts=[prompt],
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
-            character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens,
         )
         return results[0] if results else "" 
