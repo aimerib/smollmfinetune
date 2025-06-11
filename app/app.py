@@ -422,25 +422,20 @@ def render_sidebar():
                     with col1:
                         gguf_presets = {
                             "Custom": None,
+                            "Fallen Llama 3.3 R1": {
+                                "repo": "bartowski/TheDrummer_Fallen-Llama-3.3-R1-70B-v1-GGUF",
+                                "file": "TheDrummer_Fallen-Llama-3.3-R1-70B-v1-Q5_K_S.gguf",
+                                "tokenizer": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
+                            },
                             "Llama 2 70B (Q4_K_M)": {
                                 "repo": "TheBloke/Llama-2-70B-GGUF",
                                 "file": "llama-2-70b.Q4_K_M.gguf",
                                 "tokenizer": "meta-llama/Llama-2-70b-hf"
                             },
-                            "Llama 2 70B Chat (Q4_K_M)": {
-                                "repo": "TheBloke/Llama-2-70B-Chat-GGUF",
-                                "file": "llama-2-70b-chat.Q4_K_M.gguf",
-                                "tokenizer": "meta-llama/Llama-2-70b-chat-hf"
-                            },
                             "Mixtral 8x7B (Q4_K_M)": {
                                 "repo": "TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF",
                                 "file": "mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf",
                                 "tokenizer": "mistralai/Mixtral-8x7B-Instruct-v0.1"
-                            },
-                            "Mistral 7B v0.2 (Q5_K_M)": {
-                                "repo": "TheBloke/Mistral-7B-Instruct-v0.2-GGUF",
-                                "file": "mistral-7b-instruct-v0.2.Q5_K_M.gguf",
-                                "tokenizer": "mistralai/Mistral-7B-Instruct-v0.2"
                             },
                             "Qwen 2.5 72B (Q4_K_M)": {
                                 "repo": "Qwen/Qwen2.5-72B-Instruct-GGUF",
