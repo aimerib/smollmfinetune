@@ -658,13 +658,18 @@ def render_sidebar():
             current_time = time.time()
             last_recreation = st.session_state.get('_last_recreation_time', 0)
             
-            if current_time - last_recreation < 3.0:  # 3 second cooldown (increased)
+            if current_time - last_recreation < 5.0:  # Increased to 5 seconds for stability
                 logger.warning("⚠️ DatasetManager recreation blocked - too frequent (cooldown active)")
                 return selected
             
             # ✅ FIX: Check if we're already in the process of recreating to prevent loops
             if st.session_state.get('_recreating_model', False):
                 logger.warning("⚠️ Model recreation already in progress, skipping")
+                return selected
+                
+            # ✅ FIX: Prevent recreation during dataset generation
+            if st.session_state.get('_generating_dataset', False):
+                logger.warning("⚠️ Dataset generation in progress, skipping model recreation")
                 return selected
             
             # Set recreation flag
@@ -711,9 +716,14 @@ def render_sidebar():
                 st.session_state._model_just_recreated = True
                 logger.info("✅ Model recreation completed successfully")
                 
+                # ✅ FIX: Don't call st.rerun() here - let Streamlit naturally rerun
+                # This prevents the infinite loop issue
+                
             except Exception as e:
                 logger.error(f"❌ Model recreation failed: {e}")
                 st.error(f"Failed to load model: {e}")
+                # ✅ FIX: Set error flag to prevent retries
+                st.session_state._model_recreation_failed = True
             finally:
                 # Always clear the recreation flag
                 st.session_state._recreating_model = False
@@ -915,20 +925,30 @@ def page_dataset_preview():
                 st.metric("Existing Samples", dataset_info['sample_count'])
             with col_info2:
                 if st.button("📂 Load Existing", use_container_width=True):
-                    dataset_with_metadata = st.session_state.dataset_manager.load_dataset_with_metadata(st.session_state.current_character)
-                    if dataset_with_metadata:
-                        existing_dataset, metadata = dataset_with_metadata
-                        st.session_state.dataset_preview = existing_dataset
-                        st.session_state.dataset_metadata = metadata
-                        st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
-                        st.rerun()
+                    # ✅ FIX: Check if generation is in progress
+                    if st.session_state.get('_generating_dataset', False):
+                        st.warning("⚠️ Dataset generation in progress. Please wait.")
+                    else:
+                        dataset_with_metadata = st.session_state.dataset_manager.load_dataset_with_metadata(st.session_state.current_character)
+                        if dataset_with_metadata:
+                            existing_dataset, metadata = dataset_with_metadata
+                            st.session_state.dataset_preview = existing_dataset
+                            st.session_state.dataset_metadata = metadata
+                            st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
+                            # ✅ FIX: Use st.experimental_rerun instead of st.rerun for better stability
+                            st.rerun()
             with col_info3:
                 if st.button("🗑️ Reset Dataset", use_container_width=True):
-                    if st.session_state.dataset_manager.delete_dataset(st.session_state.current_character):
-                        st.session_state.dataset_preview = None
-                        st.session_state.dataset_metadata = {}
-                        st.success("✅ Dataset reset! Generate a new one below.")
-                        st.rerun()
+                    # ✅ FIX: Check if generation is in progress
+                    if st.session_state.get('_generating_dataset', False):
+                        st.warning("⚠️ Dataset generation in progress. Please wait.")
+                    else:
+                        if st.session_state.dataset_manager.delete_dataset(st.session_state.current_character):
+                            st.session_state.dataset_preview = None
+                            st.session_state.dataset_metadata = {}
+                            st.success("✅ Dataset reset! Generate a new one below.")
+                            # ✅ FIX: Use controlled rerun
+                            st.rerun()
             
             # Show system prompt configuration
             system_config = dataset_info.get('system_prompt_config', {})
@@ -1085,6 +1105,7 @@ def page_dataset_preview():
                         st.session_state.dataset_preview = st.session_state.dataset_manager.load_dataset(
                             st.session_state.current_character
                         )
+                        # ✅ FIX: Use controlled rerun
                         st.rerun()
                     else:
                         st.error("Failed to import dataset. Check file format.")
@@ -1177,6 +1198,9 @@ def page_dataset_preview():
             )
         
         if generate_button:
+            # ✅ FIX: Set generation state to prevent UI interference
+            st.session_state._generating_dataset = True
+            
             progress_bar = st.progress(0)
             status_text = st.empty()
             
@@ -1226,10 +1250,15 @@ def page_dataset_preview():
                 progress_bar.progress(1.0)
                 status_text.text("Dataset generation complete!")
                 st.success(f"✅ Generated {len(dataset)} samples successfully!")
+                
+                # ✅ FIX: Clear generation state before rerun to prevent loops
+                st.session_state._generating_dataset = False
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Error generating dataset: {str(e)}")
+                # ✅ FIX: Always clear generation state on error
+                st.session_state._generating_dataset = False
     
     with quality_tab:
         st.markdown("### ⭐ Quality-First Dataset Generation")
@@ -1384,6 +1413,9 @@ def page_dataset_preview():
         
         # Quality generation button
         if st.button("⭐ Start Quality-First Generation", use_container_width=True, type="primary"):
+            # ✅ FIX: Set generation state to prevent UI interference
+            st.session_state._generating_dataset = True
+            
             # Create placeholders for progress tracking
             stage_text = st.empty()
             progress_bar = st.progress(0)
@@ -1445,11 +1477,15 @@ def page_dataset_preview():
                 - Acceptance rate: {(len(dataset)/raw_samples)*100:.1f}%
                 """)
                 
+                # ✅ FIX: Clear generation state before rerun
+                st.session_state._generating_dataset = False
                 st.rerun()
                 
             except Exception as e:
                 st.error(f"❌ Error in quality-first generation: {str(e)}")
                 logger.error(f"Quality generation error: {e}", exc_info=True)
+                # ✅ FIX: Always clear generation state on error
+                st.session_state._generating_dataset = False
             finally:
                 loop.close()
     

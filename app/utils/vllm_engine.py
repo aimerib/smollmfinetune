@@ -169,7 +169,8 @@ class VLLMEngine(InferenceEngine):
                 # Enable block management optimizations for large VRAM
                 enable_prefix_caching=True,
                 disable_custom_all_reduce=True,
-                kv_cache_dtype="fp8",
+                kv_cache_dtype="fp8_e5m2",
+                calculate_kv_scales=True,
             )
             
             self.model_display_name = self.model_name
@@ -178,9 +179,21 @@ class VLLMEngine(InferenceEngine):
             logger.info(f"vLLM model loaded successfully!")
 
         except Exception as e:
-            logger.error(f"Failed to load vLLM model: {e}")
+            error_msg = f"Failed to load vLLM model: {e}"
+            logger.error(error_msg)
+            logger.exception("Full vLLM initialization traceback:")
+            
+            # ✅ FIX: Check for specific error types to provide better guidance
+            error_str = str(e).lower()
+            if "out of memory" in error_str or "cuda" in error_str:
+                logger.error("💥 CUDA/Memory error detected - try reducing model size or clearing memory")
+            elif "assertion" in error_str:
+                logger.error("💥 vLLM assertion error - this may be due to incompatible settings")
+            elif "fp8" in error_str:
+                logger.error("💥 FP8 error detected - KV cache dtype incompatibility")
+            
             VLLMEngine._model_loaded = False
-            raise
+            raise RuntimeError(f"vLLM initialization failed: {error_msg}")
         finally:
             # Always clear the initializing flag
             VLLMEngine._initializing = False
