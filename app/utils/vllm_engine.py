@@ -37,7 +37,7 @@ class VLLMConfig:
     max_concurrent_requests: int = 1000
     retry_max_attempts: int = 3
     retry_base_delay: float = 1.0
-    reasoning_parser = None
+    reasoning_parser: Optional[str] = None
     
     
     # Cache settings
@@ -281,6 +281,7 @@ class VLLMModelManager:
                     disable_custom_all_reduce=True,
                     kv_cache_dtype=kv_cache_dtype,
                     calculate_kv_scales=(kv_cache_dtype == "fp8_e5m2"),
+                    reasoning_parser=config.reasoning_parser,
                 )
                 
                 self._loaded = True
