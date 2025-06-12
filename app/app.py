@@ -31,7 +31,6 @@ from utils.character import CharacterManager
 from utils.dataset import DatasetManager
 from utils.training import TrainingManager
 from utils.inference import InferenceManager
-from utils.inference_engines import InferenceEngineFactory
 
 # Configure logging for debugging
 import logging
@@ -299,440 +298,11 @@ def render_sidebar():
             }
         )
         
-        # ------------------------------------------------------------------
-        # 🔧 Asset-management shortcuts
-        # ------------------------------------------------------------------
-
-        if st.session_state.current_character:
-            char_name = st.session_state.current_character.get("name", "unknown")
-
-            with st.expander("🗑️ Clear / Export / Checkpoints"):
-                col_a, col_b, col_c = st.columns(3)
-
-                with col_a:
-                    if st.button("🗑️ Clear Training", key="clear_training_btn"):
-                        if st.session_state.training_manager.clear_training_assets(char_name):
-                            st.success("Training assets cleared!")
-                        else:
-                            st.info("No training assets to remove.")
-
-                with col_b:
-                    if st.button("⬇️ Export LoRA", key="export_lora_btn"):
-                        try:
-                            zip_path = st.session_state.training_manager.export_lora(char_name)
-                            st.success(f"LoRA exported to {zip_path}")
-                        except Exception as e:
-                            st.error(str(e))
-
-                with col_c:
-                    if st.button("⬇️ Export Latest Checkpoint", key="export_ckpt_btn"):
-                        zip_path = st.session_state.training_manager.export_latest_checkpoint(char_name)
-                        if zip_path:
-                            st.success(f"Checkpoint exported to {zip_path}")
-                        else:
-                            st.info("No checkpoints found to export.")
-        
-        # ------------------------------------------------------------------
-        # Inference-engine selector
-        # ------------------------------------------------------------------
-
-        # Build a map of available engines (name ➜ internal key)
-        _engine_key_map = {
-            "vLLM": "vllm",
-            "Llama.cpp": "llamacpp",
-            "LM Studio": "lmstudio",
-        }
-
-        # Cache available engines to avoid repeated testing
-        if 'available_engines_cache' not in st.session_state:
-            available_engine_names = []
-            for friendly_name, key in _engine_key_map.items():
-                try:
-                    if InferenceEngineFactory.create_engine(key).is_available():
-                        available_engine_names.append(friendly_name)
-                except Exception:
-                    continue
-            
-            if not available_engine_names:
-                available_engine_names = ["LM Studio"]
-            
-            st.session_state.available_engines_cache = available_engine_names
-        else:
-            available_engine_names = st.session_state.available_engines_cache
-
-        selected_engine_friendly = st.selectbox(
-            "🛠️ Inference Engine",
-            available_engine_names,
-            index=available_engine_names.index(st.session_state.selected_engine)
-            if st.session_state.selected_engine in available_engine_names else 0,
-            help="Select which backend to use for text generation"
-        )
-        
-        # Model configuration (for vLLM and Llama.cpp)
-        if selected_engine_friendly in ["vLLM", "Llama.cpp"]:
-            with st.expander("🤖 Model Configuration", expanded=False):
-                if selected_engine_friendly == "vLLM":
-                    model_type_options = ["Regular HuggingFace Model", "GGUF Quantized Model"]
-                    model_type_help = "GGUF models are quantized for lower memory usage. Note: GGUF support is experimental in vLLM."
-                else:  # Llama.cpp
-                    model_type_options = ["GGUF Quantized Model"]
-                    model_type_help = "Llama.cpp specializes in GGUF quantized models for efficient CPU/GPU inference"
-                
-                model_type = st.radio(
-                    "Model Type",
-                    model_type_options,
-                    help=model_type_help
-                )
-                
-                # Thinking Model Configuration
-                st.markdown("**🧠 Thinking Model Settings**")
-                
-                thinking_model = st.checkbox(
-                    "Thinking Model",
-                    value=False,
-                    help="Enable if your model uses <think></think> tokens for reasoning (e.g., Deepseek R1, Qwen QwQ)"
-                )
-                
-                if thinking_model:
-                    thinking_template_options = [
-                        "Deepseek Template",
-                        "Qwen3 Template"
-                    ]
-                    
-                    thinking_template = st.selectbox(
-                        "Thinking Template",
-                        thinking_template_options,
-                        help="Select the appropriate thinking template for your model"
-                    )
-                    
-                    # Qwen3 specific controls
-                    if thinking_template == "Qwen3 Template":
-                        enable_thinking = st.checkbox(
-                            "Enable Thinking",
-                            value=True,
-                            help="Toggle thinking on/off for Qwen3 models (/think vs /nothink)"
-                        )
-                        st.session_state.qwen_enable_thinking = enable_thinking
-                    
-                    # Store thinking configuration
-                    st.session_state.thinking_config = {
-                        'enabled': thinking_model,
-                        'template': thinking_template,
-                        'qwen_thinking': st.session_state.get('qwen_enable_thinking', True)
-                    }
-                    
-                    st.info(f"🧠 Using {thinking_template} - responses will be filtered for thinking tokens")
-                else:
-                    st.session_state.thinking_config = {'enabled': False}
-                
-                if model_type == "Regular HuggingFace Model":
-                    st.markdown("**Generation Model**")
-                    
-                    # Popular model suggestions
-                    popular_models = [
-                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
-                        "ArliAI/QwQ-32B-ArliAI-RpR-v4",
-                        "meta-llama/Llama-3.1-70B-Instruct",
-                        "meta-llama/Llama-3.1-8B-Instruct",
-                        "mistralai/Mixtral-8x7B-Instruct-v0.1",
-                        "mistralai/Mistral-7B-Instruct-v0.2",
-                        "NousResearch/Hermes-3-Llama-3.1-70B",
-                        "Qwen/Qwen2.5-72B-Instruct",
-                        "microsoft/Phi-3-medium-4k-instruct",
-                        "Custom (enter HF ID below)"
-                    ]
-                    
-                    generation_model_choice = st.selectbox(
-                        "Select generation model",
-                        popular_models,
-                        help="Choose a model for dataset generation"
-                    )
-                    
-                    if generation_model_choice == "Custom (enter HF ID below)":
-                        custom_generation_model = st.text_input(
-                            "HuggingFace Model ID",
-                            placeholder="e.g., meta-llama/Llama-3.1-405B-Instruct",
-                            help="Enter any HuggingFace model ID compatible with vLLM"
-                        )
-                        generation_model = custom_generation_model if custom_generation_model else popular_models[0]
-                    else:
-                        generation_model = generation_model_choice
-                    
-                    # Store in session state
-                    st.session_state.generation_model = generation_model
-                    st.session_state.gguf_config = None
-                    
-                    st.info(f"📊 Generation model: {generation_model}")
-                    
-                else:  # GGUF Model
-                    st.markdown("**GGUF Model Configuration**")
-                    
-                    # Popular GGUF models
-                    col1, col2 = st.columns(2)
-                    
-                    with col1:
-                        gguf_presets = {
-                            "Custom": None,
-                            "Fallen Command A 111B v1.1": {
-                                "repo": "bartowski/ArliAI_QwQ-32B-ArliAI-RpR-v4-GGUF",
-                                "file": "ArliAI_QwQ-32B-ArliAI-RpR-v4-Q6_K_L.gguf",
-                            },
-                            "Fallen Llama 3.3 R1": {
-                                "repo": "bartowski/TheDrummer_Fallen-Llama-3.3-R1-70B-v1-GGUF",
-                                "file": "TheDrummer_Fallen-Llama-3.3-R1-70B-v1-IQ4_NL.gguf",
-                                "tokenizer": "deepseek-ai/DeepSeek-R1-Distill-Llama-70B"
-                            },
-                            "Llama 2 70B (Q4_K_M)": {
-                                "repo": "TheBloke/Llama-2-70B-GGUF",
-                                "file": "llama-2-70b.Q4_K_M.gguf",
-                                "tokenizer": "meta-llama/Llama-2-70b-hf"
-                            },
-                            "Mixtral 8x7B (Q4_K_M)": {
-                                "repo": "TheBloke/Mixtral-8x7B-Instruct-v0.1-GGUF",
-                                "file": "mixtral-8x7b-instruct-v0.1.Q4_K_M.gguf",
-                                "tokenizer": "mistralai/Mixtral-8x7B-Instruct-v0.1"
-                            },
-                            "Qwen 2.5 72B (Q4_K_M)": {
-                                "repo": "Qwen/Qwen2.5-72B-Instruct-GGUF",
-                                "file": "qwen2.5-72b-instruct-q4_k_m.gguf",
-                                "tokenizer": "Qwen/Qwen2.5-72B-Instruct"
-                            },
-                            "Gemmasutra Mini 2B (Q6_K_M)": {
-                                "repo": "MarsupialAI/Gemmasutra-Mini-2B-v1_iMatrix_GGUF",
-                                "file": "Gemmasutra-Mini-2B-v1_Q6k.gguf",
-                                "tokenizer": "google/gemma-2-2b-it"
-                            }
-                        }
-                        
-                        preset = st.selectbox(
-                            "GGUF Model Preset",
-                            list(gguf_presets.keys()),
-                            help="Select a pre-configured GGUF model or choose Custom"
-                        )
-                    
-                    if preset == "Custom" or preset not in gguf_presets:
-                        # Manual GGUF configuration
-                        with col2:
-                            st.info("Enter GGUF details manually")
-                        
-                        gguf_repo = st.text_input(
-                            "HuggingFace Repository",
-                            placeholder="e.g., TheBloke/Llama-2-70B-GGUF",
-                            help="Repository containing the GGUF file"
-                        )
-                        
-                        gguf_filename = st.text_input(
-                            "GGUF Filename",
-                            placeholder="e.g., llama-2-70b.Q4_K_M.gguf",
-                            help="The specific GGUF file to use"
-                        )
-                        
-                        tokenizer_repo = st.text_input(
-                            "Tokenizer Repository",
-                            placeholder="e.g., meta-llama/Llama-2-70b-hf",
-                            help="Base model repository for tokenizer (recommended)"
-                        )
-                    else:
-                        # Use preset configuration
-                        preset_config = gguf_presets[preset]
-                        gguf_repo = preset_config["repo"]
-                        gguf_filename = preset_config["file"]
-                        if "tokenizer" in preset_config:
-                            tokenizer_repo = preset_config["tokenizer"]
-                        else:
-                            tokenizer_repo = None
-                        
-                        with col2:
-                            st.success(f"Using preset: {preset}")
-                    
-                    # Validate GGUF configuration
-                    if gguf_repo and gguf_filename:
-                        # Format for vLLM engine
-                        gguf_model_string = f"{gguf_repo}/{gguf_filename}"
-                        if tokenizer_repo:
-                            gguf_model_string += f"@{tokenizer_repo}"
-                        
-                        # Only update if actually changed to prevent refresh loops
-                        new_gguf_config = {
-                            'gguf_file': gguf_model_string,
-                            'tokenizer_name': tokenizer_repo if tokenizer_repo else "auto",
-                            'display_name': f"{gguf_repo}/{gguf_filename}"
-                        }
-                        
-                        # Check if config actually changed
-                        current_config = st.session_state.get('gguf_config', {})
-                        # Explicitly handle None case to prevent AttributeError
-                        if current_config is None or current_config.get('gguf_file') != new_gguf_config['gguf_file']:
-                            st.session_state.gguf_config = new_gguf_config
-                        
-                        st.success(f"✅ GGUF: {st.session_state.gguf_config['display_name']}...")
-                        st.info(f"📊 Tokenizer: {tokenizer_repo or 'Auto-detect'}")
-                        
-                        # Show cache info as regular section instead of nested expander
-                        st.markdown("**💾 GGUF Cache Info:**")
-                        # Use LlamaCppEngine for GGUF cache management
-                        from utils.llama_cpp_engine import LlamaCppEngine
-                        cache_info = LlamaCppEngine.get_gguf_cache_info()
-                        
-                        st.text(f"Cache: {cache_info['cache_dir']}")
-                        
-                        if cache_info['cached_files']:
-                            st.text(f"Files: {len(cache_info['cached_files'])} ({cache_info['total_size_gb']:.1f} GB)")
-                            
-                            if st.button("🗑️ Clear GGUF Cache", key="clear_gguf_cache_btn"):
-                                count = LlamaCppEngine.clear_gguf_cache()
-                                st.success(f"Cleared {count} GGUF files")
-                                st.rerun()
-                        else:
-                            st.text("No GGUF files cached yet")
-                    else:
-                        st.warning("⚠️ Please complete GGUF configuration")
-                        # Only clear if it was previously set
-                        if st.session_state.get('gguf_config') is not None:
-                            st.session_state.gguf_config = None
-        else:
-            # For other engines (LM Studio), use whatever model they have loaded
-            st.session_state.generation_model = None
-            st.session_state.gguf_config = None
-
-        # Debug info
-        current_actual_engine = st.session_state.dataset_manager.inference_engine.name
-        
-        # Check if we need to recreate DatasetManager (engine or model change)
-        needs_recreation = False
-        internal_key = _engine_key_map[selected_engine_friendly]
-        
-        # Check engine change
-        if selected_engine_friendly != st.session_state.selected_engine:
-            st.info(f"🔄 Switching from {st.session_state.selected_engine} to {selected_engine_friendly}...")
-            needs_recreation = True
-        
-        # Check thinking configuration change
-        elif st.session_state.get('thinking_config') != st.session_state.get('_last_thinking_config'):
-            st.info("🧠 Thinking configuration changed, updating engine...")
-            # Don't recreate, just update the thinking config
-            if hasattr(st.session_state.dataset_manager, 'inference_engine') and hasattr(st.session_state.dataset_manager.inference_engine, 'set_thinking_config'):
-                st.session_state.dataset_manager.inference_engine.set_thinking_config(st.session_state.get('thinking_config', {'enabled': False}))
-                st.session_state._last_thinking_config = st.session_state.get('thinking_config')
-            
-        # Check model change (for vLLM and Llama.cpp) - only if engine didn't change
-        elif selected_engine_friendly in ["vLLM", "Llama.cpp"]:
-            # Get current state
-            current_engine = st.session_state.dataset_manager.inference_engine
-            current_model = getattr(current_engine, 'model_name', None)
-            current_gguf = getattr(current_engine, 'gguf_file', None)
-            current_engine_name = getattr(current_engine, 'name', 'Unknown')
-            
-            # Get desired state
-            desired_gguf = st.session_state.get('gguf_config', {}).get('gguf_file') if st.session_state.get('gguf_config') else None
-            desired_model = st.session_state.get('generation_model')
-            
-            # For GGUF models, automatically switch to Llama.cpp if currently using vLLM
-            if desired_gguf and selected_engine_friendly == "vLLM":
-                st.info("🔄 Switching to Llama.cpp for GGUF model...")
-                st.session_state.selected_engine = "Llama.cpp"
-                needs_recreation = True
-            elif desired_gguf and current_engine_name != "Llama.cpp":
-                st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
-                needs_recreation = True
-            elif desired_gguf and current_gguf != desired_gguf:
-                st.info(f"🔄 Switching to GGUF model: {st.session_state.gguf_config['display_name']}...")
-                needs_recreation = True
-            elif desired_model and selected_engine_friendly == "vLLM":
-                # User wants regular model with vLLM
-                if current_gguf or current_model != desired_model or current_engine_name != "vLLM":
-                    st.info(f"🔄 Switching to model: {desired_model}...")
-                    needs_recreation = True
-        
-        # Also check if the actual engine doesn't match what's selected (only if no other changes)
-        elif current_actual_engine != selected_engine_friendly:
-            st.warning(f"⚠️ Engine mismatch detected! Selected: {selected_engine_friendly}, Actual: {current_actual_engine}. Fixing...")
-            needs_recreation = True
-        
-        # Recreate if needed
-        if needs_recreation:
-            st.session_state.selected_engine = selected_engine_friendly
-            
-            # ✅ FIX: Add cooldown to prevent rapid recreation cycles
-            import time
-            current_time = time.time()
-            last_recreation = st.session_state.get('_last_recreation_time', 0)
-            
-            if current_time - last_recreation < 5.0:  # Increased to 5 seconds for stability
-                logger.warning("⚠️ DatasetManager recreation blocked - too frequent (cooldown active)")
-                return selected
-            
-            # ✅ FIX: Check if we're already in the process of recreating to prevent loops
-            if st.session_state.get('_recreating_model', False):
-                logger.warning("⚠️ Model recreation already in progress, skipping")
-                return selected
-                
-            # ✅ FIX: Prevent recreation during dataset generation
-            if st.session_state.get('_generating_dataset', False):
-                logger.warning("⚠️ Dataset generation in progress, skipping model recreation")
-                return selected
-            
-            # Set recreation flag
-            st.session_state._recreating_model = True
-            st.session_state._last_recreation_time = current_time
-            
-            try:
-                # ✅ FIX: Reset global singleton to allow recreation with new parameters
-                global _GLOBAL_DATASET_MANAGER
-                _GLOBAL_DATASET_MANAGER = None
-                
-                # Create appropriate DatasetManager based on configuration
-                if st.session_state.get('gguf_config'):
-                    # GGUF model configuration - always use LlamaCppEngine
-                    logger.info(f"🔄 Creating GGUF engine: {st.session_state.gguf_config['gguf_file']}")
-                    
-                    # Reset LlamaCppEngine singleton to allow GGUF configuration
-                    from utils.llama_cpp_engine import LlamaCppEngine
-                    LlamaCppEngine._instance = None  # Reset singleton
-                    LlamaCppEngine._llm = None       # Reset loaded model
-                    LlamaCppEngine._model_loaded = False  # Reset model state
-                    
-                    engine = LlamaCppEngine(
-                        gguf_file=st.session_state.gguf_config['gguf_file'],
-                        tokenizer_name=st.session_state.gguf_config.get('tokenizer_name'),
-                    )
-                    
-                    # Create DatasetManager without auto-engine creation, then assign GGUF engine
-                    from utils.dataset import DatasetManager
-                    st.session_state.dataset_manager = DatasetManager(preferred_engine=None)
-                    # Force override the inference engine with our GGUF engine
-                    st.session_state.dataset_manager.inference_engine = engine
-                    logger.info(f"✅ GGUF engine created and assigned successfully: {engine.gguf_file}")
-                else:
-                    # Regular model configuration - use singleton pattern
-                    logger.info(f"🔄 Creating regular engine: {internal_key}")
-                    st.session_state.dataset_manager = get_or_create_dataset_manager(
-                        preferred_engine=internal_key,
-                        generation_model=st.session_state.get('generation_model')
-                    )
-                    logger.info("✅ Regular engine created successfully")
-                
-                # Clear flags
-                st.session_state._model_just_recreated = True
-                logger.info("✅ Model recreation completed successfully")
-                
-                # ✅ FIX: Don't call st.rerun() here - let Streamlit naturally rerun
-                # This prevents the infinite loop issue
-                
-            except Exception as e:
-                logger.error(f"❌ Model recreation failed: {e}")
-                st.error(f"Failed to load model: {e}")
-                # ✅ FIX: Set error flag to prevent retries
-                st.session_state._model_recreation_failed = True
-            finally:
-                # Always clear the recreation flag
-                st.session_state._recreating_model = False
-        
-        # Status indicator
+        # Training status
         status_colors = {
             'idle': '#94a3b8',
             'training': '#f59e0b',
-            'paused': '#f97316',  # orange
+            'paused': '#f97316',
             'complete': '#10b981',
             'error': '#ef4444'
         }
@@ -754,71 +324,141 @@ def render_sidebar():
             </div>
         """, unsafe_allow_html=True)
         
-        # Current inference engine
+        # Character and dataset info
+        if st.session_state.current_character:
+            char_name = st.session_state.current_character.get("name", "Unknown")
+            st.markdown(f"""
+                <div class="metric-card">
+                    <h4 style="margin: 0 0 0.5rem 0;">🎭 Current Character</h4>
+                    <p style="margin: 0; font-weight: 500;">{char_name}</p>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            # Dataset info
+            dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
+            if dataset_info['exists']:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <h4 style="margin: 0 0 0.5rem 0;">📊 Dataset</h4>
+                        <p style="margin: 0;">Samples: {dataset_info['sample_count']}</p>
+                    </div>
+                """, unsafe_allow_html=True)
+        
+        # Quick actions for current character
+        if st.session_state.current_character:
+            with st.expander("🗃️ Character Assets", expanded=False):
+                char_name = st.session_state.current_character.get("name", "unknown")
+                
+                col_a, col_b, col_c = st.columns(3)
+                
+                with col_a:
+                    if st.button("🗑️ Clear Training", key="clear_training_btn", help="Remove training artifacts"):
+                        if st.session_state.training_manager.clear_training_assets(char_name):
+                            st.success("Training assets cleared!")
+                        else:
+                            st.info("No training assets to remove.")
+                
+                with col_b:
+                    if st.button("⬇️ Export LoRA", key="export_lora_btn", help="Export trained LoRA model"):
+                        try:
+                            zip_path = st.session_state.training_manager.export_lora(char_name)
+                            st.success(f"LoRA exported to {zip_path}")
+                        except Exception as e:
+                            st.error(str(e))
+                
+                with col_c:
+                    if st.button("⬇️ Export Checkpoint", key="export_ckpt_btn", help="Export latest checkpoint"):
+                        zip_path = st.session_state.training_manager.export_latest_checkpoint(char_name)
+                        if zip_path:
+                            st.success(f"Checkpoint exported to {zip_path}")
+                        else:
+                            st.info("No checkpoints found to export.")
+        
+        # Engine info (read-only)
         current_engine = st.session_state.dataset_manager.inference_engine
         engine_name = getattr(current_engine, 'name', 'Unknown')
         
-        if engine_name == "Llama.cpp":
-            # GGUF model with Llama.cpp
-            display_name = getattr(current_engine, 'model_display_name', 'GGUF Model')
-            # Shorten long GGUF paths
-            if '/' in display_name:
-                parts = display_name.split('/')
-                if len(parts) > 2:
-                    # Show repo/file format
-                    display_name = f"{parts[-2]}/{parts[-1]}"
-            if len(display_name) > 35:
-                display_name = display_name[:32] + "..."
-            model_type = "GGUF"
-        elif engine_name == "vLLM":
-            # Regular HuggingFace model with vLLM
-            model_name = getattr(current_engine, 'model_name', 'Unknown')
-            # Shorten long model names for display
-            display_name = model_name.split('/')[-1] if '/' in model_name else model_name
-            if len(display_name) > 30:
-                display_name = display_name[:27] + "..."
-            model_type = "HF"
-        else:
-            display_name = "Auto-detected"
-            model_type = "Local"
-        
-        # Get thinking configuration info
-        thinking_info = ""
-        thinking_config = st.session_state.get('thinking_config', {'enabled': False})
-        if thinking_config.get('enabled'):
-            template = thinking_config.get('template', 'Unknown')
-            if template == "Qwen3 Template":
-                qwen_thinking = thinking_config.get('qwen_thinking', True)
-                thinking_status = "/think" if qwen_thinking else "/nothink"
-                thinking_info = f"<p style=\"margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #8b5cf6;\">🧠 {template} ({thinking_status})</p>"
-            else:
-                thinking_info = f"<p style=\"margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #8b5cf6;\">🧠 {template}</p>"
-        
         st.markdown(f"""
             <div class="metric-card">
-                <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Data Generation</h4>
-                <p style="margin: 0; color: #06b6d4;"><strong>{engine_name}</strong></p>
-                <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #94a3b8;">
-                    Model ({model_type}): {display_name}
-                </p>
-                {thinking_info}
+                <h4 style="margin: 0 0 0.5rem 0;">🛠️ Default Engine</h4>
+                <p style="margin: 0; font-size: 0.9rem; color: #94a3b8;">{engine_name}</p>
+                <p style="margin: 0; font-size: 0.8rem; color: #64748b;">Configure per-task in each section</p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Character info
-        if st.session_state.current_character:
-            char = st.session_state.current_character
-            st.markdown(f"""
-                <div class="metric-card">
-                    <h4 style="margin: 0 0 0.5rem 0; color: #f8fafc;">Current Character</h4>
-                    <p style="margin: 0; color: #cbd5e1;"><strong>{char.get('name', 'Unknown')}</strong></p>
-                    <p style="margin: 0.25rem 0 0 0; font-size: 0.9rem; color: #94a3b8;">
-                        {char.get('description', 'No description')[:100]}...
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-    
-    return selected
+        # Global settings
+        with st.expander("⚙️ Global Settings", expanded=False):
+            # Global thinking model toggle
+            st.markdown("**🧠 Thinking Models**")
+            thinking_enabled = st.checkbox(
+                "Enable thinking model support",
+                value=st.session_state.get('global_thinking_enabled', False),
+                help="Enable support for models that use <think></think> reasoning (Deepseek R1, QwQ, etc.)",
+                key="global_thinking_toggle"
+            )
+            
+            if thinking_enabled:
+                thinking_template = st.selectbox(
+                    "Default thinking template",
+                    ["Deepseek Template", "Qwen3 Template"],
+                    help="Default template for thinking models",
+                    key="global_thinking_template"
+                )
+                
+                # Store global thinking config
+                st.session_state.global_thinking_enabled = True
+                st.session_state.global_thinking_template = thinking_template
+                
+                # Apply to current engine if it supports it
+                thinking_config = {
+                    'enabled': True,
+                    'template': thinking_template,
+                    'qwen_thinking': True
+                }
+                
+                if hasattr(current_engine, 'set_thinking_config'):
+                    current_engine.set_thinking_config(thinking_config)
+                
+                st.info(f"🧠 Using {thinking_template} globally")
+            else:
+                st.session_state.global_thinking_enabled = False
+                # Disable thinking on current engine
+                if hasattr(current_engine, 'set_thinking_config'):
+                    current_engine.set_thinking_config({'enabled': False})
+            
+            # Cache management
+            st.markdown("**💾 Cache Management**")
+            if st.button("🧹 Clear All Caches", help="Clear model and GGUF caches"):
+                try:
+                    # Clear GGUF cache
+                    from utils.llama_cpp_engine import LlamaCppEngine
+                    gguf_count = LlamaCppEngine.clear_gguf_cache()
+                    
+                    # Clear CUDA cache
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    
+                    st.success(f"✅ Cleared {gguf_count} GGUF files and CUDA cache")
+                except Exception as e:
+                    st.error(f"❌ Cache clear error: {e}")
+        
+        # Help section
+        with st.expander("ℹ️ Quick Help", expanded=False):
+            st.markdown("""
+            **🎯 Per-Task Configuration**
+            - **Dataset Generation**: Choose models & sampling in the generation tab
+            - **Model Testing**: Switch engines & models in the testing section
+            - **Training**: Configure base models in training config
+            
+            **💡 Tips**
+            - Different models work best for different tasks
+            - Use RpR model for creative generation
+            - Use smaller models for testing
+            - Each section remembers its settings
+            """)
+        
+        return selected
 
 # Character upload and card management page
 def page_character_upload():
@@ -1113,24 +753,104 @@ def page_dataset_preview():
     with standard_tab:
         st.markdown("### 🚀 Standard Dataset Generation")
         
-        # Show current inference engine with model info
-        if st.session_state.selected_engine == "vLLM":
-            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
-                # GGUF model
-                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
-                engine_info = f"🔧 Using **{st.session_state.selected_engine}** with GGUF model **{display_name}** for dataset generation"
-            else:
-                # Regular model
-                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
-                model_display = model_name.split('/')[-1] if '/' in model_name else model_name
-                engine_info = f"🔧 Using **{st.session_state.selected_engine}** with **{model_display}** for dataset generation"
-        else:
-            engine_info = f"🔧 Using **{st.session_state.selected_engine}** for text generation"
+        # ✅ NEW: Model Selection for Dataset Generation
+        st.markdown("#### 🤖 Model Selection")
+        col_model1, col_model2 = st.columns([2, 1])
         
-        st.info(engine_info)
+        with col_model1:
+            # Available models for dataset generation
+            if st.session_state.selected_engine == "vLLM":
+                available_models = [
+                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
+                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
+                    "meta-llama/Llama-3.1-70B-Instruct",
+                    "meta-llama/Llama-3.2-3B-Instruct",
+                    "mistralai/Mistral-7B-Instruct-v0.2",
+                    "Qwen/Qwen2.5-7B-Instruct",
+                    "microsoft/Phi-3.5-mini-instruct",
+                    "Custom (enter HF ID below)"
+                ]
+            else:
+                available_models = [
+                    "Current Llama.cpp Model",
+                    "Switch to vLLM for model selection"
+                ]
+            
+            selected_gen_model = st.selectbox(
+                "Generation Model",
+                available_models,
+                help="Choose the model for dataset generation",
+                key="dataset_gen_model"
+            )
+            
+            # Handle custom model input
+            if selected_gen_model == "Custom (enter HF ID below)":
+                custom_gen_model = st.text_input(
+                    "HuggingFace Model ID",
+                    placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                    help="Enter any compatible HuggingFace model ID",
+                    key="custom_gen_model"
+                )
+                if custom_gen_model:
+                    final_gen_model = custom_gen_model
+                else:
+                    final_gen_model = available_models[0]  # Default
+            elif selected_gen_model == "Switch to vLLM for model selection":
+                st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+                final_gen_model = None
+            else:
+                final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
+        
+        with col_model2:
+            if final_gen_model and final_gen_model != st.session_state.dataset_manager.inference_engine.model_name:
+                if st.button("🔄 Load Model", help="Load the selected model for generation"):
+                    with st.spinner("Loading model..."):
+                        try:
+                            # Create new dataset manager with selected model
+                            st.session_state.dataset_manager = get_or_create_dataset_manager(
+                                preferred_engine=st.session_state.selected_engine,
+                                generation_model=final_gen_model
+                            )
+                            st.success(f"✅ Loaded {final_gen_model.split('/')[-1]}")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to load model: {e}")
+            
+            # Show current model
+            current_gen_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
+            st.info(f"**Current**: {current_gen_model.split('/')[-1] if '/' in current_gen_model else current_gen_model}")
+        
+        # Replace the basic parameter sliders with sampling configuration
+        st.markdown("#### 🎛️ Generation Settings")
+        
+        # Import and use sampling configuration
+        from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+        
+        # Get current model name for preset detection
+        current_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+        
+        # Check if we have a model-specific preset
+        model_preset = get_model_preset(current_model) if current_model else None
+        if model_preset:
+            st.info(f"🎯 **{model_preset['name']}** preset available for this model")
+        
+        # Create default config
+        default_config = SamplingConfig(
+            temperature=0.8,
+            top_p=0.9,
+            max_tokens=400,
+            repetition_penalty=1.1,
+        )
+        
+        # Render sampling configuration UI
+        sampling_config = render_sampling_config_ui(
+            current_config=default_config,
+            model_name=current_model,
+            key_prefix="standard_gen"
+        )
         
         # System prompt configuration
-        st.markdown("### System Prompt Configuration for Training")
+        st.markdown("#### 📝 System Prompt Configuration for Training")
         
         with st.expander("ℹ️ How System Prompts Work", expanded=False):
             st.markdown("""
@@ -1142,19 +862,21 @@ def page_dataset_preview():
             - Perfect for scenario-specific or multi-character setups
             """)
         
-        use_custom_system = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation")
+        use_custom_system = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation", key="standard_use_custom_system")
         
         if use_custom_system:
             system_prompt = st.text_area(
                 "System Prompt for Training",
                 placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
                 height=100,
-                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training."
+                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training.",
+                key="standard_system_prompt"
             )
         else:
             system_prompt = None
             st.info("Dataset will keep temporal context system prompts (varies per sample)")
         
+        # Generation form
         with st.form("dataset_generation"):
             col_a, col_b = st.columns(2)
             
@@ -1173,115 +895,89 @@ def page_dataset_preview():
                 extra_quality = st.checkbox(
                     "🌟 EXTRA QUALITY", 
                     value=False, 
-                    help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality."
+                    help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality.",
+                    key="standard_extra_quality"
                 )
             
             with col_b:
-                st.markdown("#### 🎛️ Generation Settings")
-                
-                # Import and use sampling configuration
-                from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
-                
-                # Get current model name for preset detection
-                current_model = None
-                if hasattr(st.session_state.dataset_manager.inference_engine, 'model_name'):
-                    current_model = st.session_state.dataset_manager.inference_engine.model_name
-                elif hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file'):
-                    current_model = st.session_state.dataset_manager.inference_engine.gguf_file
-                
-                # Check if we have a model-specific preset
-                model_preset = get_model_preset(current_model) if current_model else None
-                if model_preset:
-                    st.info(f"🎯 **{model_preset['name']}** preset available for your model")
-                
-                # Render sampling configuration UI in compact mode
-                sampling_config = render_sampling_config_ui(
-                    current_config=None,
-                    model_name=current_model,
-                    key_prefix="dataset_gen"
-                )
+                # Show configuration summary
+                st.markdown("**Configuration Summary:**")
+                st.write(f"• Model: {current_model.split('/')[-1] if current_model and '/' in current_model else 'Unknown'}")
+                st.write(f"• Temperature: {sampling_config.temperature}")
+                st.write(f"• Max Tokens: {sampling_config.max_tokens}")
+                st.write(f"• System Prompt: {'Custom' if use_custom_system else 'Temporal'}")
+                if extra_quality:
+                    st.write("• Extra Quality: ✅ Enabled")
             
-            # Show incremental info
-            if dataset_info['exists']:
-                current_count = dataset_info['sample_count']
-                if current_count < num_samples:
-                    st.info(f"📈 Will generate {num_samples - current_count} new samples to reach {num_samples} total")
-                else:
-                    st.info(f"✅ Target already reached ({current_count} samples)")
-            
-            # Show extra quality warning if enabled
-            if extra_quality:
-                st.warning("🌟 EXTRA QUALITY enabled - Generation will take longer but produce cleaner, more varied prompts")
-            
+            # Submit button
             generate_button = st.form_submit_button(
-                "🚀 Generate/Add to Dataset" if dataset_info['exists'] else "🚀 Generate Dataset", 
-                use_container_width=True
+                "🚀 Generate Dataset", 
+                use_container_width=True,
+                type="primary"
+            )
+    
+    if generate_button:
+        # ✅ FIX: Set generation state to prevent UI interference
+        st.session_state._generating_dataset = True
+        
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        # Progress callback (called by DatasetManager)
+        def update_progress(p: float):
+            """Update status text for current chunk progress."""
+            status_text.text(
+                f"Generating samples... {p*100:.1f}%"
             )
         
-        if generate_button:
-            # ✅ FIX: Set generation state to prevent UI interference
-            st.session_state._generating_dataset = True
-            
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Progress callback (called by DatasetManager)
-            def update_progress(p: float):
-                """Update status text for current chunk progress."""
-                status_text.text(
-                    f"Generating samples... {p*100:.1f}%"
-                )
-            
+        try:
+            # Run generation
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
             try:
-                # Run generation
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    dataset = loop.run_until_complete(
-                        st.session_state.dataset_manager.generate_dataset(
-                            st.session_state.current_character,
-                            num_samples=num_samples,
-                            temperature=sampling_config.temperature,
-                            top_p=sampling_config.top_p,
-                            max_tokens=sampling_config.max_tokens,
-                            progress_callback=lambda p: progress_bar.progress(p),
-                            append_to_existing=True,
-                            custom_system_prompt=system_prompt if use_custom_system else None,
-                            extra_quality=extra_quality,
-                            **sampling_config.to_dict()  # Pass all sampling parameters
-                        )
+                # ✅ FIX: Don't pass duplicate parameters - use sampling_config.to_dict() only
+                dataset = loop.run_until_complete(
+                    st.session_state.dataset_manager.generate_dataset(
+                        st.session_state.current_character,
+                        num_samples=num_samples,
+                        progress_callback=lambda p: progress_bar.progress(p),
+                        append_to_existing=True,
+                        custom_system_prompt=system_prompt if use_custom_system else None,
+                        extra_quality=extra_quality,
+                        **sampling_config.to_dict()  # Pass all sampling parameters
                     )
-                finally:
-                    loop.close()
-                
-                st.session_state.dataset_preview = dataset
-                # Update metadata if we generated with custom system prompt
-                if use_custom_system:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'custom',
-                            'prompt': system_prompt
-                        }
+                )
+            finally:
+                loop.close()
+            
+            st.session_state.dataset_preview = dataset
+            # Update metadata if we generated with custom system prompt
+            if use_custom_system:
+                st.session_state.dataset_metadata = {
+                    'system_prompt_config': {
+                        'type': 'custom',
+                        'prompt': system_prompt
                     }
-                else:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'temporal',
-                            'prompt': None
-                        }
+                }
+            else:
+                st.session_state.dataset_metadata = {
+                    'system_prompt_config': {
+                        'type': 'temporal',
+                        'prompt': None
                     }
-                progress_bar.progress(1.0)
-                status_text.text("Dataset generation complete!")
-                st.success(f"✅ Generated {len(dataset)} samples successfully!")
-                
-                # ✅ FIX: Clear generation state before rerun to prevent loops
-                st.session_state._generating_dataset = False
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Error generating dataset: {str(e)}")
-                # ✅ FIX: Always clear generation state on error
-                st.session_state._generating_dataset = False
+                }
+            progress_bar.progress(1.0)
+            status_text.text("Dataset generation complete!")
+            st.success(f"✅ Generated {len(dataset)} samples successfully!")
+            
+            # ✅ FIX: Clear generation state before rerun to prevent loops
+            st.session_state._generating_dataset = False
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Error generating dataset: {str(e)}")
+            # ✅ FIX: Always clear generation state on error
+            st.session_state._generating_dataset = False
     
     with quality_tab:
         st.markdown("### ⭐ Quality-First Dataset Generation")
@@ -1488,9 +1184,6 @@ def page_dataset_preview():
                         diversity_weight=diversity_weight,
                         judgment_batch_size=judgment_batch_size,
                         judge_model=judge_model,
-                        temperature=quality_sampling_config.temperature,
-                        top_p=quality_sampling_config.top_p,
-                        max_tokens=quality_sampling_config.max_tokens,
                         progress_callback=update_progress,
                         stage_callback=update_stage,
                         custom_system_prompt=system_prompt_quality if use_custom_system_quality else None,
@@ -2007,6 +1700,89 @@ def page_model_testing():
         
         st.info("🧪 **Pure LoRA Testing**: No character context is injected. Testing how well the LoRA learned character behavior during training.")
         
+        # ✅ NEW: Model Selection for Testing
+        st.markdown("#### 🤖 Model & Engine Selection")
+        
+        col_engine, col_model = st.columns([1, 2])
+        
+        with col_engine:
+            # Engine selection for testing
+            test_engines = ["Current", "vLLM", "Llama.cpp"]
+            selected_test_engine = st.selectbox(
+                "Test Engine", 
+                test_engines,
+                help="Choose inference engine for testing",
+                key="test_engine_select"
+            )
+        
+        with col_model:
+            if selected_test_engine == "vLLM":
+                # vLLM model options
+                vllm_test_models = [
+                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",
+                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
+                    "meta-llama/Llama-3.1-70B-Instruct",
+                    "meta-llama/Llama-3.2-3B-Instruct",
+                    "mistralai/Mistral-7B-Instruct-v0.2",
+                    "Qwen/Qwen2.5-7B-Instruct",
+                    "Custom (enter HF ID below)"
+                ]
+                test_model_choice = st.selectbox(
+                    "vLLM Model",
+                    vllm_test_models,
+                    help="Choose vLLM model for testing",
+                    key="vllm_test_model"
+                )
+                
+                if test_model_choice == "Custom (enter HF ID below)":
+                    custom_test_model = st.text_input(
+                        "HuggingFace Model ID",
+                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                        key="custom_test_model"
+                    )
+                    final_test_model = custom_test_model if custom_test_model else vllm_test_models[0]
+                else:
+                    final_test_model = test_model_choice
+            
+            elif selected_test_engine == "Llama.cpp":
+                # Llama.cpp GGUF model input
+                gguf_model = st.text_input(
+                    "GGUF Model",
+                    placeholder="TheBloke/Llama-2-7B-Chat-GGUF/llama-2-7b-chat.Q4_K_M.gguf",
+                    help="Format: repo_id/filename.gguf",
+                    key="gguf_test_model"
+                )
+                final_test_model = gguf_model if gguf_model else None
+            
+            else:  # Current
+                final_test_model = None
+                st.info("Using current inference engine configuration")
+        
+        # Load test model button
+        if final_test_model and selected_test_engine != "Current":
+            if st.button("🔄 Load Test Model", help="Load selected model for testing"):
+                with st.spinner(f"Loading {selected_test_engine} model..."):
+                    try:
+                        if selected_test_engine == "vLLM":
+                            from utils.vllm_engine import VLLMEngine
+                            st.session_state.test_engine = VLLMEngine(model_name=final_test_model)
+                        elif selected_test_engine == "Llama.cpp":
+                            from utils.llama_cpp_engine import LlamaCppEngine
+                            st.session_state.test_engine = LlamaCppEngine(gguf_file=final_test_model)
+                        
+                        st.success(f"✅ Loaded {final_test_model.split('/')[-1]} with {selected_test_engine}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Failed to load test model: {e}")
+        
+        # Show current test configuration
+        current_test_engine = getattr(st.session_state, 'test_engine', st.session_state.dataset_manager.inference_engine)
+        current_test_model_name = getattr(current_test_engine, 'model_name', 'Unknown')
+        if hasattr(current_test_engine, 'gguf_file') and current_test_engine.gguf_file:
+            current_test_model_name = current_test_engine.gguf_file
+        
+        st.info(f"**Current Test Setup**: {current_test_engine.name} with {current_test_model_name.split('/')[-1] if '/' in current_test_model_name else current_test_model_name}")
+        
         # Model selection
         available_models = st.session_state.inference_manager.get_available_models()
         
@@ -2014,7 +1790,7 @@ def page_model_testing():
             st.info("ℹ️ No trained models available. Complete training first.")
             return
         
-        selected_model = st.selectbox("Select Model", available_models)
+        selected_model = st.selectbox("Select Trained Model", available_models, key="test_model_select")
         
         # Check if we have dataset metadata with system prompt info
         dataset_metadata = st.session_state.get('dataset_metadata', {})
@@ -2083,8 +1859,10 @@ def page_model_testing():
         # Test prompt
         test_prompt = st.text_area(
             "Enter your test prompt:",
+            value=st.session_state.get('quick_test_prompt', ''),
             placeholder="Tell me about yourself...",
-            height=100
+            height=100,
+            key="main_test_prompt"
         )
         
         # Generation settings
@@ -2121,15 +1899,63 @@ def page_model_testing():
         if st.button("🚀 Generate Response", use_container_width=True):
             if test_prompt.strip():
                 with st.spinner("Generating response..."):
-                    response = st.session_state.inference_manager.generate_response(
-                        selected_model,
-                        test_prompt,
-                        max_new_tokens=test_sampling_config.max_tokens,
-                        temperature=test_sampling_config.temperature,
-                        top_p=test_sampling_config.top_p,
-                        repetition_penalty=test_sampling_config.repetition_penalty,
-                        system_prompt=system_prompt
-                    )
+                    # Use test engine if available, otherwise fall back to inference manager
+                    if hasattr(st.session_state, 'test_engine'):
+                        # Direct engine generation
+                        try:
+                            # Build messages for chat template
+                            messages = []
+                            if system_prompt_option != "Default (Tokenizer's built-in)" and system_prompt is not None:
+                                if system_prompt:  # Only add if not empty
+                                    messages.append({"role": "system", "content": system_prompt})
+                            messages.append({"role": "user", "content": test_prompt})
+                            
+                            # Apply chat template
+                            formatted_prompt = st.session_state.test_engine.apply_chat_template(messages)
+                            
+                            # Generate using the test engine with all sampling parameters
+                            generation_params = {
+                                'prompt': formatted_prompt,
+                                'max_tokens': test_sampling_config.max_tokens,
+                                'temperature': test_sampling_config.temperature,
+                                'top_p': test_sampling_config.top_p,
+                            }
+                            # Add other sampling parameters
+                            generation_params.update({k: v for k, v in test_sampling_config.to_dict().items() 
+                                                    if k not in ['max_tokens', 'temperature', 'top_p']})
+                            
+                            # Check if engine has async generation
+                            if hasattr(st.session_state.test_engine, 'generate') and callable(st.session_state.test_engine.generate):
+                                import asyncio
+                                
+                                # Create async wrapper for the generation
+                                async def async_generate():
+                                    return await st.session_state.test_engine.generate(**generation_params)
+                                
+                                # Run the async generation
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                try:
+                                    response = loop.run_until_complete(async_generate())
+                                finally:
+                                    loop.close()
+                            else:
+                                # Fallback for sync engines
+                                response = "Error: Test engine does not support generation"
+                        except Exception as e:
+                            st.error(f"❌ Test engine generation failed: {e}")
+                            response = f"Error: {e}"
+                    else:
+                        # Fall back to inference manager
+                        response = st.session_state.inference_manager.generate_response(
+                            selected_model,
+                            test_prompt,
+                            max_new_tokens=test_sampling_config.max_tokens,
+                            temperature=test_sampling_config.temperature,
+                            top_p=test_sampling_config.top_p,
+                            repetition_penalty=test_sampling_config.repetition_penalty,
+                            system_prompt=system_prompt
+                        )
                 
                 st.markdown("### Response")
                 st.markdown(f"""
@@ -2190,6 +2016,7 @@ def page_model_testing():
             if st.button(f"🎯 {prompt}", key=f"quick_test_{i}"):
                 # Auto-fill the test prompt
                 st.session_state.quick_test_prompt = prompt
+                st.rerun()
         
         # Model comparison
         st.markdown("### Model Comparison")
