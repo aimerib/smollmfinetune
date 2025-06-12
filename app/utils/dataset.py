@@ -1714,7 +1714,7 @@ Respond with ONLY the questions, one per line, no numbering:"""
         if prefill_text:
             templated_prompt += prefill_text
 
-        logger.info(f"🔍 Templated prompt: {templated_prompt}")
+        logger.debug(f"🔍 Templated prompt: {templated_prompt[:200]}...")  # Only show first 200 chars and only in debug mode
         
         return {
             'prompt': prompt,

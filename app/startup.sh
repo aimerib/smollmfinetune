@@ -32,6 +32,15 @@ export VLLM_WORKER_USE_RAY=False          # Disable Ray for single-GPU setups
 # CUDA optimizations
 export CUDA_VISIBLE_DEVICES=0
 export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
+
+# ✅ FIX: HuggingFace cache optimization to prevent rate limiting
+export HF_HUB_CACHE=/workspace/.cache/vllm_hf
+export HF_HOME=/workspace/.cache/vllm_hf
+export TRANSFORMERS_CACHE=/workspace/.cache/vllm_hf
+
+# ✅ FIX: Force offline mode to avoid unnecessary HF requests (uncomment if needed)
+# export HF_HUB_OFFLINE=1
+# export TRANSFORMERS_OFFLINE=1
 export STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
 
 run_server() {

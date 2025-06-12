@@ -144,6 +144,23 @@ class VLLMEngine(InferenceEngine):
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
             from vllm import LLM, SamplingParams
 
+            # ✅ FIX: Configure HuggingFace Hub to avoid rate limits
+            # Set environment variables to force offline mode and use cache
+            import os
+            original_offline = os.environ.get('HF_HUB_OFFLINE')
+            original_cache_dir = os.environ.get('HF_HOME')
+            
+            # Force offline mode to prevent unnecessary HF requests
+            os.environ['HF_HUB_OFFLINE'] = '1'
+            os.environ['TRANSFORMERS_OFFLINE'] = '1'
+            
+            # Set cache directory if not already set
+            if not os.environ.get('HF_HOME'):
+                cache_dir = "/workspace/.cache/vllm_hf" if os.path.exists("/workspace") else f"{os.path.expanduser('~')}/.cache/huggingface"
+                os.environ['HF_HOME'] = cache_dir
+                os.environ['HF_HUB_CACHE'] = cache_dir
+                logger.info(f"🗂️ Using HF cache directory: {cache_dir}")
+
             # Get configuration from environment or use optimized defaults for A100 80GB
             gpu_memory_util = float(
                 os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.95'))  # Reduced to leave more KV cache space
@@ -152,6 +169,19 @@ class VLLMEngine(InferenceEngine):
             # KV cache optimization for high-memory GPUs
             max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '100'))  # Increase concurrent sequences
             max_num_batched_tokens = int(os.getenv('VLLM_MAX_BATCHED_TOKENS', '8192'))  # Optimize batch token limit
+
+            # ✅ FIX: Check if model is available locally before trying to load
+            try:
+                from transformers import AutoConfig
+                # Try to load config locally first
+                logger.info(f"🔍 Checking for local model cache: {self.model_name}")
+                config = AutoConfig.from_pretrained(self.model_name, local_files_only=True)
+                logger.info(f"✅ Found cached model: {self.model_name}")
+            except Exception as cache_check_error:
+                logger.warning(f"⚠️ Model not in cache, will download: {cache_check_error}")
+                # Temporarily allow online access for initial download
+                os.environ.pop('HF_HUB_OFFLINE', None)
+                os.environ.pop('TRANSFORMERS_OFFLINE', None)
 
             # Regular HuggingFace model loading only
             logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
@@ -172,6 +202,14 @@ class VLLMEngine(InferenceEngine):
                 kv_cache_dtype="fp8_e5m2",
                 calculate_kv_scales=True,
             )
+            
+            # ✅ FIX: Restore original environment variables after loading
+            if original_offline is not None:
+                os.environ['HF_HUB_OFFLINE'] = original_offline
+            else:
+                os.environ.pop('HF_HUB_OFFLINE', None)
+                
+            os.environ.pop('TRANSFORMERS_OFFLINE', None)
             
             self.model_display_name = self.model_name
 
@@ -204,32 +242,44 @@ class VLLMEngine(InferenceEngine):
             self._initialize_model()
             
         try:
-            # Get the tokenizer from vLLM
-            tokenizer = VLLMEngine._llm.get_tokenizer()
+            # ✅ FIX: Force offline mode for tokenizer operations to avoid HF requests
+            import os
+            original_offline = os.environ.get('HF_HUB_OFFLINE')
+            os.environ['HF_HUB_OFFLINE'] = '1'
             
-            # Use transformers apply_chat_template if available
-            if hasattr(tokenizer, 'apply_chat_template'):
-                formatted = tokenizer.apply_chat_template(
-                    messages, 
-                    tokenize=False,
-                    add_generation_prompt=True
-                )
-                return formatted
-            else:
-                # Fallback to simple format if apply_chat_template not available
-                logger.warning("Tokenizer doesn't have apply_chat_template, using simple fallback format")
-                formatted_parts = []
-                for message in messages:
-                    role = message.get('role', 'user')
-                    content = message.get('content', '')
-                    if role == 'system':
-                        formatted_parts.append(f"System: {content}")
-                    elif role == 'user':
-                        formatted_parts.append(f"User: {content}")
-                    elif role == 'assistant':
-                        formatted_parts.append(f"Assistant: {content}")
+            try:
+                # Get the tokenizer from vLLM
+                tokenizer = VLLMEngine._llm.get_tokenizer()
                 
-                return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+                # Use transformers apply_chat_template if available
+                if hasattr(tokenizer, 'apply_chat_template'):
+                    formatted = tokenizer.apply_chat_template(
+                        messages, 
+                        tokenize=False,
+                        add_generation_prompt=True
+                    )
+                    return formatted
+                else:
+                    # Fallback to simple format if apply_chat_template not available
+                    logger.warning("Tokenizer doesn't have apply_chat_template, using simple fallback format")
+                    formatted_parts = []
+                    for message in messages:
+                        role = message.get('role', 'user')
+                        content = message.get('content', '')
+                        if role == 'system':
+                            formatted_parts.append(f"System: {content}")
+                        elif role == 'user':
+                            formatted_parts.append(f"User: {content}")
+                        elif role == 'assistant':
+                            formatted_parts.append(f"Assistant: {content}")
+                    
+                    return "\n\n".join(formatted_parts) + "\n\nAssistant:"
+            finally:
+                # ✅ FIX: Restore original offline setting
+                if original_offline is not None:
+                    os.environ['HF_HUB_OFFLINE'] = original_offline
+                else:
+                    os.environ.pop('HF_HUB_OFFLINE', None)
                 
         except Exception as e:
             logger.error(f"Error applying chat template in vLLM: {e}")
