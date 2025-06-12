@@ -837,7 +837,7 @@ def page_dataset_preview():
                         st.markdown(f"**{idx+1}. {item['question']}**")
                     with cols[2]:
                         toggle_key = f"show_ctx_{idx}"
-                        if st.button("Context ↕", key=f"btn_{toggle_key}"):
+                        if st.button("Context ↕"):
                             st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
                     # Display context when toggled
                     if st.session_state.get(toggle_key, False) and item['context']:
@@ -847,7 +847,7 @@ def page_dataset_preview():
                             st.markdown(f"*A{j+1}:* {ctx['assistant']}")
                         st.markdown("---")
 
-                if selections and st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
+                if selections and st.button("➕ Add Selected Questions", use_container_width=True):
                     st.session_state.dataset_manager.default_user_prompts.extend(selections)
                     st.success(f"Added {len(selections)} questions to baseline list.")
 
