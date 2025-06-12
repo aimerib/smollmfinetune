@@ -405,9 +405,9 @@ def render_sidebar():
                     key="global_thinking_template"
                 )
                 
-                # Store global thinking config
+                # Store global thinking config - don't set the variable controlled by a widget
                 st.session_state.global_thinking_enabled = True
-                st.session_state.global_thinking_template = thinking_template
+                # REMOVED: st.session_state.global_thinking_template = thinking_template
                 
                 # Apply to current engine if it supports it
                 thinking_config = {
