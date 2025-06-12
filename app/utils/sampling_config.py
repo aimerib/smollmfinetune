@@ -386,18 +386,8 @@ def render_sampling_config_ui(
         else:
             seed = None
     
-    # Advanced parameters - either in expander or direct based on use_expander flag
-    if use_expander:
-        # Use expander for normal cases
-        advanced_container = st.expander("🔬 Advanced Sampling Parameters")
-    else:
-        # Use regular container when nested in another expander
-        st.markdown("**🔬 Advanced Sampling Parameters**")
-        advanced_container = st
-    
-    with advanced_container:
-        col_a, col_b = st.columns(2)
-        
+    # Define a function to render the advanced parameters
+    def render_advanced_params():
         with col_a:
             # Typical-p
             typical_p_enabled = st.checkbox(
@@ -451,6 +441,20 @@ def render_sampling_config_ui(
                 )
             else:
                 epsilon_cutoff = None
+        
+        return typical_p, tfs, eta_cutoff, epsilon_cutoff
+    
+    # Advanced parameters - either in expander or direct based on use_expander flag
+    if use_expander:
+        # Use expander for normal cases
+        with st.expander("🔬 Advanced Sampling Parameters"):
+            col_a, col_b = st.columns(2)
+            typical_p, tfs, eta_cutoff, epsilon_cutoff = render_advanced_params()
+    else:
+        # Use regular container when nested in another expander
+        st.markdown("**🔬 Advanced Sampling Parameters**")
+        col_a, col_b = st.columns(2)
+        typical_p, tfs, eta_cutoff, epsilon_cutoff = render_advanced_params()
     
     # Create and return the configuration
     return SamplingConfig(
