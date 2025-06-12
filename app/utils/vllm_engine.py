@@ -37,7 +37,7 @@ class VLLMConfig:
     max_concurrent_requests: int = 1000
     retry_max_attempts: int = 3
     retry_base_delay: float = 1.0
-    reasoning_parser: Optional[str] = None
+    reasoning_parser: str = ""
     
     
     # Cache settings
@@ -59,7 +59,7 @@ class VLLMConfig:
             max_concurrent_requests=int(os.getenv('MAX_CONCURRENT_REQUESTS', '1000')),
             cache_dir=os.getenv('HF_HOME'),
             force_offline=os.getenv('HF_HUB_OFFLINE', '0') == '1',
-            reasoning_parser=os.getenv('REASONING_PARSER', None),
+            reasoning_parser=os.getenv('REASONING_PARSER', ""),
         )
 
 
