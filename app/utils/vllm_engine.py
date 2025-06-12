@@ -7,526 +7,699 @@ import os
 import asyncio
 import threading
 import secrets
-from typing import Optional, List, Dict
+import time
+import random
+from dataclasses import dataclass, field
+from typing import Optional, List, Dict, TypedDict, Literal, Union, Tuple, Callable
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import torch
+from pathlib import Path
 
 from .inference_engines import InferenceEngine
 
 logger = logging.getLogger(__name__)
 
 
-def _sync_generate(prompts, sampling_params):
-    """Synchronous wrapper for vLLM generate call"""
-    # No lock needed here – vLLM's scheduler supports concurrent generate calls.
-    return VLLMEngine._llm.generate(prompts, sampling_params)
+# ===== Configuration Management =====
 
+@dataclass
+class VLLMConfig:
+    """Configuration for vLLM engine"""
+    model_name: str = "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b"
+    tensor_parallel_size: int = 1
+    gpu_memory_utilization: float = 0.95
+    max_model_len: int = 4096
+    max_num_seqs: int = 100
+    max_num_batched_tokens: int = 8192
+    max_batch_size: int = 1000
+    batch_timeout_ms: int = 50
+    max_concurrent_requests: int = 1000
+    retry_max_attempts: int = 3
+    retry_base_delay: float = 1.0
+    
+    # Cache settings
+    cache_dir: Optional[str] = None
+    force_offline: bool = False
+    
+    @classmethod
+    def from_env(cls) -> 'VLLMConfig':
+        """Load configuration from environment variables"""
+        return cls(
+            model_name=os.getenv('VLLM_MODEL', cls.model_name),
+            tensor_parallel_size=int(os.getenv('VLLM_TENSOR_PARALLEL_SIZE', '1')),
+            gpu_memory_utilization=float(os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.95')),
+            max_model_len=int(os.getenv('MAX_MODEL_LEN', '4096')),
+            max_num_seqs=int(os.getenv('VLLM_MAX_NUM_SEQS', '100')),
+            max_num_batched_tokens=int(os.getenv('VLLM_MAX_BATCHED_TOKENS', '8192')),
+            max_batch_size=int(os.getenv('VLLM_MAX_BATCH_SIZE', '1000')),
+            batch_timeout_ms=int(os.getenv('VLLM_BATCH_TIMEOUT_MS', '50')),
+            max_concurrent_requests=int(os.getenv('MAX_CONCURRENT_REQUESTS', '1000')),
+            cache_dir=os.getenv('HF_HOME'),
+            force_offline=os.getenv('HF_HUB_OFFLINE', '0') == '1',
+        )
+
+
+class SamplingConfig(TypedDict, total=False):
+    """Type hints for sampling parameters"""
+    max_tokens: int
+    temperature: float
+    top_p: float
+    top_k: Optional[int]
+    min_p: Optional[float]
+    repetition_penalty: float
+    frequency_penalty: float
+    presence_penalty: float
+    seed: Optional[int]
+    stop: Optional[List[str]]
+
+
+# ===== Custom Exceptions =====
+
+class VLLMInitializationError(Exception):
+    """Raised when vLLM fails to initialize"""
+    def __init__(self, original_error: Exception, config: VLLMConfig):
+        self.original_error = original_error
+        self.config = config
+        super().__init__(self._create_message(original_error))
+        
+    def _create_message(self, error: Exception) -> str:
+        error_str = str(error).lower()
+        if "out of memory" in error_str or "cuda" in error_str:
+            return (
+                f"GPU out of memory. Try:\n"
+                f"1. Reducing gpu_memory_utilization (current: {self.config.gpu_memory_utilization})\n"
+                f"2. Using a smaller model\n"
+                f"3. Reducing max_model_len (current: {self.config.max_model_len})\n"
+                f"4. Clearing GPU memory with torch.cuda.empty_cache()\n"
+                f"Original error: {error}"
+            )
+        elif "assertion" in error_str:
+            return (
+                f"vLLM assertion error - likely due to incompatible settings:\n"
+                f"- Check tensor_parallel_size matches GPU count\n"
+                f"- Verify model supports the configuration\n"
+                f"Original error: {error}"
+            )
+        elif "fp8" in error_str:
+            return (
+                f"FP8 quantization error detected:\n"
+                f"- Your GPU may not support FP8 operations\n"
+                f"- Try disabling kv_cache_dtype='fp8_e5m2'\n"
+                f"Original error: {error}"
+            )
+        else:
+            return f"vLLM initialization failed: {error}"
+
+
+# ===== Utility Classes =====
+
+class BatchQueue:
+    """Manages batching of requests for efficient processing"""
+    def __init__(self, max_batch_size: int, timeout_ms: int):
+        self.max_batch_size = max_batch_size
+        self.timeout_ms = timeout_ms
+        self.queue: asyncio.Queue = asyncio.Queue()
+        self._processing = False
+        
+    async def add_request(self, request: Dict) -> asyncio.Future:
+        """Add a request to the queue and return a future for the result"""
+        future = asyncio.Future()
+        await self.queue.put((request, future))
+        return future
+        
+    async def process_batches(self, process_func: Callable):
+        """Continuously process batches from the queue"""
+        self._processing = True
+        while self._processing:
+            batch = []
+            futures = []
+            deadline = time.time() + (self.timeout_ms / 1000.0)
+            
+            # Collect items for batch
+            while len(batch) < self.max_batch_size and time.time() < deadline:
+                try:
+                    timeout = max(0, deadline - time.time())
+                    request, future = await asyncio.wait_for(
+                        self.queue.get(), timeout=timeout
+                    )
+                    batch.append(request)
+                    futures.append(future)
+                except asyncio.TimeoutError:
+                    break
+                    
+            if batch:
+                try:
+                    # Process the batch
+                    results = await process_func(batch)
+                    # Set results for all futures
+                    for future, result in zip(futures, results):
+                        if not future.done():
+                            future.set_result(result)
+                except Exception as e:
+                    # Set exception for all futures
+                    for future in futures:
+                        if not future.done():
+                            future.set_exception(e)
+                            
+    def stop(self):
+        """Stop processing batches"""
+        self._processing = False
+
+
+class RetryHandler:
+    """Handles retry logic with exponential backoff"""
+    def __init__(self, max_attempts: int = 3, base_delay: float = 1.0):
+        self.max_attempts = max_attempts
+        self.base_delay = base_delay
+        
+    async def retry_with_backoff(self, func: Callable, *args, **kwargs):
+        """Retry a function with exponential backoff and jitter"""
+        last_exception = None
+        
+        for attempt in range(self.max_attempts):
+            try:
+                return await func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if attempt == self.max_attempts - 1:
+                    raise
+                    
+                # Exponential backoff with jitter
+                delay = (2 ** attempt * self.base_delay) + random.uniform(0, 1)
+                logger.warning(
+                    f"Attempt {attempt + 1} failed: {e}. "
+                    f"Retrying in {delay:.2f}s..."
+                )
+                await asyncio.sleep(delay)
+                
+        raise last_exception
+
+
+# ===== Model Manager =====
+
+class VLLMModelManager:
+    """Manages vLLM model loading and lifecycle"""
+    def __init__(self):
+        self._llm = None
+        self._loaded = False
+        self._loading_lock = threading.Lock()
+        self._config: Optional[VLLMConfig] = None
+        
+    def is_loaded(self) -> bool:
+        """Check if model is loaded"""
+        return self._loaded and self._llm is not None
+        
+    def get_model(self):
+        """Get the loaded model"""
+        if not self.is_loaded():
+            raise RuntimeError("Model not loaded. Call load_model() first.")
+        return self._llm
+        
+    def load_model(self, config: VLLMConfig) -> None:
+        """Load the vLLM model with proper error handling"""
+        with self._loading_lock:
+            # Double-check pattern
+            if self.is_loaded() and self._config == config:
+                logger.info("Model already loaded with same configuration")
+                return
+                
+            # Clear previous model if config changed
+            if self._llm is not None and self._config != config:
+                logger.info("Configuration changed, reloading model...")
+                self.cleanup()
+                
+            self._config = config
+            self._load_model_internal(config)
+            
+    def _load_model_internal(self, config: VLLMConfig) -> None:
+        """Internal method to load the model"""
+        try:
+            # Clear GPU cache before loading
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            from vllm import LLM
+            
+            # Setup environment for HuggingFace
+            env_backup = self._setup_hf_environment(config)
+            
+            try:
+                # Validate model name for security
+                self._validate_model_name(config.model_name)
+                
+                # Check if model is cached
+                if not self._is_model_cached(config.model_name):
+                    logger.info(f"Model not cached, downloading: {config.model_name}")
+                    # Temporarily allow online access for download
+                    os.environ.pop('HF_HUB_OFFLINE', None)
+                    os.environ.pop('TRANSFORMERS_OFFLINE', None)
+                
+                logger.info(f"Loading vLLM model: {config.model_name}")
+                logger.info(
+                    f"Config: gpu_mem={config.gpu_memory_utilization}, "
+                    f"max_seqs={config.max_num_seqs}, "
+                    f"max_tokens={config.max_num_batched_tokens}"
+                )
+                
+                # Determine KV cache dtype based on GPU capability
+                kv_cache_dtype = self._get_optimal_kv_cache_dtype()
+                
+                self._llm = LLM(
+                    model=config.model_name,
+                    tensor_parallel_size=config.tensor_parallel_size,
+                    gpu_memory_utilization=config.gpu_memory_utilization,
+                    max_model_len=config.max_model_len,
+                    max_num_seqs=config.max_num_seqs,
+                    max_num_batched_tokens=config.max_num_batched_tokens,
+                    enforce_eager=False,
+                    trust_remote_code=True,
+                    enable_prefix_caching=True,
+                    disable_custom_all_reduce=True,
+                    kv_cache_dtype=kv_cache_dtype,
+                    calculate_kv_scales=(kv_cache_dtype == "fp8_e5m2"),
+                )
+                
+                self._loaded = True
+                logger.info("vLLM model loaded successfully!")
+                
+            finally:
+                # Restore environment
+                self._restore_environment(env_backup)
+                
+        except Exception as e:
+            self._loaded = False
+            self._llm = None
+            raise VLLMInitializationError(e, config)
+            
+    def _setup_hf_environment(self, config: VLLMConfig) -> Dict[str, Optional[str]]:
+        """Setup HuggingFace environment and return backup"""
+        backup = {
+            'HF_HUB_OFFLINE': os.environ.get('HF_HUB_OFFLINE'),
+            'TRANSFORMERS_OFFLINE': os.environ.get('TRANSFORMERS_OFFLINE'),
+            'HF_HOME': os.environ.get('HF_HOME'),
+            'HF_HUB_CACHE': os.environ.get('HF_HUB_CACHE'),
+        }
+        
+        if config.force_offline:
+            os.environ['HF_HUB_OFFLINE'] = '1'
+            os.environ['TRANSFORMERS_OFFLINE'] = '1'
+            
+        if config.cache_dir:
+            os.environ['HF_HOME'] = config.cache_dir
+            os.environ['HF_HUB_CACHE'] = config.cache_dir
+        elif not os.environ.get('HF_HOME'):
+            cache_dir = self._get_default_cache_dir()
+            os.environ['HF_HOME'] = cache_dir
+            os.environ['HF_HUB_CACHE'] = cache_dir
+            logger.info(f"Using cache directory: {cache_dir}")
+            
+        return backup
+        
+    def _restore_environment(self, backup: Dict[str, Optional[str]]) -> None:
+        """Restore environment variables from backup"""
+        for key, value in backup.items():
+            if value is not None:
+                os.environ[key] = value
+            else:
+                os.environ.pop(key, None)
+                
+    def _get_default_cache_dir(self) -> str:
+        """Get default cache directory"""
+        if os.path.exists("/workspace"):
+            return "/workspace/.cache/vllm_hf"
+        return os.path.expanduser("~/.cache/huggingface")
+        
+    def _validate_model_name(self, model_name: str) -> None:
+        """Validate model name for security"""
+        if ".." in model_name or model_name.startswith("/"):
+            raise ValueError(f"Invalid model name: {model_name}")
+            
+    def _is_model_cached(self, model_name: str) -> bool:
+        """Check if model is available in cache"""
+        try:
+            from transformers import AutoConfig
+            AutoConfig.from_pretrained(model_name, local_files_only=True)
+            logger.info(f"Found cached model: {model_name}")
+            return True
+        except Exception:
+            return False
+            
+    def _get_optimal_kv_cache_dtype(self) -> str:
+        """Determine optimal KV cache dtype based on GPU"""
+        if not torch.cuda.is_available():
+            return "auto"
+            
+        # Check GPU compute capability for FP8 support
+        device = torch.cuda.current_device()
+        capability = torch.cuda.get_device_capability(device)
+        
+        # FP8 requires compute capability 8.9+ (Ada Lovelace or newer)
+        if capability[0] >= 8 and capability[1] >= 9:
+            return "fp8_e5m2"
+        else:
+            return "auto"
+            
+    def cleanup(self) -> None:
+        """Cleanup resources"""
+        if self._llm is not None:
+            # vLLM doesn't have explicit cleanup, but clear references
+            self._llm = None
+            self._loaded = False
+            
+            # Clear GPU cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                
+            logger.info("Model manager cleaned up")
+
+
+# ===== Main Engine Class =====
 
 class VLLMEngine(InferenceEngine):
     """vLLM engine for high-performance cloud deployment with batching"""
-
-    # Class-level singleton to ensure model is loaded only once
+    
+    # Thread-safe singleton
     _instance = None
-    _llm = None
-    _model_loaded = False
-    _initializing = False  # Add flag to prevent concurrent initialization
-    _generation_lock = None  # Add class-level async lock
-    _batch_lock = None  # Separate lock for batch operations
-
+    _instance_lock = threading.Lock()
+    
+    # Shared resources
+    _model_manager: Optional[VLLMModelManager] = None
+    _batch_queue: Optional[BatchQueue] = None
+    _request_semaphore: Optional[asyncio.Semaphore] = None
+    _executor: Optional[ThreadPoolExecutor] = None
+    _retry_handler: Optional[RetryHandler] = None
+    
     def __new__(cls, *args, **kwargs):
+        """Thread-safe singleton pattern"""
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
-
-    def __init__(self, model_name: Optional[str] = None, 
-                 tensor_parallel_size: int = 1):
-        # Initialize parent class first
+        
+    def __init__(self, config: Optional[VLLMConfig] = None):
+        """Initialize the engine with configuration"""
+        # Prevent re-initialization
+        if hasattr(self, '_initialized') and self._initialized:
+            return
+            
         super().__init__()
         
-        # ✅ FIX: Prevent re-initialization to avoid Streamlit infinite loops
-        # Check if already initialized with same parameters
-        if hasattr(self, '_initialized'):
-            current_model = getattr(self, 'model_name', None)
-            if model_name is None or model_name == current_model:
-                return  # Already initialized with same or default model
+        # Load configuration
+        self.config = config or VLLMConfig.from_env()
         
-        # Allow override via environment variable
-        target_model = (
-            model_name or
-            os.getenv('VLLM_MODEL', 'PocketDoc/Dans-PersonalityEngine-V1.3.0-24b')
-        )
+        # Initialize components
+        self._initialize_components()
         
-        # Only proceed if model actually changed or first initialization
-        if not hasattr(self, '_initialized') or target_model != getattr(self, 'model_name', None):
-            self.model_name = target_model
+        # Mark as initialized
+        self._initialized = True
+        self._available = None
+        
+    def _initialize_components(self) -> None:
+        """Initialize engine components"""
+        if VLLMEngine._model_manager is None:
+            VLLMEngine._model_manager = VLLMModelManager()
             
-            # Force reload if model changed
-            if hasattr(self, '_initialized') and target_model != getattr(self, 'model_name', None):
-                VLLMEngine._model_loaded = False
-                VLLMEngine._llm = None
-
-            self.tensor_parallel_size = 1
-
-            self._sampling_params = None
-            self._available = None
-            self._batch_queue = []
-            self._batch_size = 8  # Process in batches of 8
-            self._max_batch_size = 1000  # vLLM can handle very large batches
+        if VLLMEngine._batch_queue is None:
+            VLLMEngine._batch_queue = BatchQueue(
+                max_batch_size=self.config.max_batch_size,
+                timeout_ms=self.config.batch_timeout_ms
+            )
             
-            # Mark as initialized to prevent future re-initialization
-            self._initialized = True
-
-            # Initialize the locks if not already done
-            if VLLMEngine._generation_lock is None:
-                VLLMEngine._generation_lock = threading.Lock()
-            if VLLMEngine._batch_lock is None:
-                VLLMEngine._batch_lock = asyncio.Lock()
-
+        if VLLMEngine._request_semaphore is None:
+            VLLMEngine._request_semaphore = asyncio.Semaphore(
+                self.config.max_concurrent_requests
+            )
+            
+        if VLLMEngine._executor is None:
+            VLLMEngine._executor = ThreadPoolExecutor(max_workers=4)
+            
+        if VLLMEngine._retry_handler is None:
+            VLLMEngine._retry_handler = RetryHandler(
+                max_attempts=self.config.retry_max_attempts,
+                base_delay=self.config.retry_base_delay
+            )
+            
     @property
     def name(self) -> str:
         return "vLLM"
-
+        
     def is_available(self) -> bool:
         """Check if vLLM is available"""
         if self._available is not None:
             return self._available
-
+            
         try:
             from vllm import LLM, SamplingParams
-            import torch
-
-            # Check if we have GPU (vLLM works best with GPU)
-            gpu_available = torch.cuda.is_available()
-            self._available = gpu_available  # Prefer GPU for vLLM
-
+            self._available = torch.cuda.is_available()
+            
             if self._available:
                 logger.info("vLLM detected with GPU support")
             else:
-                logger.debug("vLLM available but no GPU detected")
-
+                logger.info("vLLM available but no GPU detected")
+                
         except ImportError:
             self._available = False
             logger.debug("vLLM not installed")
         except Exception as e:
             self._available = False
             logger.debug(f"vLLM not available: {e}")
-
+            
         return self._available
-
-    def _initialize_model(self):
-        """Initialize vLLM model once (singleton pattern)"""
-        # ✅ CRITICAL FIX: Add thread-safe initialization check
-        with VLLMEngine._generation_lock:
-            # Double-check pattern: check again inside the lock
-            if VLLMEngine._model_loaded and VLLMEngine._llm is not None:
-                return
+        
+    def _ensure_model_loaded(self) -> None:
+        """Ensure model is loaded before use"""
+        if not self._model_manager.is_loaded():
+            self._model_manager.load_model(self.config)
             
-            # Prevent concurrent initialization attempts
-            if hasattr(VLLMEngine, '_initializing') and VLLMEngine._initializing:
-                logger.info("Model initialization already in progress, waiting...")
-                # Wait for other thread to finish initialization
-                import time
-                max_wait = 300  # 5 minutes max wait
-                waited = 0
-                while VLLMEngine._initializing and waited < max_wait:
-                    time.sleep(1)
-                    waited += 1
-                
-                if VLLMEngine._model_loaded and VLLMEngine._llm is not None:
-                    return
-                else:
-                    raise RuntimeError("Model initialization by other thread failed")
-            
-            # Mark as initializing
-            VLLMEngine._initializing = True
-
-        try:
-            torch.cuda.empty_cache() if torch.cuda.is_available() else None
-            from vllm import LLM, SamplingParams
-
-            # ✅ FIX: Configure HuggingFace Hub to avoid rate limits
-            # Set environment variables to force offline mode and use cache
-            import os
-            original_offline = os.environ.get('HF_HUB_OFFLINE')
-            original_cache_dir = os.environ.get('HF_HOME')
-            
-            # Force offline mode to prevent unnecessary HF requests
-            os.environ['HF_HUB_OFFLINE'] = '1'
-            os.environ['TRANSFORMERS_OFFLINE'] = '1'
-            
-            # Set cache directory if not already set
-            if not os.environ.get('HF_HOME'):
-                cache_dir = "/workspace/.cache/vllm_hf" if os.path.exists("/workspace") else f"{os.path.expanduser('~')}/.cache/huggingface"
-                os.environ['HF_HOME'] = cache_dir
-                os.environ['HF_HUB_CACHE'] = cache_dir
-                logger.info(f"🗂️ Using HF cache directory: {cache_dir}")
-
-            # Get configuration from environment or use optimized defaults for A100 80GB
-            gpu_memory_util = float(
-                os.getenv('VLLM_GPU_MEMORY_UTILIZATION', '0.95'))  # Reduced to leave more KV cache space
-            max_model_len = int(os.getenv('MAX_MODEL_LEN', '4096'))
-            
-            # KV cache optimization for high-memory GPUs
-            max_num_seqs = int(os.getenv('VLLM_MAX_NUM_SEQS', '100'))  # Increase concurrent sequences
-            max_num_batched_tokens = int(os.getenv('VLLM_MAX_BATCHED_TOKENS', '8192'))  # Optimize batch token limit
-
-            # ✅ FIX: Check if model is available locally before trying to load
-            try:
-                from transformers import AutoConfig
-                # Try to load config locally first
-                logger.info(f"🔍 Checking for local model cache: {self.model_name}")
-                config = AutoConfig.from_pretrained(self.model_name, local_files_only=True)
-                logger.info(f"✅ Found cached model: {self.model_name}")
-            except Exception as cache_check_error:
-                logger.warning(f"⚠️ Model not in cache, will download: {cache_check_error}")
-                # Temporarily allow online access for initial download
-                os.environ.pop('HF_HUB_OFFLINE', None)
-                os.environ.pop('TRANSFORMERS_OFFLINE', None)
-
-            # Regular HuggingFace model loading only
-            logger.info(f"Loading vLLM model {self.model_name} (this may take 1-2 minutes)...")
-            logger.info(f"🔧 vLLM config: gpu_mem={gpu_memory_util}, max_seqs={max_num_seqs}, max_tokens={max_num_batched_tokens}")
-            
-            VLLMEngine._llm = LLM(
-                model=self.model_name,
-                tensor_parallel_size=self.tensor_parallel_size,
-                gpu_memory_utilization=gpu_memory_util,
-                max_model_len=max_model_len,
-                max_num_seqs=max_num_seqs,
-                max_num_batched_tokens=max_num_batched_tokens,
-                enforce_eager=False,
-                trust_remote_code=True,
-                # Enable block management optimizations for large VRAM
-                enable_prefix_caching=True,
-                disable_custom_all_reduce=True,
-                kv_cache_dtype="fp8_e5m2",
-                calculate_kv_scales=True,
-            )
-            
-            # ✅ FIX: Restore original environment variables after loading
-            if original_offline is not None:
-                os.environ['HF_HUB_OFFLINE'] = original_offline
-            else:
-                os.environ.pop('HF_HUB_OFFLINE', None)
-                
-            os.environ.pop('TRANSFORMERS_OFFLINE', None)
-            
-            self.model_display_name = self.model_name
-
-            VLLMEngine._model_loaded = True
-            logger.info(f"vLLM model loaded successfully!")
-
-        except Exception as e:
-            error_msg = f"Failed to load vLLM model: {e}"
-            logger.error(error_msg)
-            logger.exception("Full vLLM initialization traceback:")
-            
-            # ✅ FIX: Check for specific error types to provide better guidance
-            error_str = str(e).lower()
-            if "out of memory" in error_str or "cuda" in error_str:
-                logger.error("💥 CUDA/Memory error detected - try reducing model size or clearing memory")
-            elif "assertion" in error_str:
-                logger.error("💥 vLLM assertion error - this may be due to incompatible settings")
-            elif "fp8" in error_str:
-                logger.error("💥 FP8 error detected - KV cache dtype incompatibility")
-            
-            VLLMEngine._model_loaded = False
-            raise RuntimeError(f"vLLM initialization failed: {error_msg}")
-        finally:
-            # Always clear the initializing flag
-            VLLMEngine._initializing = False
-
     def apply_chat_template(self, messages: List[Dict[str, str]]) -> str:
-        """Apply chat template to messages using the transformers tokenizer"""
-        if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
-            self._initialize_model()
-            
+        """Apply chat template to messages"""
+        self._ensure_model_loaded()
+        
         try:
-            # ✅ FIX: Force offline mode for tokenizer operations to avoid HF requests
-            import os
-            original_offline = os.environ.get('HF_HUB_OFFLINE')
+            # Setup offline mode for tokenizer operations
+            env_backup = {'HF_HUB_OFFLINE': os.environ.get('HF_HUB_OFFLINE')}
             os.environ['HF_HUB_OFFLINE'] = '1'
             
             try:
-                # Get the tokenizer from vLLM
-                tokenizer = VLLMEngine._llm.get_tokenizer()
+                tokenizer = self._model_manager.get_model().get_tokenizer()
                 
-                # Use transformers apply_chat_template if available
                 if hasattr(tokenizer, 'apply_chat_template'):
-                    formatted = tokenizer.apply_chat_template(
-                        messages, 
+                    return tokenizer.apply_chat_template(
+                        messages,
                         tokenize=False,
                         add_generation_prompt=True
                     )
-                    return formatted
                 else:
-                    # Fallback to simple format if apply_chat_template not available
-                    logger.warning("Tokenizer doesn't have apply_chat_template, using simple fallback format")
-                    formatted_parts = []
-                    for message in messages:
-                        role = message.get('role', 'user')
-                        content = message.get('content', '')
-                        if role == 'system':
-                            formatted_parts.append(f"System: {content}")
-                        elif role == 'user':
-                            formatted_parts.append(f"User: {content}")
-                        elif role == 'assistant':
-                            formatted_parts.append(f"Assistant: {content}")
+                    # Fallback format
+                    return self._simple_chat_format(messages)
                     
-                    return "\n\n".join(formatted_parts) + "\n\nAssistant:"
             finally:
-                # ✅ FIX: Restore original offline setting
-                if original_offline is not None:
-                    os.environ['HF_HUB_OFFLINE'] = original_offline
+                # Restore environment
+                if env_backup['HF_HUB_OFFLINE'] is not None:
+                    os.environ['HF_HUB_OFFLINE'] = env_backup['HF_HUB_OFFLINE']
                 else:
                     os.environ.pop('HF_HUB_OFFLINE', None)
-                
-        except Exception as e:
-            logger.error(f"Error applying chat template in vLLM: {e}")
-            # Ultimate fallback
-            formatted_parts = []
-            for message in messages:
-                role = message.get('role', 'user')
-                content = message.get('content', '')
-                formatted_parts.append(f"{role.title()}: {content}")
-            
-            return "\n\n".join(formatted_parts) + "\n\nAssistant:"
-
-    async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
-                                  temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                                  custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
-        """Generate multiple prompts in a single batch (much more efficient)"""
-        # Ensure we have the batch lock to prevent concurrent batch issues
-        if VLLMEngine._batch_lock is None:
-            VLLMEngine._batch_lock = asyncio.Lock()
-        
-        async with VLLMEngine._batch_lock:
-            try:
-                logger.info(
-                    f"🚀 vLLM generate_batch called with {len(prompts)} prompts")
-
-                # Validate inputs to prevent tensor shape mismatches
-                if not prompts:
-                    logger.warning(
-                        "⚠️ Empty prompts list passed to generate_batch")
-                    return []
-
-                # Filter out empty prompts that can cause tensor dimension errors
-                filtered_prompts = [p for p in prompts if p and isinstance(p, str) and len(p.strip()) > 0]
-                if len(filtered_prompts) != len(prompts):
-                    logger.warning(
-                        f"⚠️ Filtered out {len(prompts) - len(filtered_prompts)} invalid prompts")
-
-                if not filtered_prompts:
-                    logger.warning("⚠️ No valid prompts after filtering")
-                    return []
-
-                # Initialize model if needed (only happens once)
-                self._initialize_model()
-
-                if not VLLMEngine._model_loaded or VLLMEngine._llm is None:
-                    raise RuntimeError("vLLM model failed to load")
-
-                from vllm import SamplingParams
-                import asyncio
-                import secrets
-
-                # Base stop tokens list
-                stop_tokens = ["<|endoftext|>",
-                               "User:", "###", "<|endofcard|>", "<|user|>"]
-
-                # Allow caller to override stop tokens for special generation modes
-                if custom_stop_tokens is not None:
-                    stop_tokens = list(custom_stop_tokens)
-
-                # Use a cryptographically strong random seed for each batch
-                seed = secrets.randbits(64)
-
-                # ✅ NEW: Enhanced sampling parameters support
-                # Extract additional sampling parameters from kwargs
-                top_k = sampling_kwargs.get('top_k')
-                min_p = sampling_kwargs.get('min_p')
-                repetition_penalty = sampling_kwargs.get('repetition_penalty', 1.0)
-                frequency_penalty = sampling_kwargs.get('frequency_penalty', 0.0)
-                presence_penalty = sampling_kwargs.get('presence_penalty', 0.0)
-                seed_override = sampling_kwargs.get('seed')
-                
-                # Use provided seed if available, otherwise use random
-                if seed_override is not None:
-                    seed = seed_override
-
-                # Build sampling parameters with enhanced options
-                sampling_params_dict = {
-                    'max_tokens': max_tokens,
-                    'temperature': temperature,
-                    'top_p': top_p,
-                    'stop': stop_tokens,
-                    'seed': seed,
-                }
-                
-                # Add optional parameters only if they're provided
-                if top_k is not None:
-                    sampling_params_dict['top_k'] = int(top_k)
-                
-                if min_p is not None:
-                    sampling_params_dict['min_p'] = float(min_p)
-                
-                # Note: vLLM may not support all OpenAI-style penalties directly
-                # For basic repetition penalty support
-                if repetition_penalty != 1.0:
-                    sampling_params_dict['repetition_penalty'] = float(repetition_penalty)
-                
-                # Handle frequency and presence penalties if supported
-                if frequency_penalty != 0.0:
-                    sampling_params_dict['frequency_penalty'] = float(frequency_penalty)
-                
-                if presence_penalty != 0.0:
-                    sampling_params_dict['presence_penalty'] = float(presence_penalty)
-
-                # Create SamplingParams with enhanced parameters
-                try:
-                    sampling_params = SamplingParams(**sampling_params_dict)
-                except TypeError as e:
-                    # Fall back to basic parameters if advanced ones aren't supported
-                    logger.warning(f"Some advanced sampling parameters not supported in this vLLM version: {e}")
-                    sampling_params = SamplingParams(
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        stop=stop_tokens,
-                        seed=seed,
-                    )
-
-                # Run synchronous vLLM generate with proper error handling
-                try:
-                    request_outputs = await asyncio.to_thread(
-                        _sync_generate, filtered_prompts, sampling_params
-                    )
-                except Exception as vllm_error:
-                    # If vLLM batch fails, try smaller batches or sequential processing
-                    logger.warning(f"⚠️ vLLM batch generation failed: {vllm_error}")
                     
-                    # Try splitting into smaller batches
-                    if len(filtered_prompts) > 10:
-                        logger.info("🔄 Attempting smaller batch sizes...")
-                        batch_size = max(1, len(filtered_prompts) // 4)
-                        all_results = []
-                        
-                        for i in range(0, len(filtered_prompts), batch_size):
-                            small_batch = filtered_prompts[i:i + batch_size]
-                            try:
-                                small_outputs = await asyncio.to_thread(
-                                    _sync_generate, small_batch, sampling_params
-                                )
-                                # Extract text from outputs
-                                for output in small_outputs:
-                                    if output.outputs:
-                                        all_results.append(output.outputs[0].text)
-                                    else:
-                                        all_results.append("Error: No output generated")
-                                        
-                                # Small delay between batches to prevent overload
-                                await asyncio.sleep(0.1)
-                                
-                            except Exception as small_batch_error:
-                                logger.error(f"Small batch also failed: {small_batch_error}")
-                                # Fill with error responses for this batch
-                                all_results.extend(["Error: Generation failed"] * len(small_batch))
-                        
-                        return self._process_results(all_results, filtered_prompts)
-                    else:
-                        # For very small batches, fall back to sequential processing
-                        logger.info("🔄 Falling back to sequential processing...")
-                        return await self._sequential_fallback(filtered_prompts, sampling_params)
-
-                # Process successful batch results
-                results: List[str] = []
-                for request_output in request_outputs:
-                    if request_output.outputs:
-                        generated_text = request_output.outputs[0].text
-                        results.append(generated_text)
-                    else:
-                        logger.warning("No outputs for prompt: %s", request_output.prompt[:50])
-                        results.append("Error: No output generated")
-
-                return self._process_results(results, filtered_prompts)
-
-            except Exception as e:
-                logger.error("vLLM generation failed: %s", e)
-                # Return error responses to maintain expected output length
-                return ["Error: Generation failed"] * len(prompts)
-
-    def _process_results(self, results: List[str], original_prompts: List[str]) -> List[str]:
-        """Process and clean up generation results"""
-        processed_results = []
+        except Exception as e:
+            logger.error(f"Error applying chat template: {e}")
+            return self._simple_chat_format(messages)
+            
+    def _simple_chat_format(self, messages: List[Dict[str, str]]) -> str:
+        """Simple chat format fallback"""
+        formatted_parts = []
+        for message in messages:
+            role = message.get('role', 'user')
+            content = message.get('content', '')
+            
+            if role == 'system':
+                formatted_parts.append(f"System: {content}")
+            elif role == 'user':
+                formatted_parts.append(f"User: {content}")
+            elif role == 'assistant':
+                formatted_parts.append(f"Assistant: {content}")
+                
+        return "\n\n".join(formatted_parts) + "\n\nAssistant:"
         
-        for idx, txt in enumerate(results):
-            txt = txt.strip()
-            if not txt:
-                prompt_preview = original_prompts[idx][:50] if idx < len(original_prompts) else "unknown"
-                logger.warning(f"Empty result for prompt '{prompt_preview}...'")
-                txt = "Error: Empty response"
-            processed_results.append(txt)
-
-        return processed_results
-
-    async def _sequential_fallback(self, prompts: List[str], sampling_params) -> List[str]:
-        """Fallback to sequential generation when batch processing fails"""
-        results = []
-        
-        for i, prompt in enumerate(prompts):
+    async def generate_batch(
+        self,
+        prompts: List[str],
+        max_tokens: int = 160,
+        temperature: float = 0.8,
+        top_p: float = 0.9,
+        character_name: Optional[str] = None,
+        custom_stop_tokens: Optional[List[str]] = None,
+        **sampling_kwargs
+    ) -> List[str]:
+        """Generate responses for multiple prompts"""
+        # Use semaphore to limit concurrent requests
+        async with self._request_semaphore:
+            # Validate and filter prompts
+            valid_prompts = self._validate_prompts(prompts)
+            if not valid_prompts:
+                return []
+                
+            # Prepare sampling configuration
+            sampling_config = self._prepare_sampling_config(
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                custom_stop_tokens=custom_stop_tokens,
+                **sampling_kwargs
+            )
+            
+            # Use retry handler for resilience
             try:
-                logger.debug(f"Sequential generation {i+1}/{len(prompts)}")
-                request_outputs = await asyncio.to_thread(
-                    _sync_generate, [prompt], sampling_params
+                results = await self._retry_handler.retry_with_backoff(
+                    self._generate_batch_internal,
+                    valid_prompts,
+                    sampling_config
                 )
                 
-                if request_outputs and request_outputs[0].outputs:
-                    results.append(request_outputs[0].outputs[0].text)
-                else:
-                    results.append("Error: No output generated")
-                    
-                # Small delay to prevent overwhelming the engine
-                if i < len(prompts) - 1:
-                    await asyncio.sleep(0.05)
-                    
-            except Exception as seq_error:
-                logger.error(f"Sequential generation failed for prompt {i+1}: {seq_error}")
-                results.append("Error: Sequential generation failed")
+                # Apply thinking token filtering if needed
+                from .inference_engines import filter_thinking_tokens
+                return [filter_thinking_tokens(r) for r in results]
+                
+            except Exception as e:
+                logger.error(f"Batch generation failed after retries: {e}")
+                return ["Error: Generation failed"] * len(prompts)
+                
+    async def _generate_batch_internal(
+        self,
+        prompts: List[str],
+        sampling_config: SamplingConfig
+    ) -> List[str]:
+        """Internal batch generation with optimized processing"""
+        self._ensure_model_loaded()
         
-        return results
-
-    async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
-                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
-        """Generate multiple prompts in a single batch with thinking support"""
-        from .inference_engines import apply_thinking_template, filter_thinking_tokens
+        from vllm import SamplingParams
         
-        # Apply thinking templates to all prompts
-        # modified_prompts = [apply_thinking_template(prompt, self.thinking_config) for prompt in prompts]
+        # Create sampling params
+        sampling_params = SamplingParams(**sampling_config)
         
-        # Generate responses
-        responses = await self._generate_batch_raw(
-            prompts=prompts,
-            max_tokens=max_tokens,
-            character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens,
-            **sampling_kwargs  # ✅ Pass through sampling parameters
+        # Execute generation
+        request_outputs = await asyncio.to_thread(
+            self._sync_generate_wrapper,
+            prompts,
+            sampling_params
         )
         
-        # Filter thinking tokens from all responses
-        filtered_responses = [filter_thinking_tokens(response) for response in responses]
+        # Process results
+        results = []
+        for output in request_outputs:
+            if output.outputs:
+                results.append(output.outputs[0].text.strip())
+            else:
+                results.append("Error: No output generated")
+                
+        return results
         
-        return filtered_responses
-
-    async def _generate_raw(self, prompt: str, max_tokens: int = 160,
-                           temperature: float = 0.8, top_p: float = 0.9) -> str:
-        """Generate a single prompt by delegating to `_generate_batch_raw` for consistency."""
-        results = await self._generate_batch_raw(
-            prompts=[prompt],
+    def _sync_generate_wrapper(self, prompts: List[str], sampling_params):
+        """Wrapper for synchronous vLLM generation"""
+        return self._model_manager.get_model().generate(prompts, sampling_params)
+        
+    def _validate_prompts(self, prompts: List[str]) -> List[str]:
+        """Validate and filter prompts"""
+        valid_prompts = []
+        
+        for prompt in prompts:
+            if prompt and isinstance(prompt, str) and prompt.strip():
+                valid_prompts.append(prompt)
+            else:
+                logger.warning(f"Invalid prompt filtered: {prompt}")
+                
+        return valid_prompts
+        
+    def _prepare_sampling_config(
+        self,
+        max_tokens: int,
+        temperature: float,
+        top_p: float,
+        custom_stop_tokens: Optional[List[str]] = None,
+        **kwargs
+    ) -> SamplingConfig:
+        """Prepare sampling configuration"""
+        # Default stop tokens
+        stop_tokens = custom_stop_tokens or [
+            "<|endoftext|>", "User:", "###", 
+            "<|endofcard|>", "<|user|>"
+        ]
+        
+        # Base configuration
+        config: SamplingConfig = {
+            'max_tokens': max_tokens,
+            'temperature': temperature,
+            'top_p': top_p,
+            'stop': stop_tokens,
+            'seed': kwargs.get('seed', secrets.randbits(64)),
+        }
+        
+        # Add optional parameters
+        if 'top_k' in kwargs and kwargs['top_k'] is not None:
+            config['top_k'] = int(kwargs['top_k'])
+            
+        if 'min_p' in kwargs and kwargs['min_p'] is not None:
+            config['min_p'] = float(kwargs['min_p'])
+            
+        if 'repetition_penalty' in kwargs and kwargs['repetition_penalty'] != 1.0:
+            config['repetition_penalty'] = float(kwargs['repetition_penalty'])
+            
+        if 'frequency_penalty' in kwargs and kwargs['frequency_penalty'] != 0.0:
+            config['frequency_penalty'] = float(kwargs['frequency_penalty'])
+            
+        if 'presence_penalty' in kwargs and kwargs['presence_penalty'] != 0.0:
+            config['presence_penalty'] = float(kwargs['presence_penalty'])
+            
+        return config
+        
+    async def _generate_raw(
+        self,
+        prompt: str,
+        max_tokens: int = 160,
+        temperature: float = 0.8,
+        top_p: float = 0.9,
+        **kwargs
+    ) -> str:
+        """Generate a single response"""
+        results = await self.generate_batch(
+            [prompt],
             max_tokens=max_tokens,
             temperature=temperature,
             top_p=top_p,
+            **kwargs
         )
-        # `_generate_batch_raw` returns one result per input prompt
-        return results[0] if results else "" 
+        return results[0] if results else ""
+        
+    @classmethod
+    def cleanup(cls) -> None:
+        """Cleanup all resources"""
+        logger.info("Cleaning up vLLM engine...")
+        
+        # Stop batch queue
+        if cls._batch_queue:
+            cls._batch_queue.stop()
+            
+        # Cleanup model manager
+        if cls._model_manager:
+            cls._model_manager.cleanup()
+            
+        # Shutdown executor
+        if cls._executor:
+            cls._executor.shutdown(wait=True)
+            
+        # Clear references
+        cls._batch_queue = None
+        cls._model_manager = None
+        cls._executor = None
+        cls._request_semaphore = None
+        cls._retry_handler = None
+        
+        logger.info("vLLM engine cleanup complete")
+        
+    def __del__(self):
+        """Destructor to ensure cleanup"""
+        # Only cleanup if this is the singleton instance being destroyed
+        if self.__class__._instance is self:
+            self.__class__.cleanup()
+            self.__class__._instance = None

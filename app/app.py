@@ -1919,8 +1919,8 @@ def page_model_testing():
                 with st.spinner(f"Loading {selected_test_engine} model..."):
                     try:
                         if selected_test_engine == "vLLM":
-                            from utils.vllm_engine import VLLMEngine
-                            st.session_state.test_engine = VLLMEngine(model_name=final_test_model)
+                            from utils.vllm_engine import VLLMEngine, VLLMConfig
+                            st.session_state.test_engine = VLLMEngine(config=VLLMConfig(model_name=final_test_model))
                         elif selected_test_engine == "Llama.cpp":
                             from utils.llama_cpp_engine import LlamaCppEngine
                             st.session_state.test_engine = LlamaCppEngine(gguf_file=final_test_model)
