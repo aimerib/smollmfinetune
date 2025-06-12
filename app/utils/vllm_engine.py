@@ -282,7 +282,7 @@ class VLLMEngine(InferenceEngine):
                 import secrets
 
                 # Base stop tokens list
-                stop_tokens = ["\n\n", "<|endoftext|>",
+                stop_tokens = ["<|endoftext|>",
                                "User:", "###", "<|endofcard|>", "<|user|>"]
 
                 # Allow caller to override stop tokens for special generation modes
@@ -298,7 +298,7 @@ class VLLMEngine(InferenceEngine):
                     temperature=temperature,
                     top_p=top_p,
                     stop=stop_tokens,
-                    seed=seed,
+                    # seed=seed,
                 )
 
                 # Run synchronous vLLM generate with proper error handling

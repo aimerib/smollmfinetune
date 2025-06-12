@@ -1713,6 +1713,8 @@ Respond with ONLY the questions, one per line, no numbering:"""
         # Add prefill text if needed (for Deepseek)
         if prefill_text:
             templated_prompt += prefill_text
+
+        logger.info(f"🔍 Templated prompt: {templated_prompt}")
         
         return {
             'prompt': prompt,
