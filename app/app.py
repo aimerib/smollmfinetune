@@ -398,6 +398,7 @@ def render_sidebar():
             )
             
             if thinking_enabled:
+                os.environ['REASONING_PARSER'] = "deepseek_r1"
                 thinking_template = st.selectbox(
                     "Default thinking template",
                     ["Deepseek Template", "Qwen3 Template"],
@@ -418,13 +419,11 @@ def render_sidebar():
                 
                 if hasattr(current_engine, 'set_thinking_config'):
                     current_engine.set_thinking_config(thinking_config)
+                    
                 
                     st.info(f"🧠 Using {thinking_template} globally")
                 else:
                     st.session_state.global_thinking_enabled = False
-                # Disable thinking on current engine
-                if hasattr(current_engine, 'set_thinking_config'):
-                    current_engine.set_thinking_config({'enabled': False})
             
             # Cache management
             st.markdown("**💾 Cache Management**")
