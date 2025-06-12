@@ -294,7 +294,7 @@ class VLLMEngine(InferenceEngine):
 
     async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
                                   temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                                  custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+                                  custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
         """Generate multiple prompts in a single batch (much more efficient)"""
         # Ensure we have the batch lock to prevent concurrent batch issues
         if VLLMEngine._batch_lock is None:
@@ -342,14 +342,60 @@ class VLLMEngine(InferenceEngine):
                 # Use a cryptographically strong random seed for each batch
                 seed = secrets.randbits(64)
 
-                # Sampling parameters
-                sampling_params = SamplingParams(
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    stop=stop_tokens,
-                    # seed=seed,
-                )
+                # ✅ NEW: Enhanced sampling parameters support
+                # Extract additional sampling parameters from kwargs
+                top_k = sampling_kwargs.get('top_k')
+                min_p = sampling_kwargs.get('min_p')
+                repetition_penalty = sampling_kwargs.get('repetition_penalty', 1.0)
+                frequency_penalty = sampling_kwargs.get('frequency_penalty', 0.0)
+                presence_penalty = sampling_kwargs.get('presence_penalty', 0.0)
+                seed_override = sampling_kwargs.get('seed')
+                
+                # Use provided seed if available, otherwise use random
+                if seed_override is not None:
+                    seed = seed_override
+
+                # Build sampling parameters with enhanced options
+                sampling_params_dict = {
+                    'max_tokens': max_tokens,
+                    'temperature': temperature,
+                    'top_p': top_p,
+                    'stop': stop_tokens,
+                    'seed': seed,
+                }
+                
+                # Add optional parameters only if they're provided
+                if top_k is not None:
+                    sampling_params_dict['top_k'] = int(top_k)
+                
+                if min_p is not None:
+                    sampling_params_dict['min_p'] = float(min_p)
+                
+                # Note: vLLM may not support all OpenAI-style penalties directly
+                # For basic repetition penalty support
+                if repetition_penalty != 1.0:
+                    sampling_params_dict['repetition_penalty'] = float(repetition_penalty)
+                
+                # Handle frequency and presence penalties if supported
+                if frequency_penalty != 0.0:
+                    sampling_params_dict['frequency_penalty'] = float(frequency_penalty)
+                
+                if presence_penalty != 0.0:
+                    sampling_params_dict['presence_penalty'] = float(presence_penalty)
+
+                # Create SamplingParams with enhanced parameters
+                try:
+                    sampling_params = SamplingParams(**sampling_params_dict)
+                except TypeError as e:
+                    # Fall back to basic parameters if advanced ones aren't supported
+                    logger.warning(f"Some advanced sampling parameters not supported in this vLLM version: {e}")
+                    sampling_params = SamplingParams(
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        stop=stop_tokens,
+                        seed=seed,
+                    )
 
                 # Run synchronous vLLM generate with proper error handling
                 try:
@@ -452,7 +498,7 @@ class VLLMEngine(InferenceEngine):
 
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+                             custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
         """Generate multiple prompts in a single batch with thinking support"""
         from .inference_engines import apply_thinking_template, filter_thinking_tokens
         
@@ -466,7 +512,8 @@ class VLLMEngine(InferenceEngine):
             temperature=temperature,
             top_p=top_p,
             character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens
+            custom_stop_tokens=custom_stop_tokens,
+            **sampling_kwargs  # ✅ Pass through sampling parameters
         )
         
         # Filter thinking tokens from all responses

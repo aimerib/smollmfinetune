@@ -1168,7 +1168,6 @@ def page_dataset_preview():
                     step=20,
                     help="Desired total size of the synthetic dataset. Research shows 20-100 samples is optimal for character LoRAs, with 200-500 for more complex characters. Larger datasets risk overfitting."
                 )
-                temperature = st.slider("Temperature", 0.5, 1.2, 0.8, step=0.1)
                 
                 # Extra quality checkbox
                 extra_quality = st.checkbox(
@@ -1178,7 +1177,29 @@ def page_dataset_preview():
                 )
             
             with col_b:
-                top_p = st.slider("Top-p", 0.7, 1.0, 0.9, step=0.05)
+                st.markdown("#### 🎛️ Generation Settings")
+                
+                # Import and use sampling configuration
+                from .utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+                
+                # Get current model name for preset detection
+                current_model = None
+                if hasattr(st.session_state.dataset_manager.inference_engine, 'model_name'):
+                    current_model = st.session_state.dataset_manager.inference_engine.model_name
+                elif hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file'):
+                    current_model = st.session_state.dataset_manager.inference_engine.gguf_file
+                
+                # Check if we have a model-specific preset
+                model_preset = get_model_preset(current_model) if current_model else None
+                if model_preset:
+                    st.info(f"🎯 **{model_preset['name']}** preset available for your model")
+                
+                # Render sampling configuration UI in compact mode
+                sampling_config = render_sampling_config_ui(
+                    current_config=None,
+                    model_name=current_model,
+                    key_prefix="dataset_gen"
+                )
             
             # Show incremental info
             if dataset_info['exists']:
@@ -1220,12 +1241,14 @@ def page_dataset_preview():
                         st.session_state.dataset_manager.generate_dataset(
                             st.session_state.current_character,
                             num_samples=num_samples,
-                            temperature=temperature,
-                            top_p=top_p,
+                            temperature=sampling_config.temperature,
+                            top_p=sampling_config.top_p,
+                            max_tokens=sampling_config.max_tokens,
                             progress_callback=lambda p: progress_bar.progress(p),
                             append_to_existing=True,
                             custom_system_prompt=system_prompt if use_custom_system else None,
-                            extra_quality=extra_quality
+                            extra_quality=extra_quality,
+                            **sampling_config.to_dict()  # Pass all sampling parameters
                         )
                     )
                 finally:
@@ -1326,16 +1349,6 @@ def page_dataset_preview():
                 help="Balance between pure quality (0) and diversity (1)"
             )
             
-            temperature = st.slider(
-                "Generation Temperature",
-                min_value=0.5,
-                max_value=1.5,
-                value=0.9,
-                step=0.1,
-                help="Higher = more diverse initial samples",
-                key="quality_temp"
-            )
-            
             judgment_batch_size = st.selectbox(
                 "Judgment Batch Size",
                 [10, 25, 50, 100],
@@ -1350,6 +1363,39 @@ def page_dataset_preview():
                 help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality.",
                 key="quality_extra_quality"
             )
+        
+        # ✅ NEW: Sampling Configuration for Quality Generation
+        st.markdown("#### 🎛️ Generation Settings")
+        
+        # Import and use sampling configuration
+        from .utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+        
+        # Get current model name for preset detection
+        current_model = None
+        if hasattr(st.session_state.dataset_manager.inference_engine, 'model_name'):
+            current_model = st.session_state.dataset_manager.inference_engine.model_name
+        elif hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file'):
+            current_model = st.session_state.dataset_manager.inference_engine.gguf_file
+        
+        # Check if we have a model-specific preset
+        model_preset = get_model_preset(current_model) if current_model else None
+        if model_preset:
+            st.info(f"🎯 **{model_preset['name']}** preset available for your model")
+        
+        # Create default config for quality generation
+        default_quality_config = SamplingConfig(
+            temperature=0.9,
+            top_p=0.95,
+            max_tokens=400,
+            repetition_penalty=1.05,
+        )
+        
+        # Render sampling configuration UI
+        quality_sampling_config = render_sampling_config_ui(
+            current_config=default_quality_config,
+            model_name=current_model,
+            key_prefix="quality_gen"
+        )
         
         # System prompt configuration for quality generation
         st.markdown("### System Prompt Configuration for Training")
@@ -1442,11 +1488,14 @@ def page_dataset_preview():
                         diversity_weight=diversity_weight,
                         judgment_batch_size=judgment_batch_size,
                         judge_model=judge_model,
-                        temperature=temperature,
+                        temperature=quality_sampling_config.temperature,
+                        top_p=quality_sampling_config.top_p,
+                        max_tokens=quality_sampling_config.max_tokens,
                         progress_callback=update_progress,
                         stage_callback=update_stage,
                         custom_system_prompt=system_prompt_quality if use_custom_system_quality else None,
-                        extra_quality=extra_quality_advanced
+                        extra_quality=extra_quality_advanced,
+                        **quality_sampling_config.to_dict()  # Pass all sampling parameters
                     )
                 )
                 
@@ -2040,13 +2089,34 @@ def page_model_testing():
         
         # Generation settings
         with st.expander("⚙️ Generation Settings"):
-            col_a, col_b = st.columns(2)
-            with col_a:
-                max_new_tokens = st.slider("Max New Tokens", 50, 500, 150)
-                temperature = st.slider("Temperature", 0.1, 1.5, 0.8)
-            with col_b:
-                top_p = st.slider("Top-p", 0.1, 1.0, 0.9)
-                repetition_penalty = st.slider("Repetition Penalty", 1.0, 1.5, 1.1)
+            # Import and use sampling configuration
+            from .utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+            
+            # Try to get current model name for testing
+            test_model = selected_model
+            if test_model.startswith("Base:"):
+                # For base models, try to get from inference manager
+                test_model = getattr(st.session_state.inference_manager, 'base_model', None)
+            
+            # Check if we have a model-specific preset
+            model_preset = get_model_preset(test_model) if test_model else None
+            if model_preset:
+                st.info(f"🎯 **{model_preset['name']}** preset available for this model")
+            
+            # Create testing-specific default config
+            default_test_config = SamplingConfig(
+                temperature=0.8,
+                top_p=0.9,
+                max_tokens=150,
+                repetition_penalty=1.1,
+            )
+            
+            # Render compact sampling configuration
+            test_sampling_config = render_sampling_config_ui(
+                current_config=default_test_config,
+                model_name=test_model,
+                key_prefix="model_test"
+            )
         
         if st.button("🚀 Generate Response", use_container_width=True):
             if test_prompt.strip():
@@ -2054,10 +2124,10 @@ def page_model_testing():
                     response = st.session_state.inference_manager.generate_response(
                         selected_model,
                         test_prompt,
-                        max_new_tokens=max_new_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        repetition_penalty=repetition_penalty,
+                        max_new_tokens=test_sampling_config.max_tokens,
+                        temperature=test_sampling_config.temperature,
+                        top_p=test_sampling_config.top_p,
+                        repetition_penalty=test_sampling_config.repetition_penalty,
                         system_prompt=system_prompt
                     )
                 

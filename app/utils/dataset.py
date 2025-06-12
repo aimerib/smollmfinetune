@@ -450,7 +450,7 @@ class DatasetManager:
 
     async def _generate_text(self, prompt: str, max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None) -> str:
+                             custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> str:
         """Generate text using the configured inference engine"""
         try:
             if not hasattr(self.inference_engine, 'generate'):
@@ -472,6 +472,9 @@ class DatasetManager:
                 gen_kwargs['character_name'] = character_name
             if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
                 gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
+            
+            # ✅ Add sampling parameters
+            gen_kwargs.update(sampling_kwargs)
 
             return await self.inference_engine.generate(**gen_kwargs)
         except Exception as e:
@@ -494,7 +497,7 @@ class DatasetManager:
 
     async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
                                    temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                                   custom_stop_tokens: Optional[List[str]] = None) -> list[str]:
+                                   custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> list[str]:
         """Generate text for multiple prompts using batching (if supported)"""
         try:
             # Update thinking configuration from session state if available
@@ -512,6 +515,9 @@ class DatasetManager:
                 gen_kwargs['character_name'] = character_name
             if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
                 gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
+            
+            # ✅ Add sampling parameters
+            gen_kwargs.update(sampling_kwargs)
 
             return await self.inference_engine.generate_batch(**gen_kwargs)
             # else:
@@ -1058,13 +1064,21 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                max_tokens: Optional[int] = None, temperature: float = 0.8,
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                                append_to_existing: bool = True, custom_system_prompt: Optional[str] = None,
-                               extra_quality: bool = False) -> List[Dict[str, Any]]:
+                               extra_quality: bool = False, **sampling_kwargs) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         # ✅ FIX: Better error handling to prevent silent crashes
         try:
             # Suppress coroutine warnings in Streamlit environment
             warnings.filterwarnings(
                 "ignore", message="coroutine.*was never awaited")
+
+            # Extract max_tokens from sampling_kwargs if provided there instead
+            if max_tokens is None and 'max_tokens' in sampling_kwargs:
+                max_tokens = sampling_kwargs.pop('max_tokens')
+            
+            # Use default if still None
+            if max_tokens is None:
+                max_tokens = 400  # Reasonable default
 
             # Force garbage collection to clean up memory
             gc.collect()
@@ -1399,7 +1413,8 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                 max_tokens=1000,
                                 temperature=temperature,
                                 top_p=top_p,
-                                character_name=character.get('name')
+                                character_name=character.get('name'),
+                                **sampling_kwargs  # ✅ Pass sampling parameters
                             )
                         else:
                             replies = [await self._generate_text(
@@ -1407,7 +1422,8 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                 max_tokens=1000,
                                 temperature=temperature,
                                 top_p=top_p,
-                                character_name=character.get('name')
+                                character_name=character.get('name'),
+                                **sampling_kwargs  # ✅ Pass sampling parameters
                             )]
 
                         # Process batch results with quality filtering
@@ -4302,10 +4318,12 @@ Respond with ONLY a JSON object with numeric scores:
         judge_model: Optional[str] = None,
         temperature: float = 0.9,
         top_p: float = 0.95,
+        max_tokens: Optional[int] = None,
         progress_callback: Optional[Callable] = None,
         stage_callback: Optional[Callable] = None,
         custom_system_prompt: Optional[str] = None,
-        extra_quality: bool = False
+        extra_quality: bool = False,
+        **sampling_kwargs
     ) -> List[Dict[str, Any]]:
         """Generate a large dataset then curate the highest quality samples using LLM-as-judge.
         
@@ -4370,12 +4388,14 @@ Respond with ONLY a JSON object with numeric scores:
                 chunk_samples = await self.generate_dataset(
                     character=character,
                     num_samples=chunk_target,
+                    max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
                     progress_callback=lambda p: progress_callback((chunk_start + p * chunk_target) / raw_samples_target) if progress_callback else None,
                     append_to_existing=False,  # Don't save to disk yet
                     custom_system_prompt=custom_system_prompt,
-                    extra_quality=extra_quality
+                    extra_quality=extra_quality,
+                    **sampling_kwargs  # ✅ Pass sampling parameters
                 )
                 
                 # Save chunk to disk to free memory

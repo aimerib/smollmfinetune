@@ -398,7 +398,7 @@ class LlamaCppEngine(InferenceEngine):
 
     async def _generate_batch_raw(self, prompts: List[str], max_tokens: int = 160,
                                   temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                                  custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+                                  custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
         """Generate multiple prompts sequentially with thread safety"""
         # Initialize semaphore if not already done (must be in async context)
         if LlamaCppEngine._generation_semaphore is None:
@@ -436,20 +436,39 @@ class LlamaCppEngine(InferenceEngine):
                 if custom_stop_tokens is not None:
                     stop_tokens = list(custom_stop_tokens)
 
+                # ✅ NEW: Extract enhanced sampling parameters from kwargs
+                top_k = sampling_kwargs.get('top_k', 40)  # Default for llama.cpp
+                min_p = sampling_kwargs.get('min_p', 0.05)  # Default min_p
+                repetition_penalty = sampling_kwargs.get('repetition_penalty', 1.1)
+                frequency_penalty = sampling_kwargs.get('frequency_penalty', 0.0)
+                presence_penalty = sampling_kwargs.get('presence_penalty', 0.0)
+                seed_override = sampling_kwargs.get('seed')
+                
+                # Build enhanced sampling parameters for llama.cpp
+                enhanced_sampling = {
+                    'max_tokens': max_tokens,
+                    'temperature': temperature,
+                    'top_p': top_p,
+                    'top_k': top_k if top_k is not None else 40,
+                    'min_p': min_p if min_p is not None else 0.05,
+                    'repeat_penalty': repetition_penalty,
+                    'frequency_penalty': frequency_penalty,
+                    'presence_penalty': presence_penalty,
+                    'stop': stop_tokens,
+                    'seed': seed_override,
+                }
+
                 # Generate responses sequentially in a single thread
                 results = []
                 for i, prompt in enumerate(prompts):
                     try:
                         logger.debug(f"Generating prompt {i+1}/{len(prompts)}")
                         
-                        # Generate with random seed for each prompt
+                        # Generate with enhanced parameters
                         response = await asyncio.to_thread(
-                            self._sync_generate_single,
+                            self._sync_generate_single_enhanced,
                             prompt,
-                            max_tokens,
-                            temperature,
-                            top_p,
-                            stop_tokens
+                            enhanced_sampling
                         )
                         results.append(response)
                         
@@ -465,7 +484,7 @@ class LlamaCppEngine(InferenceEngine):
 
     async def generate_batch(self, prompts: List[str], max_tokens: int = 160,
                              temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None) -> List[str]:
+                             custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> List[str]:
         """Generate multiple prompts with thinking support"""
         from .inference_engines import apply_thinking_template, filter_thinking_tokens
         
@@ -479,7 +498,8 @@ class LlamaCppEngine(InferenceEngine):
             temperature=temperature,
             top_p=top_p,
             character_name=character_name,
-            custom_stop_tokens=custom_stop_tokens
+            custom_stop_tokens=custom_stop_tokens,
+            **sampling_kwargs  # ✅ Pass through sampling parameters
         )
         
         # Filter thinking tokens from all responses
@@ -487,9 +507,8 @@ class LlamaCppEngine(InferenceEngine):
         
         return filtered_responses
 
-    def _sync_generate_single(self, prompt: str, max_tokens: int, temperature: float, 
-                             top_p: float, stop_tokens: List[str]) -> str:
-        """Synchronous generation for a single prompt with improved error handling"""
+    def _sync_generate_single_enhanced(self, prompt: str, sampling_params: dict) -> str:
+        """Enhanced synchronous generation with full sampling parameter support"""
         try:
             # Ensure model is loaded and available
             if not LlamaCppEngine._model_loaded or LlamaCppEngine._llm is None:
@@ -500,9 +519,10 @@ class LlamaCppEngine(InferenceEngine):
             if LlamaCppEngine._llm is None:
                 raise RuntimeError("Model failed to initialize - _llm is None")
             
-            # Generate with a random seed for each call
-            import random
-            seed = random.randint(0, 2**31 - 1)
+            # Generate with a random seed for each call if not specified
+            if sampling_params.get('seed') is None:
+                import random
+                sampling_params['seed'] = random.randint(0, 2**31 - 1)
             
             # Use the generation lock to prevent concurrent access to _llm
             with LlamaCppEngine._generation_lock:
@@ -510,17 +530,27 @@ class LlamaCppEngine(InferenceEngine):
                 if LlamaCppEngine._llm is None:
                     raise RuntimeError("_llm is None just before generation call")
                     
-                logger.debug(f"Calling _llm generation with type: {type(LlamaCppEngine._llm)}")
-                response = LlamaCppEngine._llm(
-                    prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    stop=stop_tokens,
-                    echo=False,  # Don't echo the prompt
-                    seed=seed,   # Random seed for each generation
-                    repeat_penalty=1.1,  # Reduce repetition
-                )
+                logger.debug(f"Calling _llm generation with enhanced parameters")
+                
+                # Build parameters dict for llama-cpp-python
+                generation_params = {
+                    'max_tokens': sampling_params['max_tokens'],
+                    'temperature': sampling_params['temperature'],
+                    'top_p': sampling_params['top_p'],
+                    'top_k': sampling_params['top_k'],
+                    'min_p': sampling_params['min_p'],
+                    'repeat_penalty': sampling_params['repeat_penalty'],
+                    'frequency_penalty': sampling_params['frequency_penalty'],
+                    'presence_penalty': sampling_params['presence_penalty'],
+                    'stop': sampling_params['stop'],
+                    'seed': sampling_params['seed'],
+                    'echo': False,  # Don't echo the prompt
+                }
+                
+                # Remove None values to avoid parameter errors
+                generation_params = {k: v for k, v in generation_params.items() if v is not None}
+                
+                response = LlamaCppEngine._llm(prompt, **generation_params)
             
             # Extract text from response - handle both dict and string formats
             text = ""
@@ -549,8 +579,26 @@ class LlamaCppEngine(InferenceEngine):
             return text
             
         except Exception as e:
-            logger.error(f"Single generation failed: {e}")
+            logger.error(f"Enhanced single generation failed: {e}")
             return f"Error: Generation failed - {str(e)}"
+
+    def _sync_generate_single(self, prompt: str, max_tokens: int, temperature: float, 
+                             top_p: float, stop_tokens: List[str]) -> str:
+        """Legacy synchronous generation for backward compatibility"""
+        # Convert to enhanced format and delegate
+        sampling_params = {
+            'max_tokens': max_tokens,
+            'temperature': temperature,
+            'top_p': top_p,
+            'top_k': 40,  # Default
+            'min_p': 0.05,  # Default
+            'repeat_penalty': 1.1,  # Default
+            'frequency_penalty': 0.0,
+            'presence_penalty': 0.0,
+            'stop': stop_tokens,
+            'seed': None,
+        }
+        return self._sync_generate_single_enhanced(prompt, sampling_params)
 
     async def _generate_raw(self, prompt: str, max_tokens: int = 160,
                            temperature: float = 0.8, top_p: float = 0.9) -> str:
