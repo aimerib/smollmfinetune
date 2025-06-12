@@ -772,8 +772,6 @@ def page_dataset_preview():
                             st.session_state.dataset_manager.suggest_user_questions(
                                 st.session_state.current_character,
                                 num_questions=int(num_q),
-                                temperature=qa_sampling_config.temperature,
-                                top_p=qa_sampling_config.top_p,
                                 existing_dataset=st.session_state.dataset_preview,
                                 **qa_sampling_config.to_dict()  # Pass all sampling parameters
                             )

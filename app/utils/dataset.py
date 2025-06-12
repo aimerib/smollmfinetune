@@ -755,8 +755,6 @@ French version:"""
                 raw_outputs = await self._generate_text_batch(
                     prompts=prompt_texts,
                     max_tokens=1000,
-                    temperature=temperature,
-                    top_p=top_p,
                     custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
                     **sampling_kwargs  # Pass through all sampling parameters
                 )
@@ -768,8 +766,6 @@ French version:"""
                     output = await self._generate_text(
                         prompt=prompt,
                         max_tokens=1000,
-                        temperature=temperature,
-                        top_p=top_p,
                         custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
                         **sampling_kwargs  # Pass through all sampling parameters
                     )
@@ -1422,8 +1418,6 @@ Respond with ONLY the questions, one per line, no numbering:"""
                             replies = await self._generate_text_batch(
                                 prompts=full_prompts,
                                 max_tokens=1000,
-                                temperature=temperature,
-                                top_p=top_p,
                                 character_name=character.get('name'),
                                 **sampling_kwargs  # ✅ Pass sampling parameters
                             )
@@ -1431,8 +1425,6 @@ Respond with ONLY the questions, one per line, no numbering:"""
                             replies = [await self._generate_text(
                                 prompt=full_prompts[0],
                                 max_tokens=1000,
-                                temperature=temperature,
-                                top_p=top_p,
                                 character_name=character.get('name'),
                                 **sampling_kwargs  # ✅ Pass sampling parameters
                             )]
@@ -4400,8 +4392,6 @@ Respond with ONLY a JSON object with numeric scores:
                     character=character,
                     num_samples=chunk_target,
                     max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
                     progress_callback=lambda p: progress_callback((chunk_start + p * chunk_target) / raw_samples_target) if progress_callback else None,
                     append_to_existing=False,  # Don't save to disk yet
                     custom_system_prompt=custom_system_prompt,

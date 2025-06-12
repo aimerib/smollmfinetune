@@ -509,8 +509,6 @@ class VLLMEngine(InferenceEngine):
         responses = await self._generate_batch_raw(
             prompts=prompts,
             max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
             character_name=character_name,
             custom_stop_tokens=custom_stop_tokens,
             **sampling_kwargs  # ✅ Pass through sampling parameters
