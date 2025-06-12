@@ -1180,7 +1180,7 @@ def page_dataset_preview():
                 st.markdown("#### 🎛️ Generation Settings")
                 
                 # Import and use sampling configuration
-                from .utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+                from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
                 
                 # Get current model name for preset detection
                 current_model = None
