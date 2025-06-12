@@ -546,6 +546,8 @@ class VLLMEngine(InferenceEngine):
                 temperature=temperature,
                 top_p=top_p,
                 custom_stop_tokens=custom_stop_tokens,
+                seed=None,
+                n=len(prompts),
                 **sampling_kwargs
             )
             
