@@ -643,6 +643,112 @@ def page_dataset_preview():
         # ----------------------------
         st.markdown("### ✨ Augment Baseline Questions")
         with st.expander("Generate questions with AI"):
+            # ✅ NEW: Model Selection for Question Generation
+            st.markdown("#### 🤖 Model Selection")
+            col_qa_model1, col_qa_model2 = st.columns([2, 1])
+            
+            with col_qa_model1:
+                # Available models for question generation
+                if st.session_state.selected_engine == "vLLM":
+                    qa_available_models = [
+                        "Current Engine's Model",
+                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",
+                        "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
+                        "meta-llama/Llama-3.1-70B-Instruct",
+                        "meta-llama/Llama-3.2-3B-Instruct",
+                        "mistralai/Mistral-7B-Instruct-v0.2",
+                        "Qwen/Qwen2.5-7B-Instruct",
+                        "microsoft/Phi-3.5-mini-instruct",
+                        "Custom (enter HF ID below)"
+                    ]
+                else:
+                    qa_available_models = [
+                        "Current Engine's Model",
+                        "Switch to vLLM for model selection"
+                    ]
+                
+                selected_qa_model = st.selectbox(
+                    "Question Generation Model",
+                    qa_available_models,
+                    help="Choose the model for generating questions",
+                    key="question_gen_model"
+                )
+                
+                # Handle custom model input
+                if selected_qa_model == "Custom (enter HF ID below)":
+                    custom_qa_model = st.text_input(
+                        "HuggingFace Model ID",
+                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                        help="Enter any compatible HuggingFace model ID",
+                        key="custom_qa_model"
+                    )
+                    if custom_qa_model:
+                        final_qa_model = custom_qa_model
+                    else:
+                        final_qa_model = None  # Use current
+                elif selected_qa_model == "Current Engine's Model":
+                    final_qa_model = None  # Use current
+                elif selected_qa_model == "Switch to vLLM for model selection":
+                    st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+                    final_qa_model = None  # Use current
+                else:
+                    final_qa_model = selected_qa_model
+            
+            with col_qa_model2:
+                if final_qa_model and final_qa_model != getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None):
+                    if st.button("🔄 Load QA Model", help="Load the selected model for question generation", key="load_qa_model_btn"):
+                        with st.spinner("Loading model..."):
+                            try:
+                                # Store current model info to restore later if needed
+                                st.session_state.qa_temp_engine = st.session_state.dataset_manager
+                                
+                                # Create new dataset manager with selected model
+                                st.session_state.dataset_manager = get_or_create_dataset_manager(
+                                    preferred_engine=st.session_state.selected_engine,
+                                    generation_model=final_qa_model
+                                )
+                                st.success(f"✅ Loaded {final_qa_model.split('/')[-1]}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Failed to load model: {e}")
+                
+                # Show current model
+                current_qa_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
+                st.info(f"**Current**: {current_qa_model.split('/')[-1] if '/' in current_qa_model else current_qa_model}")
+            
+            # ✅ NEW: Sampling Configuration for Question Generation
+            st.markdown("#### 🎛️ Question Generation Settings")
+            
+            # Import and use sampling configuration
+            from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
+            
+            # Get current model name for preset detection
+            current_qa_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+            
+            # Check if we have a model-specific preset
+            qa_model_preset = get_model_preset(current_qa_model) if current_qa_model else None
+            if qa_model_preset:
+                st.info(f"🎯 **{qa_model_preset['name']}** preset available for this model")
+            
+            # Create default config for question generation (different from generation - better for questions)
+            qa_default_config = SamplingConfig(
+                temperature=0.9,  # Slightly higher for more diverse questions
+                top_p=0.95,
+                top_k=50,
+                repetition_penalty=1.05,
+                max_tokens=100  # Questions are shorter
+            )
+            
+            # Render the sampling configuration UI
+            qa_sampling_config = render_sampling_config_ui(
+                current_config=qa_default_config,
+                model_name=current_qa_model,
+                key_prefix="qa_gen"
+            )
+            
+            # ✅ NEW: Generation Controls
+            st.markdown("#### 📝 Question Controls")
+            
             num_q = st.number_input(
                 "Number of questions to generate",
                 min_value=1,
@@ -661,10 +767,19 @@ def page_dataset_preview():
                             st.session_state.dataset_manager.suggest_user_questions(
                                 st.session_state.current_character,
                                 num_questions=int(num_q),
-                                existing_dataset=st.session_state.dataset_preview
+                                temperature=qa_sampling_config.temperature,
+                                top_p=qa_sampling_config.top_p,
+                                existing_dataset=st.session_state.dataset_preview,
+                                **qa_sampling_config.to_dict()  # Pass all sampling parameters
                             )
                         )
                         st.session_state.generated_questions = qs
+                        
+                        # ✅ NEW: Restore original engine if we temporarily switched
+                        if st.session_state.get('qa_temp_engine') and final_qa_model is not None:
+                            st.session_state.dataset_manager = st.session_state.qa_temp_engine
+                            st.session_state.pop('qa_temp_engine', None)
+                            st.success("✅ Restored original generation engine")
                     finally:
                         loop.close()
                 st.success(f"Generated {len(st.session_state.generated_questions)} questions!")

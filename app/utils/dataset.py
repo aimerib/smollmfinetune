@@ -665,6 +665,7 @@ French version:"""
         top_p: float = 0.9,
         existing_dataset: Optional[List[Dict[str, Any]]] = None,
         context_samples: int = 12,
+        **sampling_kwargs  # ✅ NEW: Support for advanced sampling parameters
     ) -> List[Dict[str, Any]]:
         """Generate a list of engaging user questions tailored to the given character card.
 
@@ -742,13 +743,22 @@ French version:"""
         try:
             logger.info("🎯 Calling _generate_text_batch...")
             logger.info(f"   Prompt texts: {prompt_texts}")
+            
+            # Extract any additional sampling parameters passed to this method
+            sampling_kwargs = {k: v for k, v in locals().items() 
+                             if k not in ['self', 'character', 'num_questions', 'existing_dataset', 
+                                         'context_samples', 'prompts', 'prompt_texts', 'batch_size']}
+            
+            logger.info(f"   Sampling parameters: temperature={temperature}, top_p={top_p}, kwargs={sampling_kwargs}")
+            
             if hasattr(self.inference_engine, 'generate_batch'):
                 raw_outputs = await self._generate_text_batch(
                     prompts=prompt_texts,
                     max_tokens=1000,
                     temperature=temperature,
                     top_p=top_p,
-                    custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"]
+                    custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
+                    **sampling_kwargs  # Pass through all sampling parameters
                 )
             else:
                 # Fallback to sequential generation
@@ -760,7 +770,8 @@ French version:"""
                         max_tokens=1000,
                         temperature=temperature,
                         top_p=top_p,
-                        custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"]
+                        custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
+                        **sampling_kwargs  # Pass through all sampling parameters
                     )
                     raw_outputs.append(output)
             
