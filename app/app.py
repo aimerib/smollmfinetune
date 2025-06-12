@@ -914,49 +914,52 @@ def page_dataset_preview():
         with col_model1:
             # Available models for dataset generation
             if st.session_state.selected_engine == "vLLM":
-                    available_models = [
-                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
-                        "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
-                        "meta-llama/Llama-3.1-70B-Instruct",
-                        "meta-llama/Llama-3.2-3B-Instruct",
-                        "mistralai/Mistral-7B-Instruct-v0.2",
-                        "Qwen/Qwen2.5-7B-Instruct",
-                        "microsoft/Phi-3.5-mini-instruct",
-                        "Custom (enter HF ID below)"
-                    ]
+                available_models = [
+                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
+                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
+                    "meta-llama/Llama-3.1-70B-Instruct",
+                    "meta-llama/Llama-3.2-3B-Instruct",
+                    "mistralai/Mistral-7B-Instruct-v0.2",
+                    "Qwen/Qwen2.5-7B-Instruct",
+                    "microsoft/Phi-3.5-mini-instruct",
+                    "Custom (enter HF ID below)"
+                ]
             else:
                 available_models = [
                     "Current Llama.cpp Model",
                     "Switch to vLLM for model selection"
                 ]
             
-                selected_gen_model = st.selectbox(
-                    "Generation Model",
-                    available_models,
-                    help="Choose the model for dataset generation",
-                    key="dataset_gen_model"
+            selected_gen_model = st.selectbox(
+                "Generation Model",
+                available_models,
+                help="Choose the model for dataset generation",
+                key="dataset_gen_model"
+            )
+            
+            # Handle custom model input
+            if selected_gen_model == "Custom (enter HF ID below)":
+                custom_gen_model = st.text_input(
+                    "HuggingFace Model ID",
+                    placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                    help="Enter any compatible HuggingFace model ID",
+                    key="custom_gen_model"
                 )
-                
-                # Handle custom model input
-                if selected_gen_model == "Custom (enter HF ID below)":
-                    custom_gen_model = st.text_input(
-                        "HuggingFace Model ID",
-                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
-                        help="Enter any compatible HuggingFace model ID",
-                        key="custom_gen_model"
-                    )
-                    if custom_gen_model:
-                        final_gen_model = custom_gen_model
-                    else:
-                        final_gen_model = available_models[0]  # Default
-                elif selected_gen_model == "Switch to vLLM for model selection":
-                    st.info("💡 Switch to vLLM engine in the sidebar for model selection")
-                    final_gen_model = None
+                if custom_gen_model:
+                    final_gen_model = custom_gen_model
                 else:
-                    final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
+                    final_gen_model = available_models[0]  # Default
+            elif selected_gen_model == "Switch to vLLM for model selection":
+                st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+                final_gen_model = None
+            else:
+                final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
         
         with col_model2:
-            if final_gen_model and final_gen_model != st.session_state.dataset_manager.inference_engine.model_name:
+            # Get current model name safely
+            current_engine_model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+            
+            if final_gen_model and current_engine_model_name and final_gen_model != current_engine_model_name:
                 if st.button("🔄 Load Model", help="Load the selected model for generation"):
                     with st.spinner("Loading model..."):
                         try:
