@@ -348,16 +348,16 @@ def render_sidebar():
         if st.session_state.current_character:
             with st.expander("🗃️ Character Assets", expanded=False):
                 char_name = st.session_state.current_character.get("name", "unknown")
-                
+
                 col_a, col_b, col_c = st.columns(3)
-                
+
                 with col_a:
                     if st.button("🗑️ Clear Training", key="clear_training_btn", help="Remove training artifacts"):
                         if st.session_state.training_manager.clear_training_assets(char_name):
                             st.success("Training assets cleared!")
                         else:
                             st.info("No training assets to remove.")
-                
+
                 with col_b:
                     if st.button("⬇️ Export LoRA", key="export_lora_btn", help="Export trained LoRA model"):
                         try:
@@ -365,7 +365,7 @@ def render_sidebar():
                             st.success(f"LoRA exported to {zip_path}")
                         except Exception as e:
                             st.error(str(e))
-                
+
                 with col_c:
                     if st.button("⬇️ Export Checkpoint", key="export_ckpt_btn", help="Export latest checkpoint"):
                         zip_path = st.session_state.training_manager.export_latest_checkpoint(char_name)
@@ -412,16 +412,16 @@ def render_sidebar():
                 # Apply to current engine if it supports it
                 thinking_config = {
                     'enabled': True,
-                    'template': thinking_template,
+                        'template': thinking_template,
                     'qwen_thinking': True
                 }
                 
                 if hasattr(current_engine, 'set_thinking_config'):
                     current_engine.set_thinking_config(thinking_config)
                 
-                st.info(f"🧠 Using {thinking_template} globally")
-            else:
-                st.session_state.global_thinking_enabled = False
+                    st.info(f"🧠 Using {thinking_template} globally")
+                else:
+                    st.session_state.global_thinking_enabled = False
                 # Disable thinking on current engine
                 if hasattr(current_engine, 'set_thinking_config'):
                     current_engine.set_thinking_config({'enabled': False})
@@ -457,8 +457,8 @@ def render_sidebar():
             - Use smaller models for testing
             - Each section remembers its settings
             """)
-        
-        return selected
+    
+    return selected
 
 # Character upload and card management page
 def page_character_upload():
@@ -570,13 +570,13 @@ def page_dataset_preview():
                         st.warning("⚠️ Dataset generation in progress. Please wait.")
                     else:
                         dataset_with_metadata = st.session_state.dataset_manager.load_dataset_with_metadata(st.session_state.current_character)
-                        if dataset_with_metadata:
-                            existing_dataset, metadata = dataset_with_metadata
-                            st.session_state.dataset_preview = existing_dataset
-                            st.session_state.dataset_metadata = metadata
-                            st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
+                    if dataset_with_metadata:
+                        existing_dataset, metadata = dataset_with_metadata
+                        st.session_state.dataset_preview = existing_dataset
+                        st.session_state.dataset_metadata = metadata
+                        st.success(f"✅ Loaded {len(existing_dataset)} existing samples!")
                             # ✅ FIX: Use st.experimental_rerun instead of st.rerun for better stability
-                            st.rerun()
+                        st.rerun()
             with col_info3:
                 if st.button("🗑️ Reset Dataset", use_container_width=True):
                     # ✅ FIX: Check if generation is in progress
@@ -642,7 +642,11 @@ def page_dataset_preview():
         # ✨ Augment Baseline Questions
         # ----------------------------
         st.markdown("### ✨ Augment Baseline Questions")
-        with st.expander("Generate questions with AI"):
+        
+        # Split the UI into tabs for better organization and to avoid nested expanders
+        qa_tabs = st.tabs(["⚙️ Setup & Generation", "🔍 Review Generated Questions"])
+        
+        with qa_tabs[0]:
             # ✅ NEW: Model Selection for Question Generation
             st.markdown("#### 🤖 Model Selection")
             col_qa_model1, col_qa_model2 = st.columns([2, 1])
@@ -739,11 +743,12 @@ def page_dataset_preview():
                 max_tokens=100  # Questions are shorter
             )
             
-            # Render the sampling configuration UI
+            # ✅ FIX: Pass use_expander=False to avoid nested expander error
             qa_sampling_config = render_sampling_config_ui(
                 current_config=qa_default_config,
                 model_name=current_qa_model,
-                key_prefix="qa_gen"
+                key_prefix="qa_gen",
+                use_expander=False  # Important: Avoid nested expanders
             )
             
             # ✅ NEW: Generation Controls
@@ -783,6 +788,40 @@ def page_dataset_preview():
                     finally:
                         loop.close()
                 st.success(f"Generated {len(st.session_state.generated_questions)} questions!")
+
+        # Show generated questions in the second tab
+        with qa_tabs[1]:
+            # Show generated questions and allow user to add to baseline
+            gen_data = st.session_state.get('generated_questions')
+            if gen_data:
+                st.markdown("#### Review Generated Questions")
+                selections = []
+                for idx, item in enumerate(gen_data):
+                    # Layout: checkbox | question | context toggle
+                    cols = st.columns([0.08, 0.72, 0.2])
+                    with cols[0]:
+                        include = st.checkbox(f"q{idx+1}", value=True, key=f"include_q_{idx}", label_visibility="hidden")
+                        if include:
+                            selections.append(item['question'])
+                    with cols[1]:
+                        st.markdown(f"**{idx+1}. {item['question']}**")
+                    with cols[2]:
+                        toggle_key = f"show_ctx_{idx}"
+                        if st.button("Context ↕", key=f"btn_{toggle_key}"):
+                            st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
+                    # Display context when toggled
+                    if st.session_state.get(toggle_key, False) and item['context']:
+                        st.markdown("**Context used:**")
+                        for j, ctx in enumerate(item['context']):
+                            st.markdown(f"*Q{j+1}:* {ctx['user']}")
+                            st.markdown(f"*A{j+1}:* {ctx['assistant']}")
+                        st.markdown("---")
+
+                if selections and st.button("➕ Add Selected Questions", key="add_selected_qs_btn", use_container_width=True):
+                    st.session_state.dataset_manager.default_user_prompts.extend(selections)
+                    st.success(f"Added {len(selections)} questions to baseline list.")
+            else:
+                st.info("No questions generated yet. Go to the Setup & Generation tab to create questions.")
 
             # Show generated questions and allow user to add to baseline
             gen_data = st.session_state.get('generated_questions')
@@ -875,46 +914,46 @@ def page_dataset_preview():
         with col_model1:
             # Available models for dataset generation
             if st.session_state.selected_engine == "vLLM":
-                available_models = [
-                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
-                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
-                    "meta-llama/Llama-3.1-70B-Instruct",
-                    "meta-llama/Llama-3.2-3B-Instruct",
-                    "mistralai/Mistral-7B-Instruct-v0.2",
-                    "Qwen/Qwen2.5-7B-Instruct",
-                    "microsoft/Phi-3.5-mini-instruct",
-                    "Custom (enter HF ID below)"
-                ]
+                    available_models = [
+                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
+                        "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
+                        "meta-llama/Llama-3.1-70B-Instruct",
+                        "meta-llama/Llama-3.2-3B-Instruct",
+                        "mistralai/Mistral-7B-Instruct-v0.2",
+                        "Qwen/Qwen2.5-7B-Instruct",
+                        "microsoft/Phi-3.5-mini-instruct",
+                        "Custom (enter HF ID below)"
+                    ]
             else:
                 available_models = [
                     "Current Llama.cpp Model",
                     "Switch to vLLM for model selection"
                 ]
             
-            selected_gen_model = st.selectbox(
-                "Generation Model",
-                available_models,
-                help="Choose the model for dataset generation",
-                key="dataset_gen_model"
-            )
-            
-            # Handle custom model input
-            if selected_gen_model == "Custom (enter HF ID below)":
-                custom_gen_model = st.text_input(
-                    "HuggingFace Model ID",
-                    placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
-                    help="Enter any compatible HuggingFace model ID",
-                    key="custom_gen_model"
+                selected_gen_model = st.selectbox(
+                    "Generation Model",
+                    available_models,
+                    help="Choose the model for dataset generation",
+                    key="dataset_gen_model"
                 )
-                if custom_gen_model:
-                    final_gen_model = custom_gen_model
+                
+                # Handle custom model input
+                if selected_gen_model == "Custom (enter HF ID below)":
+                    custom_gen_model = st.text_input(
+                        "HuggingFace Model ID",
+                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
+                        help="Enter any compatible HuggingFace model ID",
+                        key="custom_gen_model"
+                    )
+                    if custom_gen_model:
+                        final_gen_model = custom_gen_model
+                    else:
+                        final_gen_model = available_models[0]  # Default
+                elif selected_gen_model == "Switch to vLLM for model selection":
+                    st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+                    final_gen_model = None
                 else:
-                    final_gen_model = available_models[0]  # Default
-            elif selected_gen_model == "Switch to vLLM for model selection":
-                st.info("💡 Switch to vLLM engine in the sidebar for model selection")
-                final_gen_model = None
-            else:
-                final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
+                    final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
         
         with col_model2:
             if final_gen_model and final_gen_model != st.session_state.dataset_manager.inference_engine.model_name:
@@ -1021,7 +1060,7 @@ def page_dataset_preview():
                 st.write(f"• Temperature: {sampling_config.temperature}")
                 st.write(f"• Max Tokens: {sampling_config.max_tokens}")
                 st.write(f"• System Prompt: {'Custom' if use_custom_system else 'Temporal'}")
-                if extra_quality:
+            if extra_quality:
                     st.write("• Extra Quality: ✅ Enabled")
             
             # Submit button
@@ -1030,69 +1069,69 @@ def page_dataset_preview():
                 use_container_width=True,
                 type="primary"
             )
-    
-    if generate_button:
+        
+        if generate_button:
         # ✅ FIX: Set generation state to prevent UI interference
-        st.session_state._generating_dataset = True
+            st.session_state._generating_dataset = True
         
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        # Progress callback (called by DatasetManager)
-        def update_progress(p: float):
-            """Update status text for current chunk progress."""
-            status_text.text(
-                f"Generating samples... {p*100:.1f}%"
-            )
-        
-        try:
-            # Run generation
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Progress callback (called by DatasetManager)
+            def update_progress(p: float):
+                """Update status text for current chunk progress."""
+                status_text.text(
+                    f"Generating samples... {p*100:.1f}%"
+                )
+            
             try:
+                # Run generation
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
                 # ✅ FIX: Don't pass duplicate parameters - use sampling_config.to_dict() only
-                dataset = loop.run_until_complete(
-                    st.session_state.dataset_manager.generate_dataset(
-                        st.session_state.current_character,
-                        num_samples=num_samples,
-                        progress_callback=lambda p: progress_bar.progress(p),
-                        append_to_existing=True,
-                        custom_system_prompt=system_prompt if use_custom_system else None,
+                    dataset = loop.run_until_complete(
+                        st.session_state.dataset_manager.generate_dataset(
+                            st.session_state.current_character,
+                            num_samples=num_samples,
+                            progress_callback=lambda p: progress_bar.progress(p),
+                            append_to_existing=True,
+                            custom_system_prompt=system_prompt if use_custom_system else None,
                         extra_quality=extra_quality,
                         **sampling_config.to_dict()  # Pass all sampling parameters
+                        )
                     )
-                )
-            finally:
-                loop.close()
-            
-            st.session_state.dataset_preview = dataset
-            # Update metadata if we generated with custom system prompt
-            if use_custom_system:
-                st.session_state.dataset_metadata = {
-                    'system_prompt_config': {
-                        'type': 'custom',
-                        'prompt': system_prompt
+                finally:
+                    loop.close()
+                
+                st.session_state.dataset_preview = dataset
+                # Update metadata if we generated with custom system prompt
+                if use_custom_system:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'custom',
+                            'prompt': system_prompt
+                        }
                     }
-                }
-            else:
-                st.session_state.dataset_metadata = {
-                    'system_prompt_config': {
-                        'type': 'temporal',
-                        'prompt': None
+                else:
+                    st.session_state.dataset_metadata = {
+                        'system_prompt_config': {
+                            'type': 'temporal',
+                            'prompt': None
+                        }
                     }
-                }
-            progress_bar.progress(1.0)
-            status_text.text("Dataset generation complete!")
-            st.success(f"✅ Generated {len(dataset)} samples successfully!")
+                progress_bar.progress(1.0)
+                status_text.text("Dataset generation complete!")
+                st.success(f"✅ Generated {len(dataset)} samples successfully!")
             
-            # ✅ FIX: Clear generation state before rerun to prevent loops
-            st.session_state._generating_dataset = False
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"❌ Error generating dataset: {str(e)}")
-            # ✅ FIX: Always clear generation state on error
-            st.session_state._generating_dataset = False
+                # ✅ FIX: Clear generation state before rerun to prevent loops
+                st.session_state._generating_dataset = False
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error generating dataset: {str(e)}")
+                # ✅ FIX: Always clear generation state on error
+                st.session_state._generating_dataset = False
     
     with quality_tab:
         st.markdown("### ⭐ Quality-First Dataset Generation")
@@ -1206,7 +1245,7 @@ def page_dataset_preview():
             current_config=default_quality_config,
             model_name=current_model,
             key_prefix="quality_gen"
-        )
+            )
         
         # System prompt configuration for quality generation
         st.markdown("### System Prompt Configuration for Training")
@@ -2065,10 +2104,10 @@ def page_model_testing():
                         response = st.session_state.inference_manager.generate_response(
                             selected_model,
                             test_prompt,
-                            max_new_tokens=test_sampling_config.max_tokens,
-                            temperature=test_sampling_config.temperature,
-                            top_p=test_sampling_config.top_p,
-                            repetition_penalty=test_sampling_config.repetition_penalty,
+                                max_new_tokens=test_sampling_config.max_tokens,
+                                temperature=test_sampling_config.temperature,
+                                top_p=test_sampling_config.top_p,
+                                repetition_penalty=test_sampling_config.repetition_penalty,
                             system_prompt=system_prompt
                         )
                 

@@ -255,7 +255,8 @@ def get_available_presets(model_name: str = None) -> Dict[str, Dict[str, Any]]:
 def render_sampling_config_ui(
     current_config: Optional[SamplingConfig] = None,
     model_name: str = None,
-    key_prefix: str = ""
+    key_prefix: str = "",
+    use_expander: bool = True
 ) -> SamplingConfig:
     """Render UI for sampling configuration with model-specific presets"""
     
@@ -385,8 +386,16 @@ def render_sampling_config_ui(
         else:
             seed = None
     
-    # Advanced parameters (in expander to reduce clutter)
-    with st.expander("🔬 Advanced Sampling Parameters"):
+    # Advanced parameters - either in expander or direct based on use_expander flag
+    if use_expander:
+        # Use expander for normal cases
+        advanced_container = st.expander("🔬 Advanced Sampling Parameters")
+    else:
+        # Use regular container when nested in another expander
+        st.markdown("**🔬 Advanced Sampling Parameters**")
+        advanced_container = st
+    
+    with advanced_container:
         col_a, col_b = st.columns(2)
         
         with col_a:
