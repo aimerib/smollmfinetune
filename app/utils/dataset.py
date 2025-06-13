@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Union
 from datasets import Dataset
-from .inference_engines import get_inference_engine, apply_thinking_template_to_messages
+from .openai_client import get_client, OpenAIClient
 import torch
 import json
 import os
@@ -21,33 +21,27 @@ logger = logging.getLogger(__name__)
 
 
 class DatasetManager:
-    """Manages synthetic dataset generation and processing"""
+    """Manages synthetic dataset generation and processing using OpenAI API"""
 
-    def __init__(self, preferred_engine: Optional[str] = None, enable_intelligent_generation: bool = True, generation_model: Optional[str] = None):
-        logger.info(
-            f"DatasetManager initializing with preferred_engine: {preferred_engine}, model: {generation_model}")
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: str = "gpt-4o-mini"):
+        """
+        Initialize DatasetManager with OpenAI client
         
-        # If vLLM engine and custom model specified, create with that model
-        if preferred_engine == 'vllm' and generation_model:
-            from .vllm_engine import VLLMEngine, VLLMConfig
-            self.inference_engine = VLLMEngine(config=VLLMConfig(model_name=generation_model))
-        else:
-            self.inference_engine = get_inference_engine(preferred_engine)
+        Args:
+            api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
+            base_url: Base URL for API (defaults to OpenAI, but can be changed for compatible endpoints)
+            default_model: Default model to use for requests
+        """
+        logger.info(f"DatasetManager initializing with model: {default_model}")
         
-        logger.info(
-            f"DatasetManager created with engine: {self.inference_engine.name}")
-        # For DanChat-2 we only need a *single* chat template – the chat
-        # wrapper (<|user|> …) is added later by vLLM/HF tokenizer.
-        self.templates = [("chat", "{user_prompt}")]
-
-        # Configuration for intelligent prompt generation
-        self.enable_intelligent_generation = enable_intelligent_generation
-        if not enable_intelligent_generation:
-            logger.info(
-                "🔧 Intelligent prompt generation is DISABLED - using static prompts only")
-
-        # ✅ FIX: Add global lock to prevent concurrent temporal prompt generation
-        self._global_temporal_lock = asyncio.Lock()
+        # Initialize OpenAI client
+        if api_key or base_url:
+            from .openai_client import OpenAIClient, set_client
+            client = OpenAIClient(api_key=api_key, base_url=base_url, default_model=default_model)
+            set_client(client)
+        
+        self.client = get_client()
+        logger.info(f"DatasetManager created with model: {self.client.default_model}")
 
         self.prompts_nsfw = [
             "*leans in close* What's the naughtiest thing you've ever done?",
@@ -407,129 +401,34 @@ class DatasetManager:
         self.datasets_dir = "app/training_output/datasets"
         os.makedirs(self.datasets_dir, exist_ok=True)
 
-    @classmethod
-    def create_with_conservative_settings(cls, preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
-        """Create DatasetManager with conservative settings for stability"""
-        logger.info(
-            "🛡️ Creating DatasetManager with conservative settings (intelligent generation disabled)")
-        return cls(preferred_engine=preferred_engine, enable_intelligent_generation=False, generation_model=generation_model)
-
-    async def test_inference_engine(self) -> bool:
-        """Test the inference engine with a simple prompt for debugging"""
-        if not self.inference_engine:
-            logger.error("❌ No inference engine available")
-            return False
-
+    async def test_client(self) -> bool:
+        """Test the OpenAI client with a simple prompt for debugging"""
         try:
-            logger.info(
-                f"🔧 Testing inference engine: {self.inference_engine.name}")
+            logger.info(f"🔧 Testing OpenAI client with model: {self.client.default_model}")
 
             # Test with a very simple prompt
             test_prompt = "Hello, how are you today?"
-            result = await self._generate_text(
+            result = await self.client.generate(
                 prompt=test_prompt,
                 max_tokens=50,
-                temperature=0.8,
-                top_p=0.9
+                temperature=0.8
             )
 
             if result and len(result.strip()) > 0:
-                logger.info(f"✅ Inference engine test PASSED")
+                logger.info(f"✅ OpenAI client test PASSED")
                 logger.info(f"   Test prompt: '{test_prompt}'")
                 logger.info(f"   Response: '{result.strip()}'")
                 return True
             else:
-                logger.error(
-                    f"❌ Inference engine test FAILED - empty response")
+                logger.error(f"❌ OpenAI client test FAILED - empty response")
                 logger.error(f"   Raw result: {repr(result)}")
                 return False
 
         except Exception as e:
-            logger.error(f"❌ Inference engine test FAILED with exception: {e}")
+            logger.error(f"❌ OpenAI client test FAILED with exception: {e}")
             return False
 
-    async def _generate_text(self, prompt: str, max_tokens: int = 160,
-                             temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                             custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> str:
-        """Generate text using the configured inference engine"""
-        try:
-            if not hasattr(self.inference_engine, 'generate'):
-                raise RuntimeError(
-                    "Inference engine does not implement `generate` method")
 
-            # Update thinking configuration from session state if available
-            self._update_thinking_config()
-
-            # Dynamically build keyword arguments based on the engine's accepted parameters
-            sig_params = self.inference_engine.generate.__code__.co_varnames
-            gen_kwargs = {
-                'prompt': prompt,
-                'max_tokens': max_tokens,
-                'temperature': temperature,
-                'top_p': top_p,
-            }
-            if 'character_name' in sig_params:
-                gen_kwargs['character_name'] = character_name
-            if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
-                gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
-            
-            # ✅ Add sampling parameters
-            gen_kwargs.update(sampling_kwargs)
-
-            return await self.inference_engine.generate(**gen_kwargs)
-        except Exception as e:
-            raise RuntimeError(
-                f"Text generation failed ({self.inference_engine.name}): {str(e)}")
-
-    def _update_thinking_config(self):
-        """Update thinking configuration from session state if available"""
-        try:
-            # Try to get thinking config from Streamlit session state
-            import streamlit as st
-            if hasattr(st, 'session_state') and hasattr(st.session_state, 'thinking_config'):
-                thinking_config = st.session_state.thinking_config
-                if thinking_config and hasattr(self.inference_engine, 'set_thinking_config'):
-                    self.inference_engine.set_thinking_config(thinking_config)
-                    logger.debug(f"Updated thinking config: {thinking_config}")
-        except Exception as e:
-            # Silent fail if Streamlit is not available or other issues
-            logger.debug(f"Could not update thinking config: {e}")
-
-    async def _generate_text_batch(self, prompts: list[str], max_tokens: int = 160,
-                                   temperature: float = 0.8, top_p: float = 0.9, character_name: str = None,
-                                   custom_stop_tokens: Optional[List[str]] = None, **sampling_kwargs) -> list[str]:
-        """Generate text for multiple prompts using batching (if supported)"""
-        try:
-            # Update thinking configuration from session state if available
-            self._update_thinking_config()
-            
-            # if hasattr(self.inference_engine, 'generate_batch'):
-            sig_params = self.inference_engine.generate_batch.__code__.co_varnames
-            gen_kwargs = {
-                'prompts': prompts,
-                'max_tokens': max_tokens,
-                'temperature': temperature,
-                'top_p': top_p,
-            }
-            if 'character_name' in sig_params:
-                gen_kwargs['character_name'] = character_name
-            if custom_stop_tokens is not None and 'custom_stop_tokens' in sig_params:
-                gen_kwargs['custom_stop_tokens'] = custom_stop_tokens
-            
-            # ✅ Add sampling parameters
-            gen_kwargs.update(sampling_kwargs)
-
-            return await self.inference_engine.generate_batch(**gen_kwargs)
-            # else:
-            #     # Fallback: generate sequentially
-            #     results = []
-            #     for prompt in prompts:
-            #         result = await self._generate_text(prompt, max_tokens, temperature, top_p, character_name, custom_stop_tokens)
-            #         results.append(result)
-            #     return results
-        except Exception as e:
-            raise RuntimeError(
-                f"Batch text generation failed ({self.inference_engine.name}): {str(e)}")
 
     # ------------------------- prompt sampling helpers -------------------------
     def _choose_bucket(self) -> str:
@@ -739,55 +638,25 @@ French version:"""
         else:
             logger.info("   ❌ No prompts generated!")
 
-        # Generate the questions (batched when supported)
+        # Generate the questions using batch processing
         try:
-            logger.info("🎯 Calling _generate_text_batch...")
-            logger.info(f"   Prompt texts: {prompt_texts}")
+            logger.info("🎯 Calling OpenAI API for question generation...")
             
-            # Extract any additional sampling parameters passed to this method
-            sampling_kwargs = {k: v for k, v in locals().items() 
-                             if k not in ['self', 'character', 'num_questions', 'existing_dataset', 
-                                         'context_samples', 'prompts', 'prompt_texts', 'batch_size']}
+            # Use batch generation for efficiency
+            raw_outputs = await self.client.generate_batch(
+                prompts=prompt_texts,
+                max_tokens=1000,
+                temperature=temperature,
+                top_p=top_p,
+                stop=["Answer:", "User:", "Character:"]
+            )
             
-            logger.info(f"   Sampling parameters: temperature={temperature}, top_p={top_p}, kwargs={sampling_kwargs}")
-            
-            if hasattr(self.inference_engine, 'generate_batch'):
-                raw_outputs = await self._generate_text_batch(
-                    prompts=prompt_texts,
-                    max_tokens=1000,
-                    custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
-                    **sampling_kwargs  # Pass through all sampling parameters
-                )
-            else:
-                # Fallback to sequential generation
-                logger.info("   Using sequential generation (no batch support)")
-                raw_outputs = []
-                for prompt in prompt_texts:
-                    output = await self._generate_text(
-                        prompt=prompt,
-                        max_tokens=1000,
-                        custom_stop_tokens=["Answer:", f"{character['name']}:", "User:", "Character:", "\n\n\n"],
-                        **sampling_kwargs  # Pass through all sampling parameters
-                    )
-                    raw_outputs.append(output)
-            
-            logger.info(f"✅ Got {len(raw_outputs)} raw outputs from LLM")
+            logger.info(f"✅ Got {len(raw_outputs)} raw outputs from API")
             logger.info(f"   Sample raw output: {raw_outputs[0][:100]}..." if raw_outputs else "No outputs")
         except Exception as e:
             logger.error(f"❌ Generation failed: {e}")
             logger.exception("Full traceback:")
             return []
-        # else:
-        #     raw_outputs = []
-        #     for _ in range(num_questions):
-        #         pt, _ctx = prompts[_]
-        #         out = await self._generate_text(
-        #             prompt=pt,
-        #             max_tokens=1000,
-        #             temperature=temperature,
-        #             top_p=top_p
-        #         )
-        #         raw_outputs.append(out)
 
         results: List[Dict[str, Any]] = []
         seen = set()
@@ -816,13 +685,7 @@ French version:"""
             
             # Ensure terminal question-mark for consistency
             if q_str and not q_str.endswith('?'):
-                # Only add ? if it looks like a question (starts with question words or has question structure)
-                question_indicators = ['what', 'how', 'when', 'where', 'why', 'who', 'which', 'can', 'do', 'are', 'is', 'will', 'would', 'could', 'should']
-                if any(q_str.lower().startswith(word) for word in question_indicators):
-                    q_str += '?'
-                else:
-                    # Even if it doesn't start with question words, assume it's a question since that's what we asked for
-                    q_str += '?'
+                q_str += '?'
             
             if idx < 5:
                 logger.info(f"   🔄 Processed {idx}: '{original_q}' → '{q_str}'")
@@ -856,21 +719,15 @@ French version:"""
                         ]
                     })
                     seen.add(q_str)
-                    if idx < 5:
-                        logger.info(f"   ✅ Added question {idx}: {q_str[:50]}...")
-                    else:
-                        logger.debug(f"   ✅ Added question: {q_str[:50]}...")
+                    logger.info(f"   ✅ Added question {idx}: {q_str[:50]}...")
+
                 else:
-                    if idx < 5:
-                        logger.info(f"   ❌ Skipped question {idx} (duplicate): '{q_str[:50]}'")
-                    else:
-                        logger.debug(f"   ❌ Skipped question (duplicate): {q_str[:50]}...")
+                    logger.info(f"   ❌ Skipped question {idx} (duplicate): '{q_str[:50]}'")
+
             else:
                 reason = "empty" if not q_str else "too short"
-                if idx < 5:
-                    logger.info(f"   ❌ Skipped question {idx} ({reason}): '{q_str[:50]}'")
-                else:
-                    logger.debug(f"   ❌ Skipped question ({reason}): {q_str[:50]}...")
+                logger.info(f"   ❌ Skipped question {idx} ({reason}): '{q_str[:50]}'")
+
 
         # Generate variations for frequently duplicated questions
         logger.info(f"📊 Duplicate analysis: {len(seen)} unique questions from {len(raw_outputs)} outputs")
@@ -1141,198 +998,89 @@ Respond with ONLY the questions, one per line, no numbering:"""
                     'type': 'baseline'
                 })
             
-            # 2. LLM-generated character-specific prompts (PRIMARY SOURCE)
-            logger.info(f"🧠 Intelligent generation enabled: {self.enable_intelligent_generation}")
-            if self.enable_intelligent_generation:
-                try:
-                    logger.info("🧠 Generating LLM-tailored questions...")
-                    logger.info(f"   Target questions: {min(new_samples_needed * 2, 100)}")
-                    logger.info(f"   Character: {character.get('name', 'Unknown')}")
-                    logger.info(f"   Inference engine: {self.inference_engine.name if self.inference_engine else 'None'}")
-                    
-                    # Generate a large pool of character-specific questions
-                    num_llm_questions = min(new_samples_needed * 2, 100)  # Generate 2x what we need for variety
-                    
-                    llm_questions = await self.suggest_user_questions(
-                        character=character,
-                        num_questions=num_llm_questions,
-                        temperature=0.9,  # Higher creativity for diverse questions
-                        top_p=0.95,
-                        existing_dataset=existing_samples,
-                        context_samples=8
-                    )
-                    
-                    logger.info(f"✅ Generated {len(llm_questions)} LLM-tailored questions")
-                    
-                    if not llm_questions:
-                        logger.warning("⚠️ suggest_user_questions returned empty list")
-                    else:
-                        logger.info(f"   Sample questions: {[q['question'][:50] + '...' for q in llm_questions[:3]]}")
-                    
-                    # Add these high-quality questions to the prompt pool
-                    added_count = 0
-                    for question_data in llm_questions:
-                        question_text = question_data['question']
-                        if question_text not in seen_user_prompts:
-                            all_prompts.append({
-                                'prompt': question_text,
-                                'type': 'llm_generated',
-                                'context': question_data.get('context', [])
-                            })
-                            added_count += 1
-                    
-                    logger.info(f"   Added {added_count} unique LLM questions to prompt pool")
-                            
-                except Exception as e:
-                    logger.warning(f"⚠️ LLM question generation failed: {e}")
-                    logger.exception("Full traceback:")
-                    logger.info("🔄 Falling back to algorithmic prompt generation")
-                    # Fall back to algorithmic generation if LLM fails
-                    self.enable_intelligent_generation = False
-            
-            # 3. Algorithmic fallback prompts (only if LLM generation failed or disabled)
-            if not self.enable_intelligent_generation:
-                logger.info("🔧 Using algorithmic prompt generation as fallback")
+            # 2. LLM-generated character-specific prompts
+            try:
+                logger.info("🧠 Generating LLM-tailored questions...")
+                num_llm_questions = min(new_samples_needed * 2, 100)
                 
-                # Extract character knowledge for better prompt generation
-                character_knowledge = self.extract_character_knowledge(character)
-                logger.info(f"📊 Extracted: {len(character_knowledge['traits'])} traits, {len(character_knowledge['skills'])} skills, {len(character_knowledge['goals'])} goals")
+                llm_questions = await self.suggest_user_questions(
+                    character=character,
+                    num_questions=num_llm_questions,
+                    temperature=0.9,
+                    top_p=0.95,
+                    existing_dataset=existing_samples,
+                    context_samples=8
+                )
                 
-                # Scenario-based prompts
-                logger.info("🎭 Generating scenario-based prompts...")
-                scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=10)
-                for scenario in scenarios:
-                    for prompt in scenario['prompts']:
-                        if prompt not in seen_user_prompts:
-                            all_prompts.append({
-                                'prompt': prompt,
-                                'context': scenario['context'],
-                                'type': 'scenario'
-                            })
+                logger.info(f"✅ Generated {len(llm_questions)} LLM-tailored questions")
                 
-                # Intimate scenarios (if character traits suggest romance/intimacy)
-                personality = character.get('personality', '').lower()
-                if any(word in personality for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate', 'flirty']):
-                    logger.info("💕 Generating intimate scenarios...")
-                    # Mix of relationship stages
-                    intimate_scenarios = []
-                    intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'first_time'))
-                    intimate_scenarios.extend(self.generate_intimate_scenarios(character, 'established'))
-                    
-                    for scenario in intimate_scenarios[:5]:  # Limit to avoid overwhelming
-                        for prompt in scenario['prompts'][:3]:  # Select a few prompts per scenario
-                            if prompt not in seen_user_prompts:
-                                all_prompts.append({
-                                    'prompt': prompt,
-                                    'context': scenario['context'],
-                                    'type': 'intimate_scenario'
-                                })
-                
-                # Character exploration prompts
-                logger.info("🔍 Generating character exploration prompts...")
-                exploration_prompts = self.generate_exploration_prompts(character, character_knowledge)
-                for prompt in exploration_prompts:
+                # Add these high-quality questions to the prompt pool
+                for question_data in llm_questions:
+                    question_text = question_data['question']
+                    if question_text not in seen_user_prompts:
+                        all_prompts.append(question_text)
+                        
+            except Exception as e:
+                logger.warning(f"⚠️ LLM question generation failed: {e}")
+
+            character_knowledge = self.extract_character_knowledge(character)
+            # Add a small selection of algorithmic prompts for diversity
+            scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=3)
+            for scenario in scenarios[:2]:  # Only use 2 scenarios
+                for prompt in scenario['prompts'][:2]:  # Only 2 prompts per scenario
                     if prompt not in seen_user_prompts:
                         all_prompts.append({
                             'prompt': prompt,
-                            'type': 'exploration'
+                            'context': scenario['context'],
+                            'type': 'scenario_supplement'
                         })
-                
-                # Greeting-based prompts
-                logger.info("🎭 Generating prompts from greetings...")
-                greeting_scenarios = self.generate_prompts_from_greetings(character, character_knowledge)
-                for scenario in greeting_scenarios:
-                    for prompt in scenario['prompts']:
-                        if prompt not in seen_user_prompts:
-                            all_prompts.append({
-                                'prompt': prompt,
-                                'context': scenario['context'],
-                                'type': 'greeting_based'
-                            })
-                
-                # Multi-turn conversations (select a few scenarios for depth)
-                logger.info("💬 Generating multi-turn conversation flows...")
-                selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
-                multi_turn_convos = []
-                for scenario in selected_scenarios:
-                    convos = self.generate_multi_turn_conversation(character, scenario, turns=3)
-                    multi_turn_convos.extend(convos)
-            else:
-                # If LLM generation succeeded, only add a few algorithmic prompts for variety
-                character_knowledge = self.extract_character_knowledge(character)
-                
-                # Add a small selection of algorithmic prompts for diversity
-                scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=3)
-                for scenario in scenarios[:2]:  # Only use 2 scenarios
-                    for prompt in scenario['prompts'][:2]:  # Only 2 prompts per scenario
-                        if prompt not in seen_user_prompts:
-                            all_prompts.append({
-                                'prompt': prompt,
-                                'context': scenario['context'],
-                                'type': 'scenario_supplement'
-                            })
-            
-            # Generate multi-turn conversations for all modes
+            # 3. Random prompts from buckets
+            while len(all_prompts) < new_samples_needed * 2:
+                prompt = await self._build_user_prompt()
+                if prompt not in seen_user_prompts and prompt not in all_prompts:
+                    all_prompts.append(prompt)
+
+           # Generate multi-turn conversations for all modes
             multi_turn_convos = []
-            if self.enable_intelligent_generation:
-                # For LLM mode, create a few simple scenarios for multi-turn
-                logger.info("💬 Generating multi-turn conversation flows...")
-                character_knowledge = self.extract_character_knowledge(character)
-                simple_scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=2)
-                for scenario in simple_scenarios:
-                    convos = self.generate_multi_turn_conversation(character, scenario, turns=2)  # 2 turns = 4 total messages
-                    multi_turn_convos.extend(convos)
-            elif 'scenarios' in locals():  # Only if scenarios were generated in fallback mode
-                logger.info("💬 Generating multi-turn conversation flows...")
-                selected_scenarios = random.sample(scenarios, min(3, len(scenarios)))
-                for scenario in selected_scenarios:
-                    convos = self.generate_multi_turn_conversation(character, scenario, turns=2)  # 2 turns = 4 total messages
-                    multi_turn_convos.extend(convos)
+            # For LLM mode, create a few simple scenarios for multi-turn
+            logger.info("💬 Generating multi-turn conversation flows...")
+            character_knowledge = self.extract_character_knowledge(character)
+            simple_scenarios = self.generate_scenario_based_prompts(character, character_knowledge, num_scenarios=2)
+            for scenario in simple_scenarios:
+                convos = self.generate_multi_turn_conversation(character, scenario, turns=2)  # 2 turns = 4 total messages
+                multi_turn_convos.extend(convos)
             
-            # 4. Deduplicate all prompts while preserving metadata
-            logger.info("🔄 Deduplicating prompts...")
-            seen_prompts = set()
-            unique_prompt_data = []
-            
-            for prompt_data in all_prompts:
-                prompt_text = prompt_data.get('prompt', '')
-                if prompt_text and prompt_text not in seen_prompts:
-                    seen_prompts.add(prompt_text)
-                    unique_prompt_data.append(prompt_data)
-            
-            logger.info(f"📊 Reduced from {len(all_prompts)} to {len(unique_prompt_data)} unique prompts")
+            # Deduplicate prompts
+            unique_prompts = list(dict.fromkeys(all_prompts))  # Preserves order
+            logger.info(f"📊 Generated {len(unique_prompts)} unique prompts")
             
             # Apply EXTRA QUALITY paraphrasing if requested
             if extra_quality:
-                logger.info("🌟 EXTRA QUALITY enabled - paraphrasing all prompts for enhanced variety...")
+                logger.info("🌟 EXTRA QUALITY enabled - paraphrasing prompts for enhanced variety...")
                 paraphrased_prompts = []
-                total_prompts_to_paraphrase = len(unique_prompt_data)
                 
-                for i, prompt_data in enumerate(unique_prompt_data):
+                for i, prompt in enumerate(unique_prompts):
                     try:
-                        original_prompt = prompt_data['prompt']
-                        logger.debug(f"   Paraphrasing {i+1}/{total_prompts_to_paraphrase}: {original_prompt[:50]}...")
+                        # Use simple paraphrasing prompt with OpenAI
+                        paraphrase_prompt = f"Rewrite this question to mean the same thing but with different words. Keep the same tone and meaning, just vary the phrasing:\n\nOriginal: {prompt}\n\nRewritten:"
                         
-                        # Apply paraphrasing to the prompt
-                        paraphrased_prompt = await self._paraphrase(original_prompt)
+                        paraphrased = await self.client.generate(
+                            prompt=paraphrase_prompt,
+                            max_tokens=1000,
+                            temperature=0.6
+                        )
                         
-                        # Create new prompt data with paraphrased prompt
-                        new_prompt_data = prompt_data.copy()
-                        new_prompt_data['prompt'] = paraphrased_prompt
-                        new_prompt_data['type'] = f"{prompt_data['type']}_paraphrased"
+                        paraphrased_prompts.append(paraphrased.strip())
                         
-                        paraphrased_prompts.append(new_prompt_data)
-                        
-                        if i % 10 == 0:  # Log progress every 10 prompts
-                            logger.info(f"   Paraphrased {i+1}/{total_prompts_to_paraphrase} prompts...")
+                        if i % 10 == 0:
+                            logger.info(f"   Paraphrased {i+1}/{len(unique_prompts)} prompts...")
                         
                     except Exception as e:
                         logger.debug(f"   Failed to paraphrase prompt {i+1}: {e}")
-                        # Keep original prompt on failure
-                        paraphrased_prompts.append(prompt_data)
+                        paraphrased_prompts.append(prompt)
                 
-                unique_prompt_data = paraphrased_prompts
-                logger.info(f"✅ EXTRA QUALITY complete - paraphrased {len(unique_prompt_data)} prompts")
+                unique_prompts = paraphrased_prompts
+                logger.info(f"✅ EXTRA QUALITY complete - paraphrased {len(unique_prompts)} prompts")
             
             # Length buckets following best practices
             length_buckets = [
@@ -1347,320 +1095,92 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 token_map = {n: t for n, _, t in length_buckets}
                 return token_map[bucket_name]
 
-            # Build prompt metadata list
-            prompts_data: list[Dict[str, Any]] = []
-            char_name_for_prompts = character.get('name', 'Assistant')
-
-            # Process unique prompts with emotional variations and context enhancement
-            for prompt_data in unique_prompt_data[:new_samples_needed * 3]:  # Generate extra for quality filtering
-                # Skip if we already have enough
-                if len(prompts_data) >= new_samples_needed * 3:
-                    break
-                
-                prompt_text = prompt_data['prompt']
-                prompt_context = prompt_data.get('context')
-
-                # Regular prompt with possible context enhancement
-                enhanced_prompt = self.enhance_prompt_with_context(prompt_text, character, prompt_context)
-                prompts_data.append(self._create_prompt_data(enhanced_prompt, character, _sample_max_tokens()))
-            
-            # Add multi-turn conversations
-            for convo in multi_turn_convos[:5]:  # Limit multi-turn to avoid overwhelming
-                context = convo['context']
-                turns = convo['turns']
-                
-                # Create a combined prompt from the conversation
-                combined_prompt = f"[Context: {context}]\n"
-                for turn in turns:
-                    combined_prompt += f"User: {turn['content']}\n"
-                
-                prompts_data.append(self._create_prompt_data(
-                    turns[0]['content'],  # Use first turn as main prompt
-                    character, 
-                    _sample_max_tokens() * len(turns),  # Longer response for multi-turn
-                    context=context
-                ))
-
-            # Use existing batch generation logic but with quality filtering
-            prompts_grouped: Dict[int, List[Dict[str, Any]]] = {}
-            for item in prompts_data:
-                prompts_grouped.setdefault(item['max_tokens'], []).append(item)
-
-            # Determine optimal batch size based on inference engine and prevent KV cache preemption
-            if hasattr(self.inference_engine, 'name') and self.inference_engine.name == "vLLM":
-                # Adaptive batch sizing for vLLM to prevent KV cache pressure
-                # Start with smaller batches to avoid preemption warnings
-                base_batch_size = int(os.getenv('VLLM_DATASET_BATCH_SIZE', '128'))
-                logger.info(f"🚀 Using vLLM adaptive batch size: {base_batch_size} (prevents KV cache preemption)")
-            else:
-                # Other engines (LM Studio, etc.) work better with smaller batches
-                base_batch_size = 100 if hasattr(self.inference_engine, 'generate_batch') else 1
-                logger.info(f"📦 Using standard batch size: {base_batch_size}")
-
+            # Generate responses in batches
+            batch_size = 10  # Conservative batch size for API
             processed_count = 0
-            quality_filtered_count = 0
             
-            logger.info(f"📊 Starting batch processing: {len(prompts_data)} prompts prepared")
+            logger.info(f"📊 Starting batch processing: {len(unique_prompts)} prompts prepared")
 
-            for bucket_max_tokens, bucket_prompts in prompts_grouped.items():
-                logger.info(f"📊 Processing {len(bucket_prompts)} prompts with max_tokens={bucket_max_tokens}")
-                batch_size = base_batch_size
-                char_name = character.get('name', 'Assistant')
-                
-                for batch_start in range(0, len(bucket_prompts), batch_size):
-                    batch_end = min(batch_start + batch_size, len(bucket_prompts))
-                    batch_prompts_slice = bucket_prompts[batch_start:batch_end]
-                    full_prompts = [item['full_prompt'] for item in batch_prompts_slice]
+            for batch_start in range(0, len(unique_prompts), batch_size):
+                if len(samples) >= num_samples:
+                    break
+                    
+                batch_end = min(batch_start + batch_size, len(unique_prompts))
+                batch_prompts = unique_prompts[batch_start:batch_end]
 
-                    try:
-                        # Generate responses
-                        if batch_size > 1:
-                            replies = await self._generate_text_batch(
-                                prompts=full_prompts,
-                                max_tokens=1000,
-                                character_name=character.get('name'),
-                                **sampling_kwargs  # ✅ Pass sampling parameters
-                            )
-                        else:
-                            replies = [await self._generate_text(
-                                prompt=full_prompts[0],
-                                max_tokens=1000,
-                                character_name=character.get('name'),
-                                **sampling_kwargs  # ✅ Pass sampling parameters
-                            )]
+                # Create messages for each prompt
+                batch_messages = []
+                for prompt in batch_prompts:
+                    # Always use temporal system prompt during generation
+                    temporal_context = self._choose_temporal_bucket()
+                    system_prompt = self._generate_temporal_system_prompt(character, temporal_context)
+                    
+                    messages = [
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt}
+                    ]
+                    batch_messages.append(messages)
 
-                        # Process batch results with quality filtering
-                        for i, (prompt_data, reply) in enumerate(zip(batch_prompts_slice, replies)):
-                            try:
-                                reply_str = str(reply).strip()
+                try:
+                    # Generate responses using chat completion
+                    replies = await self.client.generate_batch(
+                        prompts=batch_messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        **sampling_kwargs
+                    )
 
-                                # Evaluate response quality
-                                quality_metrics = self.evaluate_response_quality(
-                                    reply_str, 
-                                    character, 
-                                    prompt_data['prompt']
-                                )
-                                
-                                # Only accept high-quality responses
-                                if quality_metrics['overall_score'] < 0.5:
-                                    quality_filtered_count += 1
-                                    logger.debug(f"❌ Response filtered (score: {quality_metrics['overall_score']:.2f}): {quality_metrics['issues']}")
-                                    continue
+                    # Process batch results
+                    for i, (messages, reply) in enumerate(zip(batch_messages, replies)):
+                        try:
+                            reply_str = str(reply).strip()
 
-                                # Always use temporal system prompt during generation
-                                system_prompt = self._generate_temporal_system_prompt(
-                                    character,
-                                    prompt_data.get('temporal_context', 'present'),
-                                    prompt_data.get('relationship_context'),
-                                )
-                                
-                                sample = {
-                                    "messages": [
-                                        {"role": "system", "content": system_prompt},
-                                        {"role": "user", "content": prompt_data['prompt']},
-                                        {"role": "assistant", "content": reply_str},
-                                    ]
-                                }
-                                samples.append(sample)
-                                processed_count += 1
-
-                                # Update progress
-                                if progress_callback:
-                                    total_current = len(samples)
-                                    progress_callback(min(total_current / num_samples, 1.0))
-
-                                # Stop if we have enough samples
-                                if len(samples) >= num_samples:
-                                    break
-
-                            except Exception as e:
-                                logger.debug(f"Error processing sample: {e}")
+                            if not reply_str or "Error:" in reply_str:
                                 continue
 
-                        if len(samples) >= num_samples:
-                            break
+                            sample = {
+                                "messages": [
+                                    messages[0],  # system
+                                    messages[1],  # user
+                                    {"role": "assistant", "content": reply_str},
+                                ]
+                            }
+                            samples.append(sample)
+                            processed_count += 1
 
-                        await asyncio.sleep(0.2)
+                            # Update progress
+                            if progress_callback:
+                                total_current = len(samples)
+                                progress_callback(min(total_current / num_samples, 1.0))
 
-                        # Clear CUDA cache periodically
-                        try:
-                            import torch
-                            if torch.cuda.is_available():
-                                torch.cuda.empty_cache()
-                        except Exception:
-                            pass
-                            
-                    except Exception as outer_e:
-                        # Handle vLLM and other errors with progressive batch size reduction
-                        error_str = str(outer_e)
-                        logger.warning(f"⚠️ Batch processing error: {error_str}")
-                        
-                        # Check if this is a vLLM-specific error (AssertionError, CUDA, memory, etc.)
-                        is_vllm_error = any(keyword in error_str for keyword in [
-                            "AssertionError", "CUDA", "memory", "vLLM", "tensor", "batch"
-                        ])
-                        
-                        if is_vllm_error and batch_size > 1:
-                            # Progressive batch size reduction for vLLM errors
-                            original_batch_size = batch_size
-                            retry_attempts = 0
-                            max_retries = 3
-                            
-                            while retry_attempts < max_retries and batch_size > 1:
-                                # Reduce batch size more aggressively for vLLM errors
-                                if retry_attempts == 0:
-                                    new_batch_size = max(1, batch_size // 2)
-                                elif retry_attempts == 1:
-                                    new_batch_size = max(1, batch_size // 2)
-                                else:
-                                    new_batch_size = 1  # Last resort: sequential processing
-                                
-                                logger.info(f"🔄 Attempt {retry_attempts + 1}: Reducing batch size {batch_size} → {new_batch_size}")
-                                batch_size = new_batch_size
-                                
-                                # Prepare smaller batch
-                                small_batch_end = min(batch_start + batch_size, len(bucket_prompts))
-                                small_batch_prompts = bucket_prompts[batch_start:small_batch_end]
-                                small_full_prompts = [item['full_prompt'] for item in small_batch_prompts]
-                                
-                                try:
-                                    # Retry with smaller batch
-                                    if batch_size == 1:
-                                        # Sequential processing
-                                        replies = []
-                                        for prompt in small_full_prompts:
-                                            reply = await self._generate_text(
-                                                prompt=prompt,
-                                                max_tokens=1000,
-                                                temperature=temperature,
-                                                top_p=top_p,
-                                                character_name=character.get('name')
-                                            )
-                                            replies.append(reply)
-                                            await asyncio.sleep(0.1)  # Small delay
-                                    else:
-                                        replies = await self._generate_text_batch(
-                                            prompts=small_full_prompts,
-                                            max_tokens=1000,
-                                            temperature=temperature,
-                                            top_p=top_p,
-                                            character_name=character.get('name')
-                                        )
-                                    
-                                    # Process successful results
-                                    for i, (prompt_data, reply) in enumerate(zip(small_batch_prompts, replies)):
-                                        try:
-                                            reply_str = str(reply).strip()
-                                            if not reply_str or "Error:" in reply_str:
-                                                continue
-                                            
-                                            quality_metrics = self.evaluate_response_quality(
-                                                reply_str, character, prompt_data['prompt']
-                                            )
-                                            if quality_metrics['overall_score'] >= 0.5:
-                                                system_prompt = self._generate_temporal_system_prompt(
-                                                    character,
-                                                    prompt_data.get('temporal_context', 'present'),
-                                                    prompt_data.get('relationship_context'),
-                                                )
-                                                sample = {
-                                                    "messages": [
-                                                        {"role": "system", "content": system_prompt},
-                                                        {"role": "user", "content": prompt_data['prompt']},
-                                                        {"role": "assistant", "content": reply_str},
-                                                    ]
-                                                }
-                                                samples.append(sample)
-                                                processed_count += 1
-                                                if progress_callback:
-                                                    progress_callback(min(len(samples) / num_samples, 1.0))
-                                                if len(samples) >= num_samples:
-                                                    break
-                                        except Exception as process_error:
-                                            logger.debug(f"Error processing sample: {process_error}")
-                                            continue
-                                    
-                                    logger.info(f"✅ Retry successful with batch size {batch_size}")
-                                    break  # Success, exit retry loop
-                                    
-                                except Exception as retry_error:
-                                    retry_attempts += 1
-                                    retry_error_str = str(retry_error)
-                                    logger.warning(f"💥 Retry {retry_attempts} failed: {retry_error_str}")
-                                    
-                                    if retry_attempts >= max_retries:
-                                        logger.error(f"💥 All retries failed, skipping batch")
-                                        break
-                                        
-                                    # Wait before next retry
-                                    await asyncio.sleep(0.5)
-                            
-                            # Reset batch size for next iteration
-                            batch_size = original_batch_size
-                        else:
-                            # For non-vLLM errors or when batch size is already 1, just skip
-                            logger.error(f"💥 Skipping batch due to error: {error_str}")
+                            # Stop if we have enough samples
+                            if len(samples) >= num_samples:
+                                break
+
+                        except Exception as e:
+                            logger.debug(f"Error processing sample: {e}")
                             continue
 
-                # End grouped processing
+                    if len(samples) >= num_samples:
+                        break
+
+                    await asyncio.sleep(0.1)  # Small delay between batches
+                        
+                except Exception as e:
+                    logger.warning(f"⚠️ Batch processing error: {e}")
+                    continue
 
             if progress_callback:
                 progress_callback(1.0)
 
-            # ✅ FINAL BATCH VALIDATION SUMMARY
             new_generated = len(samples) - existing_count
             logger.info(f"🎯 DATASET GENERATION COMPLETE:")
             logger.info(f"   Existing samples: {existing_count}")
             logger.info(f"   New samples generated: {new_generated}")
             logger.info(f"   Total samples: {len(samples)}")
-            if len(prompts_data) > 0:
-                logger.info(
-                    f"   Success rate: {new_generated/len(prompts_data)*100:.1f}%")
-            logger.info(f"   Engine used: {self.inference_engine.name}")
-            logger.info(f"   Batch size: {base_batch_size}")
-
-            # Temporal distribution analysis
-            temporal_counts = {"past": 0, "present": 0, "future": 0}
-            relationship_counts = {}
-            intelligent_prompt_count = 0
-
-            # Only count new samples
-            for prompt_data in prompts_data[:new_generated]:
-                temporal_ctx = prompt_data.get('temporal_context', 'present')
-                temporal_counts[temporal_ctx] += 1
-
-                rel_ctx = prompt_data.get('relationship_context')
-                if rel_ctx:
-                    relationship_counts[rel_ctx] = relationship_counts.get(
-                        rel_ctx, 0) + 1
-
-            total_temporal = sum(temporal_counts.values())
-            if total_temporal > 0:
-                logger.info(f"📊 TEMPORAL DISTRIBUTION:")
-                for temporal, count in temporal_counts.items():
-                    pct = (count / total_temporal) * 100
-                    logger.info(
-                        f"   {temporal.title()}: {count} samples ({pct:.1f}%)")
-
-                logger.info(
-                    f"🧠 INTELLIGENT PROMPTS: {intelligent_prompt_count} samples ({(intelligent_prompt_count/total_temporal)*100:.1f}%)")
-
-                if relationship_counts:
-                    logger.info(f"📊 RELATIONSHIP CONTEXTS:")
-                    for rel, count in relationship_counts.items():
-                        logger.info(f"   {rel}: {count} samples")
-
-            # Spot check final samples for consistency
-            if samples:
-                sample_chars = set()
-                # Check last 10 new samples
-                for sample in samples[-min(10, new_generated):]:
-                    assistant_msg = sample['messages'][2]['content']
-                    # Look for character name at start of response
-                    first_words = assistant_msg.split()[:3]
-                    sample_chars.update(first_words)
-
-                logger.info(f"   Character consistency check: {sample_chars}")
+            if len(unique_prompts) > 0:
+                logger.info(f"   Success rate: {new_generated/len(unique_prompts)*100:.1f}%")
 
             # If custom system prompt is provided, replace all temporal prompts with it
             if custom_system_prompt is not None:
@@ -1700,8 +1220,7 @@ Respond with ONLY the questions, one per line, no numbering:"""
             
             self.save_dataset(character, samples, metadata)
 
-            logger.info(
-                f"Generated {len(samples)} total samples ({new_generated} new) using {self.inference_engine.name}")
+            logger.info(f"Generated {len(samples)} total samples ({new_generated} new) using OpenAI API")
             return samples
 
         except Exception as e:
@@ -1709,42 +1228,7 @@ Respond with ONLY the questions, one per line, no numbering:"""
             logger.exception("Full traceback:")
             return []
 
-    def _create_prompt_data(self, prompt: str, character: Dict[str, Any], max_tokens: int, context: str = None) -> Dict[str, Any]:
-        """Helper to create prompt data structure"""
-        temporal_context = self._choose_temporal_bucket()
-        char_name = character.get('name', 'Assistant')
-        
-        # Always generate temporal system prompt during generation
-        temporal_system_prompt = self._generate_temporal_system_prompt(
-            character, temporal_context
-        )
-        
-        # Create messages structure for proper chat templating
-        messages = [
-            {'role': 'system', 'content': temporal_system_prompt},
-            {'role': 'user', 'content': prompt}
-        ]
-        
-        # Apply thinking template modifications and chat templating
-        modified_messages, prefill_text = apply_thinking_template_to_messages(messages, self.inference_engine.thinking_config)
-        templated_prompt = self.inference_engine.apply_chat_template(modified_messages)
-        
-        # Add prefill text if needed (for Deepseek)
-        if prefill_text:
-            templated_prompt += prefill_text
 
-        logger.debug(f"🔍 Templated prompt: {templated_prompt[:200]}...")  # Only show first 200 chars and only in debug mode
-        
-        return {
-            'prompt': prompt,
-            'full_prompt': templated_prompt,
-            'messages': messages,  # Store original messages for reference
-            'template_mode': 'enhanced',
-            'temporal_context': temporal_context,
-            'relationship_context': context,
-            'char_name': char_name,
-            'max_tokens': max_tokens,
-        }
 
     def analyze_dataset_quality(self, dataset: List[Dict[str, Any]]) -> Dict[str, Any]:
         """Analyze dataset quality metrics"""
@@ -4348,6 +3832,8 @@ Respond with ONLY a JSON object with numeric scores:
         """
         import tempfile
         import shutil
+        from .openai_client import OpenAIClient
+
         
         # Initialize judge model if different from generation model
         judge_engine = self.inference_engine
@@ -4358,9 +3844,8 @@ Respond with ONLY a JSON object with numeric scores:
             if stage_callback:
                 stage_callback({'stage': 'setup', 'message': f'Loading judge model: {judge_model}'})
             
-            # Create a new vLLM engine instance for the judge model
-            from .vllm_engine import VLLMEngine, VLLMConfig
-            judge_engine = VLLMEngine(config=VLLMConfig(model_name=judge_model))
+            # Create a new OpenAI client instance for the judge model
+            judge_engine = OpenAIClient(model=judge_model)
             if not judge_engine.is_available():
                 logger.warning(f"Judge model {judge_model} not available, falling back to generation model")
                 judge_engine = self.inference_engine
@@ -4377,7 +3862,7 @@ Respond with ONLY a JSON object with numeric scores:
             logger.info(f"🚀 Starting quality-first generation: {raw_samples_target} raw samples → {final_dataset_size} curated")
             
             # Generate in chunks to manage memory
-            chunk_size = 500 if self.inference_engine.name == "vLLM" else 100
+            chunk_size = 500
             generated_samples = []
             chunk_files = []
             
@@ -4410,10 +3895,7 @@ Respond with ONLY a JSON object with numeric scores:
                     generated_samples.extend(chunk_samples[:10])
                 
                 logger.info(f"✅ Chunk saved: {len(chunk_samples)} samples")
-                
-                # Clear CUDA cache between chunks
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
+
             
             # ================== STAGE 2: Quality Evaluation ==================
             if stage_callback:

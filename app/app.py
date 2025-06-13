@@ -43,21 +43,19 @@ logging.basicConfig(
     ]
 )
 
-# Set specific loggers to DEBUG for more detail
-logging.getLogger('utils.inference').setLevel(logging.DEBUG)
-
 # ✅ FIX: Global singleton to prevent DatasetManager re-initialization
 _GLOBAL_DATASET_MANAGER = None
 
-def get_or_create_dataset_manager(preferred_engine: Optional[str] = None, generation_model: Optional[str] = None):
-    """Get or create a singleton DatasetManager instance to prevent re-initialization"""
+def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: str = "gpt-4o-mini"):
+    """Get or create a singleton DatasetManager instance"""
     global _GLOBAL_DATASET_MANAGER
     
     if _GLOBAL_DATASET_MANAGER is None:
-        logger.info(f"🔧 Creating singleton DatasetManager with engine: {preferred_engine}, model: {generation_model}")
+        logger.info(f"🔧 Creating singleton DatasetManager with model: {default_model}")
         _GLOBAL_DATASET_MANAGER = DatasetManager(
-            preferred_engine=preferred_engine,
-            generation_model=generation_model
+            api_key=api_key,
+            base_url=base_url,
+            default_model=default_model
         )
         logger.info("✅ Singleton DatasetManager created successfully")
     else:
@@ -70,17 +68,19 @@ def init_session_state():
     if 'character_manager' not in st.session_state:
         st.session_state.character_manager = CharacterManager()
     
-    # ✅ FIX: Use singleton DatasetManager to prevent re-initialization and infinite loops
+    # ✅ FIX: Use singleton DatasetManager 
     if 'dataset_manager' not in st.session_state:
-        # Auto-detect inference engine, but allow override
-        preferred_engine = os.getenv('INFERENCE_ENGINE', None)
-        generation_model = os.getenv('GENERATION_MODEL', None)
+        # Get OpenAI configuration from environment
+        api_key = os.getenv('OPENAI_API_KEY')
+        base_url = os.getenv('OPENAI_BASE_URL')
+        default_model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
         
         try:
             # Use singleton function to prevent re-initialization
             st.session_state.dataset_manager = get_or_create_dataset_manager(
-                preferred_engine=preferred_engine,
-                generation_model=generation_model
+                api_key=api_key,
+                base_url=base_url,
+                default_model=default_model
             )
             logger.info("✅ DatasetManager successfully set in session state")
         except Exception as e:
@@ -102,11 +102,8 @@ def init_session_state():
     if 'dataset_metadata' not in st.session_state:
         st.session_state.dataset_metadata = {}
     if 'selected_engine' not in st.session_state:
-        # Only set if dataset_manager exists and is properly initialized
-        if hasattr(st.session_state, 'dataset_manager') and st.session_state.dataset_manager:
-            st.session_state.selected_engine = st.session_state.dataset_manager.inference_engine.name
-        else:
-            st.session_state.selected_engine = "Unknown"
+        # Using OpenAI API only now
+        st.session_state.selected_engine = "OpenAI API"
     if 'generated_questions' not in st.session_state:
         st.session_state.generated_questions = None
     if 'generation_model' not in st.session_state:
@@ -375,14 +372,11 @@ def render_sidebar():
                             st.info("No checkpoints found to export.")
         
         # Engine info (read-only)
-        current_engine = st.session_state.dataset_manager.inference_engine
-        engine_name = getattr(current_engine, 'name', 'Unknown')
-        
         st.markdown(f"""
             <div class="metric-card">
-                <h4 style="margin: 0 0 0.5rem 0;">🛠️ Default Engine</h4>
-                <p style="margin: 0; font-size: 0.9rem; color: #94a3b8;">{engine_name}</p>
-                <p style="margin: 0; font-size: 0.8rem; color: #64748b;">Configure per-task in each section</p>
+                <h4 style="margin: 0 0 0.5rem 0;">🛠️ Generation Engine</h4>
+                <p style="margin: 0; font-size: 0.9rem; color: #94a3b8;">OpenAI API</p>
+                <p style="margin: 0; font-size: 0.8rem; color: #64748b;">Configure models in each section</p>
             </div>
         """, unsafe_allow_html=True)
         
@@ -410,28 +404,16 @@ def render_sidebar():
                 st.session_state.global_thinking_enabled = True
                 # REMOVED: st.session_state.global_thinking_template = thinking_template
                 
-                # Apply to current engine if it supports it
-                thinking_config = {
-                    'enabled': True,
-                        'template': thinking_template,
-                    'qwen_thinking': True
-                }
-                
-                if hasattr(current_engine, 'set_thinking_config'):
-                    current_engine.set_thinking_config(thinking_config)
-                    
-                
-                    st.info(f"🧠 Using {thinking_template} globally")
-                else:
-                    st.session_state.global_thinking_enabled = False
+                # OpenAI API doesn't need thinking config - it's handled server-side
+                st.session_state.global_thinking_enabled = True
+                st.info(f"🧠 Using {thinking_template} - handled by OpenAI API")
             
             # Cache management
             st.markdown("**💾 Cache Management**")
             if st.button("🧹 Clear All Caches", help="Clear model and GGUF caches"):
                 try:
-                    # Clear GGUF cache
-                    from utils.llama_cpp_engine import LlamaCppEngine
-                    gguf_count = LlamaCppEngine.clear_gguf_cache()
+                    # Local engines removed - only clear CUDA cache
+                    gguf_count = 0
                     
                     # Clear CUDA cache
                     import torch
@@ -651,24 +633,15 @@ def page_dataset_preview():
             col_qa_model1, col_qa_model2 = st.columns([2, 1])
             
             with col_qa_model1:
-                # Available models for question generation
-                if st.session_state.selected_engine == "vLLM":
-                    qa_available_models = [
-                        "Current Engine's Model",
-                        "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",
-                        "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
-                        "meta-llama/Llama-3.1-70B-Instruct",
-                        "meta-llama/Llama-3.2-3B-Instruct",
-                        "mistralai/Mistral-7B-Instruct-v0.2",
-                        "Qwen/Qwen2.5-7B-Instruct",
-                        "microsoft/Phi-3.5-mini-instruct",
-                        "Custom (enter HF ID below)"
-                    ]
-                else:
-                    qa_available_models = [
-                        "Current Engine's Model",
-                        "Switch to vLLM for model selection"
-                    ]
+                # Available models for question generation via OpenAI API
+                qa_available_models = [
+                    "Current Model",
+                    "gpt-4o-mini",
+                    "gpt-4o",
+                    "gpt-4-turbo",
+                    "gpt-3.5-turbo",
+                    "Custom (enter model name below)"
+                ]
                 
                 selected_qa_model = st.selectbox(
                     "Question Generation Model",
@@ -678,46 +651,41 @@ def page_dataset_preview():
                 )
                 
                 # Handle custom model input
-                if selected_qa_model == "Custom (enter HF ID below)":
+                if selected_qa_model == "Custom (enter model name below)":
                     custom_qa_model = st.text_input(
-                        "HuggingFace Model ID",
-                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
-                        help="Enter any compatible HuggingFace model ID",
+                        "Model Name",
+                        placeholder="e.g., gpt-4o, claude-3-haiku",
+                        help="Enter any OpenAI API compatible model name",
                         key="custom_qa_model"
                     )
                     if custom_qa_model:
                         final_qa_model = custom_qa_model
                     else:
                         final_qa_model = None  # Use current
-                elif selected_qa_model == "Current Engine's Model":
-                    final_qa_model = None  # Use current
-                elif selected_qa_model == "Switch to vLLM for model selection":
-                    st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+                elif selected_qa_model == "Current Model":
                     final_qa_model = None  # Use current
                 else:
                     final_qa_model = selected_qa_model
             
             with col_qa_model2:
-                if final_qa_model and final_qa_model != getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None):
-                    if st.button("🔄 Load QA Model", help="Load the selected model for question generation", key="load_qa_model_btn"):
-                        with st.spinner("Loading model..."):
+                if final_qa_model and final_qa_model != getattr(st.session_state.dataset_manager, 'default_model', None):
+                    if st.button("🔄 Switch Model", help="Switch to the selected model for question generation", key="load_qa_model_btn"):
+                        with st.spinner("Switching model..."):
                             try:
-                                # Store current model info to restore later if needed
-                                st.session_state.qa_temp_engine = st.session_state.dataset_manager
-                                
-                                # Create new dataset manager with selected model
-                                st.session_state.dataset_manager = get_or_create_dataset_manager(
-                                    preferred_engine=st.session_state.selected_engine,
-                                    generation_model=final_qa_model
-                                )
-                                st.success(f"✅ Loaded {final_qa_model.split('/')[-1]}")
-                                st.rerun()
+                                # Update the current model in the OpenAI client
+                                if hasattr(st.session_state.dataset_manager, 'client'):
+                                    st.session_state.dataset_manager.client.default_model = final_qa_model
+                                    st.success(f"✅ Switched to {final_qa_model}")
+                                else:
+                                    st.error("❌ Dataset manager not properly initialized")
                             except Exception as e:
-                                st.error(f"❌ Failed to load model: {e}")
+                                st.error(f"❌ Failed to switch model: {e}")
                 
                 # Show current model
-                current_qa_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
-                st.info(f"**Current**: {current_qa_model.split('/')[-1] if '/' in current_qa_model else current_qa_model}")
+                current_qa_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
+                if hasattr(st.session_state.dataset_manager, 'client'):
+                    current_qa_model = st.session_state.dataset_manager.client.default_model
+                st.info(f"**Current**: {current_qa_model}")
             
             # ✅ NEW: Sampling Configuration for Question Generation
             st.markdown("#### 🎛️ Question Generation Settings")
@@ -726,7 +694,9 @@ def page_dataset_preview():
             from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
             
             # Get current model name for preset detection
-            current_qa_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+            current_qa_model = getattr(st.session_state.dataset_manager, 'default_model', None)
+            if hasattr(st.session_state.dataset_manager, 'client'):
+                current_qa_model = st.session_state.dataset_manager.client.default_model
             
             # Check if we have a model-specific preset
             qa_model_preset = get_model_preset(current_qa_model) if current_qa_model else None
@@ -909,23 +879,15 @@ def page_dataset_preview():
         col_model1, col_model2 = st.columns([2, 1])
         
         with col_model1:
-            # Available models for dataset generation
-            if st.session_state.selected_engine == "vLLM":
-                available_models = [
-                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",  # Default
-                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
-                    "meta-llama/Llama-3.1-70B-Instruct",
-                    "meta-llama/Llama-3.2-3B-Instruct",
-                    "mistralai/Mistral-7B-Instruct-v0.2",
-                    "Qwen/Qwen2.5-7B-Instruct",
-                    "microsoft/Phi-3.5-mini-instruct",
-                    "Custom (enter HF ID below)"
-                ]
-            else:
-                available_models = [
-                    "Current Llama.cpp Model",
-                    "Switch to vLLM for model selection"
-                ]
+            # Available models for dataset generation via OpenAI API
+            available_models = [
+                "Current Model",
+                "gpt-4o-mini", 
+                "gpt-4o", 
+                "gpt-4-turbo",
+                "gpt-3.5-turbo",
+                "Custom (enter model name below)"
+            ]
             
             selected_gen_model = st.selectbox(
                 "Generation Model",
@@ -935,44 +897,46 @@ def page_dataset_preview():
             )
             
             # Handle custom model input
-            if selected_gen_model == "Custom (enter HF ID below)":
+            if selected_gen_model == "Custom (enter model name below)":
                 custom_gen_model = st.text_input(
-                    "HuggingFace Model ID",
-                    placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
-                    help="Enter any compatible HuggingFace model ID",
+                    "Model Name",
+                    placeholder="e.g., gpt-4o, claude-3-haiku",
+                    help="Enter any OpenAI API compatible model name",
                     key="custom_gen_model"
                 )
                 if custom_gen_model:
                     final_gen_model = custom_gen_model
                 else:
                     final_gen_model = available_models[0]  # Default
-            elif selected_gen_model == "Switch to vLLM for model selection":
-                st.info("💡 Switch to vLLM engine in the sidebar for model selection")
+            elif selected_gen_model == "Current Model":
                 final_gen_model = None
             else:
-                final_gen_model = selected_gen_model if selected_gen_model != "Current Llama.cpp Model" else None
+                final_gen_model = selected_gen_model
         
         with col_model2:
             # Get current model name safely
-            current_engine_model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+            current_engine_model_name = getattr(st.session_state.dataset_manager, 'default_model', None)
+            if hasattr(st.session_state.dataset_manager, 'client'):
+                current_engine_model_name = st.session_state.dataset_manager.client.default_model
             
             if final_gen_model and current_engine_model_name and final_gen_model != current_engine_model_name:
                 if st.button("🔄 Load Model", help="Load the selected model for generation"):
                     with st.spinner("Loading model..."):
                         try:
-                            # Create new dataset manager with selected model
-                            st.session_state.dataset_manager = get_or_create_dataset_manager(
-                                preferred_engine=st.session_state.selected_engine,
-                                generation_model=final_gen_model
-                            )
-                            st.success(f"✅ Loaded {final_gen_model.split('/')[-1]}")
-                            st.rerun()
+                            # Update the model in the OpenAI client
+                            if hasattr(st.session_state.dataset_manager, 'client'):
+                                st.session_state.dataset_manager.client.default_model = final_gen_model
+                                st.success(f"✅ Switched to {final_gen_model}")
+                            else:
+                                st.error("❌ Dataset manager not properly initialized")
                         except Exception as e:
-                            st.error(f"❌ Failed to load model: {e}")
+                            st.error(f"❌ Failed to switch model: {e}")
             
             # Show current model
-            current_gen_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
-            st.info(f"**Current**: {current_gen_model.split('/')[-1] if '/' in current_gen_model else current_gen_model}")
+            current_gen_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
+            if hasattr(st.session_state.dataset_manager, 'client'):
+                current_gen_model = st.session_state.dataset_manager.client.default_model
+            st.info(f"**Current**: {current_gen_model}")
         
         # Replace the basic parameter sliders with sampling configuration
         st.markdown("#### 🎛️ Generation Settings")
@@ -981,7 +945,9 @@ def page_dataset_preview():
         from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
         
         # Get current model name for preset detection
-        current_model = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', None)
+        current_model = getattr(st.session_state.dataset_manager, 'default_model', None)
+        if hasattr(st.session_state.dataset_manager, 'client'):
+            current_model = st.session_state.dataset_manager.client.default_model
         
         # Check if we have a model-specific preset
         model_preset = get_model_preset(current_model) if current_model else None
@@ -1146,18 +1112,10 @@ def page_dataset_preview():
         """)
         
         # Show current model info
-        if st.session_state.selected_engine == "vLLM":
-            if hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file') and st.session_state.dataset_manager.inference_engine.gguf_file:
-                # GGUF model
-                display_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_display_name', 'GGUF Model')
-                st.info(f"🔧 Using GGUF model **{display_name}** for generation")
-            else:
-                # Regular model
-                model_name = getattr(st.session_state.dataset_manager.inference_engine, 'model_name', 'Unknown')
-                model_display = model_name.split('/')[-1] if '/' in model_name else model_name
-                st.info(f"🔧 Using **{model_display}** for generation")
-        else:
-            st.info(f"🔧 Using **{st.session_state.selected_engine}** for generation")
+        current_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
+        if hasattr(st.session_state.dataset_manager, 'client'):
+            current_model = st.session_state.dataset_manager.client.default_model
+        st.info(f"🔧 Using **{current_model}** via OpenAI API for generation")
         
         # Quality generation settings
         col1, col2 = st.columns(2)
@@ -1203,7 +1161,7 @@ def page_dataset_preview():
                 "Judgment Batch Size",
                 [10, 25, 50, 100],
                 index=2,
-                help="Larger batches are more efficient with vLLM"
+                help="Larger batches can be more efficient with concurrent API calls"
             )
             
             # Extra quality checkbox for quality generation
@@ -1221,11 +1179,9 @@ def page_dataset_preview():
         from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
         
         # Get current model name for preset detection
-        current_model = None
-        if hasattr(st.session_state.dataset_manager.inference_engine, 'model_name'):
-            current_model = st.session_state.dataset_manager.inference_engine.model_name
-        elif hasattr(st.session_state.dataset_manager.inference_engine, 'gguf_file'):
-            current_model = st.session_state.dataset_manager.inference_engine.gguf_file
+        current_model = getattr(st.session_state.dataset_manager, 'default_model', None)
+        if hasattr(st.session_state.dataset_manager, 'client'):
+            current_model = st.session_state.dataset_manager.client.default_model
         
         # Check if we have a model-specific preset
         model_preset = get_model_preset(current_model) if current_model else None
@@ -1269,17 +1225,17 @@ def page_dataset_preview():
             
             if use_custom_judge:
                 judge_model = st.text_input(
-                    "HuggingFace Model ID",
-                    placeholder="e.g., meta-llama/Llama-3.1-70B-Instruct",
-                    help="vLLM will automatically download and use this model as judge"
+                    "Judge Model Name",
+                    placeholder="e.g., gpt-4o, gpt-4-turbo",
+                    help="OpenAI API model to use for quality evaluation"
                 )
             else:
                 judge_model = None
-                st.info("Using the same model for generation and judging (PersonalityEngine-24B)")
+                st.info("Using the same model for generation and judging")
         
-        # Estimated time
-        samples_per_sec = 2 if st.session_state.selected_engine == "vLLM" else 0.5
-        judge_per_sec = 5 if st.session_state.selected_engine == "vLLM" else 1
+        # Estimated time (OpenAI API is generally fast)
+        samples_per_sec = 3  # OpenAI API is quite fast
+        judge_per_sec = 6    # OpenAI API judgment is also fast
         est_gen_time = raw_samples / samples_per_sec / 60
         est_judge_time = raw_samples / judge_per_sec / 60
         est_total_time = est_gen_time + est_judge_time
@@ -1854,88 +1810,60 @@ def page_model_testing():
         
         st.info("🧪 **Pure LoRA Testing**: No character context is injected. Testing how well the LoRA learned character behavior during training.")
         
-        # ✅ NEW: Model Selection for Testing
-        st.markdown("#### 🤖 Model & Engine Selection")
+        # ✅ SIMPLIFIED: Model Selection for Testing (OpenAI API only)
+        st.markdown("#### 🤖 Model Selection")
         
-        col_engine, col_model = st.columns([1, 2])
+        # Available models for testing via OpenAI API
+        test_available_models = [
+            "Current Model",
+            "gpt-4o-mini",
+            "gpt-4o", 
+            "gpt-4-turbo",
+            "gpt-3.5-turbo",
+            "Custom (enter model name below)"
+        ]
         
-        with col_engine:
-            # Engine selection for testing
-            test_engines = ["Current", "vLLM", "Llama.cpp"]
-            selected_test_engine = st.selectbox(
-                "Test Engine", 
-                test_engines,
-                help="Choose inference engine for testing",
-                key="test_engine_select"
+        test_model_choice = st.selectbox(
+            "Test Model",
+            test_available_models,
+            help="Choose model for testing",
+            key="test_model_select"
+        )
+        
+        if test_model_choice == "Custom (enter model name below)":
+            custom_test_model = st.text_input(
+                "Model Name",
+                placeholder="e.g., gpt-4o, claude-3-haiku",
+                help="Enter any OpenAI API compatible model name",
+                key="custom_test_model"
             )
+            final_test_model = custom_test_model if custom_test_model else None
+        elif test_model_choice == "Current Model":
+            final_test_model = None
+        else:
+            final_test_model = test_model_choice
         
-        with col_model:
-            if selected_test_engine == "vLLM":
-                # vLLM model options
-                vllm_test_models = [
-                    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b",
-                    "ArliAI/QwQ-32B-ArliAI-RpR-v4", 
-                    "meta-llama/Llama-3.1-70B-Instruct",
-                    "meta-llama/Llama-3.2-3B-Instruct",
-                    "mistralai/Mistral-7B-Instruct-v0.2",
-                    "Qwen/Qwen2.5-7B-Instruct",
-                    "Custom (enter HF ID below)"
-                ]
-                test_model_choice = st.selectbox(
-                    "vLLM Model",
-                    vllm_test_models,
-                    help="Choose vLLM model for testing",
-                    key="vllm_test_model"
-                )
-                
-                if test_model_choice == "Custom (enter HF ID below)":
-                    custom_test_model = st.text_input(
-                        "HuggingFace Model ID",
-                        placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
-                        key="custom_test_model"
-                    )
-                    final_test_model = custom_test_model if custom_test_model else vllm_test_models[0]
-                else:
-                    final_test_model = test_model_choice
-            
-            elif selected_test_engine == "Llama.cpp":
-                # Llama.cpp GGUF model input
-                gguf_model = st.text_input(
-                    "GGUF Model",
-                    placeholder="TheBloke/Llama-2-7B-Chat-GGUF/llama-2-7b-chat.Q4_K_M.gguf",
-                    help="Format: repo_id/filename.gguf",
-                    key="gguf_test_model"
-                )
-                final_test_model = gguf_model if gguf_model else None
-            
-            else:  # Current
-                final_test_model = None
-                st.info("Using current inference engine configuration")
-        
-        # Load test model button
-        if final_test_model and selected_test_engine != "Current":
-            if st.button("🔄 Load Test Model", help="Load selected model for testing"):
-                with st.spinner(f"Loading {selected_test_engine} model..."):
-                    try:
-                        if selected_test_engine == "vLLM":
-                            from utils.vllm_engine import VLLMEngine, VLLMConfig
-                            st.session_state.test_engine = VLLMEngine(config=VLLMConfig(model_name=final_test_model))
-                        elif selected_test_engine == "Llama.cpp":
-                            from utils.llama_cpp_engine import LlamaCppEngine
-                            st.session_state.test_engine = LlamaCppEngine(gguf_file=final_test_model)
-                        
-                        st.success(f"✅ Loaded {final_test_model.split('/')[-1]} with {selected_test_engine}")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Failed to load test model: {e}")
+        # Model switching
+        if final_test_model:
+            if st.button("🔄 Switch Test Model", help="Switch to selected model for testing"):
+                try:
+                    # Update the test model in the OpenAI client  
+                    if hasattr(st.session_state.dataset_manager, 'client'):
+                        # Store original model to restore later
+                        st.session_state.original_test_model = st.session_state.dataset_manager.client.default_model
+                        st.session_state.dataset_manager.client.default_model = final_test_model
+                        st.success(f"✅ Switched to {final_test_model} for testing")
+                    else:
+                        st.error("❌ Dataset manager not properly initialized")
+                except Exception as e:
+                    st.error(f"❌ Failed to switch test model: {e}")
         
         # Show current test configuration
-        current_test_engine = getattr(st.session_state, 'test_engine', st.session_state.dataset_manager.inference_engine)
-        current_test_model_name = getattr(current_test_engine, 'model_name', 'Unknown')
-        if hasattr(current_test_engine, 'gguf_file') and current_test_engine.gguf_file:
-            current_test_model_name = current_test_engine.gguf_file
+        current_test_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
+        if hasattr(st.session_state.dataset_manager, 'client'):
+            current_test_model = st.session_state.dataset_manager.client.default_model
         
-        st.info(f"**Current Test Setup**: {current_test_engine.name} with {current_test_model_name.split('/')[-1] if '/' in current_test_model_name else current_test_model_name}")
+        st.info(f"**Current Test Setup**: OpenAI API with {current_test_model}")
         
         # Model selection
         available_models = st.session_state.inference_manager.get_available_models()
@@ -2053,63 +1981,32 @@ def page_model_testing():
         if st.button("🚀 Generate Response", use_container_width=True):
             if test_prompt.strip():
                 with st.spinner("Generating response..."):
-                    # Use test engine if available, otherwise fall back to inference manager
-                    if hasattr(st.session_state, 'test_engine'):
-                        # Direct engine generation
+                    try:
+                        # Build messages for OpenAI API
+                        messages = []
+                        if system_prompt_option != "Default (Tokenizer's built-in)" and system_prompt is not None:
+                            if system_prompt:  # Only add if not empty
+                                messages.append({"role": "system", "content": system_prompt})
+                        messages.append({"role": "user", "content": test_prompt})
+                        
+                        # Use OpenAI API for testing
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
                         try:
-                            # Build messages for chat template
-                            messages = []
-                            if system_prompt_option != "Default (Tokenizer's built-in)" and system_prompt is not None:
-                                if system_prompt:  # Only add if not empty
-                                    messages.append({"role": "system", "content": system_prompt})
-                            messages.append({"role": "user", "content": test_prompt})
-                            
-                            # Apply chat template
-                            formatted_prompt = st.session_state.test_engine.apply_chat_template(messages)
-                            
-                            # Generate using the test engine with all sampling parameters
-                            generation_params = {
-                                'prompt': formatted_prompt,
-                                'max_tokens': test_sampling_config.max_tokens,
-                                'temperature': test_sampling_config.temperature,
-                                'top_p': test_sampling_config.top_p,
-                            }
-                            # Add other sampling parameters
-                            generation_params.update({k: v for k, v in test_sampling_config.to_dict().items() 
-                                                    if k not in ['max_tokens', 'temperature', 'top_p']})
-                            
-                            # Check if engine has async generation
-                            if hasattr(st.session_state.test_engine, 'generate') and callable(st.session_state.test_engine.generate):
-                                import asyncio
-                                
-                                # Create async wrapper for the generation
-                                async def async_generate():
-                                    return await st.session_state.test_engine.generate(**generation_params)
-                                
-                                # Run the async generation
-                                loop = asyncio.new_event_loop()
-                                asyncio.set_event_loop(loop)
-                                try:
-                                    response = loop.run_until_complete(async_generate())
-                                finally:
-                                    loop.close()
-                            else:
-                                # Fallback for sync engines
-                                response = "Error: Test engine does not support generation"
-                        except Exception as e:
-                            st.error(f"❌ Test engine generation failed: {e}")
-                            response = f"Error: {e}"
-                    else:
-                        # Fall back to inference manager
-                        response = st.session_state.inference_manager.generate_response(
-                            selected_model,
-                            test_prompt,
-                                max_new_tokens=test_sampling_config.max_tokens,
-                                temperature=test_sampling_config.temperature,
-                                top_p=test_sampling_config.top_p,
-                                repetition_penalty=test_sampling_config.repetition_penalty,
-                            system_prompt=system_prompt
-                        )
+                            response = loop.run_until_complete(
+                                st.session_state.dataset_manager.client.chat_complete(
+                                    messages=messages,
+                                    max_tokens=test_sampling_config.max_tokens,
+                                    temperature=test_sampling_config.temperature,
+                                    top_p=test_sampling_config.top_p
+                                )
+                            )
+                        finally:
+                            loop.close()
+                    except Exception as e:
+                        st.error(f"❌ Generation failed: {e}")
+                        response = f"Error: {e}"
                 
                 st.markdown("### Response")
                 st.markdown(f"""
