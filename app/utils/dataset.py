@@ -23,25 +23,23 @@ logger = logging.getLogger(__name__)
 class DatasetManager:
     """Manages synthetic dataset generation and processing using OpenAI API"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: str = "gpt-4o-mini"):
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
         """
         Initialize DatasetManager with OpenAI client
         
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             base_url: Base URL for API (defaults to OpenAI, but can be changed for compatible endpoints)
-            default_model: Default model to use for requests
-        """
-        logger.info(f"DatasetManager initializing with model: {default_model}")
-        
+            model: Default model to use for requests
+        """        
         # Initialize OpenAI client
         if api_key or base_url:
             from .openai_client import OpenAIClient, set_client
-            client = OpenAIClient(api_key=api_key, base_url=base_url, default_model=default_model)
+            client = OpenAIClient(api_key=api_key, base_url=base_url)
             set_client(client)
         
         self.client = get_client()
-        logger.info(f"DatasetManager created with model: {self.client.default_model}")
+        logger.info(f"DatasetManager created with model: {os.getenv('MODEL_NAME')}")
 
         self.prompts_nsfw = [
             "*leans in close* What's the naughtiest thing you've ever done?",
@@ -404,7 +402,7 @@ class DatasetManager:
     async def test_client(self) -> bool:
         """Test the OpenAI client with a simple prompt for debugging"""
         try:
-            logger.info(f"🔧 Testing OpenAI client with model: {self.client.default_model}")
+            logger.info(f"🔧 Testing OpenAI client with model: {self.client.model}")
 
             # Test with a very simple prompt
             test_prompt = "Hello, how are you today?"
@@ -577,7 +575,6 @@ French version:"""
         logger.info(f"   Requested questions: {num_questions}")
         logger.info(f"   Character: {character.get('name', 'Unknown')}")
         logger.info(f"   Existing dataset size: {len(existing_dataset) if existing_dataset else 0}")
-        logger.info(f"   Inference engine available: {self.inference_engine is not None}")
         
         card_block = self._make_card_block(character)
         logger.info(f"   Card block length: {len(card_block)} chars")
@@ -626,8 +623,7 @@ French version:"""
             prompts.append((prompt_txt, examples_for_prompt))
 
         # Determine whether we can leverage batched generation
-        batch_size = min(num_questions, 100) if hasattr(
-            self.inference_engine, 'generate_batch') else 1
+        batch_size = 10
         prompt_texts = [p[0] for p in prompts]
         
         logger.info(f"   Prepared {len(prompt_texts)} prompts for generation")
@@ -792,9 +788,6 @@ French version:"""
         num_variations: int = 3
     ) -> List[str]:
         """Generate variations of a popular question to increase diversity"""
-        if not self.inference_engine:
-            return []
-        
         char_name = character.get('name', 'Assistant')
         
         variation_prompt = f"""Given this popular roleplay question, create {num_variations} different variations that ask the same core thing but with different wording, tone, or approach.
@@ -811,12 +804,12 @@ Create {num_variations} variations that:
 Respond with ONLY the questions, one per line, no numbering:"""
 
         try:
-            response = await self._generate_text(
+            response = await self.client.generate(
                 prompt=variation_prompt,
                 max_tokens=1000,
                 temperature=0.8,
                 top_p=0.9,
-                custom_stop_tokens=["Character:", f"{char_name}:", "User:"]
+                stop=["Character:", f"{char_name}:", "User:"]
             )
             
             # Parse variations from response
@@ -1644,11 +1637,6 @@ Respond with ONLY the questions, one per line, no numbering:"""
         personality = character.get('personality', '')
         scenario = character.get('scenario', '')
 
-        # Check if inference engine is properly available
-        if not self.inference_engine:
-            logger.warning(
-                f"No inference engine available for intelligent prompt generation")
-            return []
 
         # Build character analysis prompt
         card_info = f"Character: {char_name}\nDescription: {description}\nPersonality: {personality}\nScenario: {scenario}"
@@ -1656,10 +1644,7 @@ Respond with ONLY the questions, one per line, no numbering:"""
         if temporal_context == "past":
             analysis_prompt = f"""I want to roleplay with {char_name}. Help me create some questions about their past.
 
-Character: {char_name}
-Description: {description}
-Personality: {personality}
-Scenario: {scenario}
+{card_info}
 
 Please suggest 3-4 questions I could ask {char_name} about their past relationships, childhood, or background. Make them personal and engaging for roleplay.
 
@@ -1671,10 +1656,7 @@ Format as a simple list:
         elif temporal_context == "future":
             analysis_prompt = f"""I want to roleplay with {char_name} as if we've known each other for years. Help me create intimate questions.
 
-Character: {char_name}
-Description: {description}
-Personality: {personality}
-Scenario: {scenario}
+{card_info}
 
 Please suggest 3-4 personal questions I could ask {char_name} as someone who knows them deeply. Make them emotional and intimate.
 
@@ -1691,17 +1673,6 @@ Format as a simple list:
 
         for attempt in range(max_retries):
             try:
-                # ✅ FIX: Remove delays that were causing slowdowns
-                # Force garbage collection and clear CUDA cache between attempts only if needed
-                if attempt > 0:
-                    gc.collect()
-                    try:
-                        import torch
-                        if torch.cuda.is_available():
-                            torch.cuda.empty_cache()
-                    except Exception:
-                        pass
-
                 # For second attempt, if we got an empty response on first try,
                 # modify the prompt to avoid potential safety filter triggers
                 current_prompt = analysis_prompt
@@ -1716,11 +1687,6 @@ Format as a simple list:
                 # Generate using the inference engine with conservative settings
                 logger.debug(
                     f"Attempting intelligent prompt generation for {temporal_context} (attempt {attempt + 1})")
-
-                # Use a custom stop-token list that omits "\n\n" so the model can safely emit
-                # multi-line JSON without being truncated.
-                reduced_stop_tokens = [
-                    "<|endoftext|>", "User:", "###", "<|endofcard|>", "<|user|>"]
                 
                 system_prompt = "You are a helpful assistant who creates engaging roleplay questions for character interactions."
                 
@@ -1730,26 +1696,13 @@ Format as a simple list:
                     {'role': 'user', 'content': current_prompt}
                 ]
 
-                # Check if generate_with_messages is available, fallback to regular generate
-                if hasattr(self.inference_engine, 'generate_with_messages'):
-                    response = await self.inference_engine.generate_with_messages(
-                        messages=messages,
-                        max_tokens=1000,  # Reduced for simpler responses
-                        temperature=0.9,  # Slightly lower for more focused responses
-                        top_p=0.9,       # Less restrictive sampling
-                        character_name=None,  # Don't add character name for analytical task
-                        custom_stop_tokens=reduced_stop_tokens
-                    )
-                else:
-                    # Fallback: use chat template and regular generate
-                    templated_prompt = self.inference_engine.apply_chat_template(messages)
-                    response = await self._generate_text(
-                        prompt=templated_prompt,
-                        max_tokens=1000,
-                        temperature=0.9,
-                        top_p=0.9,
-                        custom_stop_tokens=reduced_stop_tokens
-                    )
+                response = await self.client.generate(
+                    messages=messages,
+                    max_tokens=1000,  # Reduced for simpler responses
+                    temperature=0.9,  # Slightly lower for more focused responses
+                    top_p=0.9,       # Less restrictive sampling
+                    character_name=None,  # Don't add character name for analytical task
+                )
 
                 # ————————————————————————  NEW DIAGNOSTIC LOGGING  ————————————————————————
                 preview_len = min(len(response), 400)
@@ -3423,7 +3376,7 @@ Format as a simple list:
             return 'sensual'
     
     async def evaluate_nsfw_quality(self, response: str, character: Dict[str, Any], 
-                                   prompt: str, judge_engine) -> Dict[str, float]:
+                                   prompt: str) -> Dict[str, float]:
         """Evaluate NSFW response quality with specialized criteria"""
         
         char_name = character.get('name', 'Assistant')
@@ -3446,10 +3399,10 @@ Rate on these criteria (0-10):
 6. sensual_detail: Are descriptions evocative and tasteful without being crude?
 
 Respond with ONLY a JSON object with numeric scores:
-{{"character_consistency": 8, "emotional_authenticity": 9, "narrative_flow": 7, "consent_awareness": 10, "creative_expression": 8, "sensual_detail": 7}}"""
+{{"character_consistency": 8, "emotional_authenticity": 9, "narrative_flow": 7, "creative_expression": 8, "sensual_detail": 7}}"""
         
         try:
-            response = await judge_engine.generate(
+            response = await self.client.generate(
                 prompt=judgment_prompt,
                 max_tokens=1000,
                 temperature=0.1,
@@ -3467,7 +3420,6 @@ Respond with ONLY a JSON object with numeric scores:
                     'character_consistency': 0.25,
                     'emotional_authenticity': 0.20,
                     'narrative_flow': 0.15,
-                    'consent_awareness': 0.20,  # Important for responsible content
                     'creative_expression': 0.10,
                     'sensual_detail': 0.10
                 }
@@ -3485,7 +3437,6 @@ Respond with ONLY a JSON object with numeric scores:
                     'character_consistency': 5.0,
                     'emotional_authenticity': 5.0,
                     'narrative_flow': 5.0,
-                    'consent_awareness': 5.0,
                     'creative_expression': 5.0,
                     'sensual_detail': 5.0,
                     'overall_score': 5.0
@@ -3802,9 +3753,6 @@ Respond with ONLY a JSON object with numeric scores:
         quality_threshold: float = 7.0,
         diversity_weight: float = 0.3,
         judgment_batch_size: int = 50,
-        judge_model: Optional[str] = None,
-        temperature: float = 0.9,
-        top_p: float = 0.95,
         max_tokens: Optional[int] = None,
         progress_callback: Optional[Callable] = None,
         stage_callback: Optional[Callable] = None,
@@ -3820,35 +3768,17 @@ Respond with ONLY a JSON object with numeric scores:
             final_dataset_size: Target size of curated dataset
             quality_threshold: Minimum quality score (0-10) to keep a sample
             diversity_weight: How much to weight diversity vs pure quality (0-1)
-            judgment_batch_size: Number of samples to judge in one batch
-            judge_model: Optional HuggingFace model ID for judge (defaults to generation model)
-            temperature: Temperature for generation (higher = more diverse)
-            top_p: Top-p sampling for generation
             progress_callback: Called with (current, total) for progress updates
             stage_callback: Called with stage info {'stage': 'generation'|'evaluation'|'curation', 'message': str}
+            custom_system_prompt: Custom system prompt to use for training
+            extra_quality: Whether to use extra quality criteria
+            **sampling_kwargs: Additional sampling parameters to pass to the generation function
         
         Returns:
             List of curated high-quality dataset samples
         """
         import tempfile
         import shutil
-        from .openai_client import OpenAIClient
-
-        
-        # Initialize judge model if different from generation model
-        judge_engine = self.inference_engine
-        current_model_name = getattr(self.inference_engine, 'model_name', None)
-        
-        if judge_model and judge_model != current_model_name:
-            logger.info(f"🎭 Initializing separate judge model: {judge_model}")
-            if stage_callback:
-                stage_callback({'stage': 'setup', 'message': f'Loading judge model: {judge_model}'})
-            
-            # Create a new OpenAI client instance for the judge model
-            judge_engine = OpenAIClient(model=judge_model)
-            if not judge_engine.is_available():
-                logger.warning(f"Judge model {judge_model} not available, falling back to generation model")
-                judge_engine = self.inference_engine
         
         # Create temporary directory for streaming large datasets
         temp_dir = tempfile.mkdtemp(prefix="dataset_quality_")
@@ -3920,7 +3850,6 @@ Respond with ONLY a JSON object with numeric scores:
                     batch_scores = await self._judge_sample_batch(
                         samples=batch,
                         character=character,
-                        judge_engine=judge_engine
                     )
                     
                     # Store samples with their scores
@@ -4012,15 +3941,11 @@ Respond with ONLY a JSON object with numeric scores:
         self,
         samples: List[Dict[str, Any]],
         character: Dict[str, Any],
-        judge_engine: Any = None
     ) -> List[Dict[str, float]]:
         """Judge a batch of samples for quality using LLM-as-judge.
         
         Returns a list of score dictionaries for each sample.
         """
-        if not judge_engine:
-            judge_engine = self.inference_engine
-        
         char_name = character.get('name', 'Assistant')
         
         # Prepare judgment prompts
@@ -4036,10 +3961,10 @@ Respond with ONLY a JSON object with numeric scores:
                 nsfw_indices.append(i)
                 # Use specialized NSFW evaluation
                 scores = await self.evaluate_nsfw_quality(
-                    assistant_msg, character, user_msg, judge_engine
+                    assistant_msg, character, user_msg
                 )
-                # Store the scores directly (skip batch processing for this one)
-                judgment_prompts.append(None)  # Placeholder
+                # Store the scores directly
+                batch_scores.append(scores)
             else:
                 # Create standard judgment prompt
                 judgment_prompt = f"""You are evaluating roleplay responses for quality and character consistency.
@@ -4065,29 +3990,16 @@ Respond with ONLY a JSON object with numeric scores:
                 judgment_prompts.append(judgment_prompt)
         
         # Process non-NSFW samples in batch
-        non_nsfw_prompts = [p for p in judgment_prompts if p is not None]
+        prompts = [p for p in judgment_prompts if p is not None]
         
-        if non_nsfw_prompts:
+        if prompts:
             try:
-                if hasattr(judge_engine, 'generate_batch'):
-                    # Use batch generation for efficiency
-                    responses = await judge_engine.generate_batch(
-                        prompts=non_nsfw_prompts,
-                        max_tokens=1000,
-                        temperature=0.1,  # Low temperature for consistent judging
-                        top_p=0.95
-                    )
-                else:
-                    # Fallback to sequential generation
-                    responses = []
-                    for prompt in non_nsfw_prompts:
-                        response = await judge_engine.generate(
-                            prompt=prompt,
-                            max_tokens=1000,
-                            temperature=0.1,
-                            top_p=0.95
-                        )
-                        responses.append(response)
+                responses = await self.client.generate_batch(
+                    prompts=prompts,
+                    max_tokens=1000,
+                    temperature=0.1,  # Low temperature for consistent judging
+                    top_p=0.95
+                )
                 
                 # Parse scores from responses
                 parsed_scores = []
@@ -4096,31 +4008,12 @@ Respond with ONLY a JSON object with numeric scores:
                     parsed_scores.append(scores)
             except Exception as e:
                 logger.error(f"Error in batch judgment: {e}")
-                parsed_scores = [self._get_default_scores() for _ in non_nsfw_prompts]
+                parsed_scores = [self._get_default_scores() for _ in prompts]
         else:
             parsed_scores = []
         
         # Combine results, inserting NSFW evaluations where appropriate
-        batch_scores = []
-        non_nsfw_idx = 0
-        
-        for i, sample in enumerate(samples):
-            if i in nsfw_indices:
-                # Process NSFW sample individually
-                scores = await self.evaluate_nsfw_quality(
-                    sample['messages'][2]['content'],
-                    character,
-                    sample['messages'][1]['content'],
-                    judge_engine
-                )
-                batch_scores.append(scores)
-            else:
-                # Use pre-computed batch score
-                if non_nsfw_idx < len(parsed_scores):
-                    batch_scores.append(parsed_scores[non_nsfw_idx])
-                    non_nsfw_idx += 1
-                else:
-                    batch_scores.append(self._get_default_scores())
+        batch_scores = []    
         
         return batch_scores
     
@@ -4238,7 +4131,6 @@ Respond with ONLY a JSON object with numeric scores:
         the best samples while maintaining variety.
         """
         # First ensure NSFW diversity if applicable
-        personality = ''
         if evaluated_samples and 'sample' in evaluated_samples[0]:
             first_sample = evaluated_samples[0]['sample']
             if 'messages' in first_sample and len(first_sample['messages']) > 0:

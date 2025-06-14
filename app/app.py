@@ -1,11 +1,8 @@
 import asyncio
 from asyncio.log import logger
 import os
-# Disable Streamlit's autoreload file-watcher early to avoid PyTorch inspection
-# errors. Must be set before importing Streamlit so that Streamlit reads the
-# configuration on startup.
+
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
-os.environ.setdefault("HF_HUB_CACHE", "/workspace/.cache/vllm_hf")
 
 import streamlit as st
 from streamlit_option_menu import option_menu
@@ -14,10 +11,7 @@ import pandas as pd
 import json
 import time
 import torch
-# Prevent Streamlit from trying to treat ``torch.classes`` like a normal
-# Python package – this triggers a RuntimeError during Streamlit's module
-# scan on some versions.  Overriding ``__path__`` with an empty list neuters
-# the problematic attribute and keeps PyTorch fully functional.
+
 torch.classes.__path__ = []
 
 import sys
@@ -46,16 +40,15 @@ logging.basicConfig(
 # ✅ FIX: Global singleton to prevent DatasetManager re-initialization
 _GLOBAL_DATASET_MANAGER = None
 
-def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optional[str] = None, default_model: str = "gpt-4o-mini"):
+def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optional[str] = None):
     """Get or create a singleton DatasetManager instance"""
     global _GLOBAL_DATASET_MANAGER
     
     if _GLOBAL_DATASET_MANAGER is None:
-        logger.info(f"🔧 Creating singleton DatasetManager with model: {default_model}")
+        logger.info(f"🔧 Creating singleton DatasetManager with model: {os.getenv('MODEL_NAME')}")
         _GLOBAL_DATASET_MANAGER = DatasetManager(
             api_key=api_key,
             base_url=base_url,
-            default_model=default_model
         )
         logger.info("✅ Singleton DatasetManager created successfully")
     else:
@@ -71,16 +64,14 @@ def init_session_state():
     # ✅ FIX: Use singleton DatasetManager 
     if 'dataset_manager' not in st.session_state:
         # Get OpenAI configuration from environment
-        api_key = os.getenv('OPENAI_API_KEY')
+        api_key = os.getenv('OPENAI_API_KEY', "empty")
         base_url = os.getenv('OPENAI_BASE_URL')
-        default_model = os.getenv('OPENAI_MODEL', 'gpt-4o-mini')
         
         try:
             # Use singleton function to prevent re-initialization
             st.session_state.dataset_manager = get_or_create_dataset_manager(
                 api_key=api_key,
                 base_url=base_url,
-                default_model=default_model
             )
             logger.info("✅ DatasetManager successfully set in session state")
         except Exception as e:
@@ -101,13 +92,9 @@ def init_session_state():
         st.session_state.dataset_preview = None
     if 'dataset_metadata' not in st.session_state:
         st.session_state.dataset_metadata = {}
-    if 'selected_engine' not in st.session_state:
-        # Using OpenAI API only now
-        st.session_state.selected_engine = "OpenAI API"
     if 'generated_questions' not in st.session_state:
         st.session_state.generated_questions = None
-    if 'generation_model' not in st.session_state:
-        st.session_state.generation_model = None
+
 
 # Page config
 st.set_page_config(
@@ -307,6 +294,7 @@ def render_sidebar():
         status_text = {
             'idle': 'Ready',
             'training': 'Training in Progress',
+            'dataset_generation': 'Dataset Generation in Progress',
             'paused': 'Paused',
             'complete': 'Training Complete',
             'error': 'Error Occurred'
@@ -370,74 +358,6 @@ def render_sidebar():
                             st.success(f"Checkpoint exported to {zip_path}")
                         else:
                             st.info("No checkpoints found to export.")
-        
-        # Engine info (read-only)
-        st.markdown(f"""
-            <div class="metric-card">
-                <h4 style="margin: 0 0 0.5rem 0;">🛠️ Generation Engine</h4>
-                <p style="margin: 0; font-size: 0.9rem; color: #94a3b8;">OpenAI API</p>
-                <p style="margin: 0; font-size: 0.8rem; color: #64748b;">Configure models in each section</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Global settings
-        with st.expander("⚙️ Global Settings", expanded=False):
-            # Global thinking model toggle
-            st.markdown("**🧠 Thinking Models**")
-            thinking_enabled = st.checkbox(
-                "Enable thinking model support",
-                value=st.session_state.get('global_thinking_enabled', False),
-                help="Enable support for models that use <think></think> reasoning (Deepseek R1, QwQ, etc.)",
-                key="global_thinking_toggle"
-            )
-            
-            if thinking_enabled:
-                os.environ['REASONING_PARSER'] = "deepseek_r1"
-                thinking_template = st.selectbox(
-                    "Default thinking template",
-                    ["Deepseek Template", "Qwen3 Template"],
-                    help="Default template for thinking models",
-                    key="global_thinking_template"
-                )
-                
-                # Store global thinking config - don't set the variable controlled by a widget
-                st.session_state.global_thinking_enabled = True
-                # REMOVED: st.session_state.global_thinking_template = thinking_template
-                
-                # OpenAI API doesn't need thinking config - it's handled server-side
-                st.session_state.global_thinking_enabled = True
-                st.info(f"🧠 Using {thinking_template} - handled by OpenAI API")
-            
-            # Cache management
-            st.markdown("**💾 Cache Management**")
-            if st.button("🧹 Clear All Caches", help="Clear model and GGUF caches"):
-                try:
-                    # Local engines removed - only clear CUDA cache
-                    gguf_count = 0
-                    
-                    # Clear CUDA cache
-                    import torch
-                    if torch.cuda.is_available():
-                        torch.cuda.empty_cache()
-                    
-                    st.success(f"✅ Cleared {gguf_count} GGUF files and CUDA cache")
-                except Exception as e:
-                    st.error(f"❌ Cache clear error: {e}")
-        
-        # Help section
-        with st.expander("ℹ️ Quick Help", expanded=False):
-            st.markdown("""
-            **🎯 Per-Task Configuration**
-            - **Dataset Generation**: Choose models & sampling in the generation tab
-            - **Model Testing**: Switch engines & models in the testing section
-            - **Training**: Configure base models in training config
-            
-            **💡 Tips**
-            - Different models work best for different tasks
-            - Use RpR model for creative generation
-            - Use smaller models for testing
-            - Each section remembers its settings
-            """)
     
     return selected
 
@@ -463,6 +383,14 @@ def page_character_upload():
             type=['json'],
             help="Upload a .json character card file"
         )
+
+        if st.session_state.current_character:
+            st.markdown("### Character Preview")
+            st.markdown(f"**Name:** {st.session_state.current_character.get('name', 'Unknown')}")
+            st.markdown(f"**Example:** {st.session_state.current_character.get('mes_example', 'No example available')[:300]}{'...' if len(st.session_state.current_character.get('mes_example', 'No example available')) > 300 else ''}")
+            st.markdown(f"**Scenario:** {st.session_state.current_character.get('scenario', 'No scenario available')[:300]}{'...' if len(st.session_state.current_character.get('scenario', 'No scenario available')) > 300 else ''}")
+            st.markdown(f"**Description:** {st.session_state.current_character.get('description', 'No description available')[:200]}{'...' if len(st.session_state.current_character.get('description', 'No description available')) > 200 else ''}")
+            st.markdown(f"**Personality:** {st.session_state.current_character.get('personality', 'No personality available')[:300]}{'...' if len(st.session_state.current_character.get('personality', 'No personality available')) > 300 else ''}")
         
         if uploaded_file is not None:
             try:
@@ -628,86 +556,14 @@ def page_dataset_preview():
         qa_tabs = st.tabs(["⚙️ Setup & Generation", "🔍 Review Generated Questions"])
         
         with qa_tabs[0]:
-            # ✅ NEW: Model Selection for Question Generation
-            st.markdown("#### 🤖 Model Selection")
-            col_qa_model1, col_qa_model2 = st.columns([2, 1])
-            
-            with col_qa_model1:
-                # Available models for question generation via OpenAI API
-                qa_available_models = [
-                    "Current Model",
-                    "gpt-4o-mini",
-                    "gpt-4o",
-                    "gpt-4-turbo",
-                    "gpt-3.5-turbo",
-                    "Custom (enter model name below)"
-                ]
-                
-                selected_qa_model = st.selectbox(
-                    "Question Generation Model",
-                    qa_available_models,
-                    help="Choose the model for generating questions",
-                    key="question_gen_model"
-                )
-                
-                # Handle custom model input
-                if selected_qa_model == "Custom (enter model name below)":
-                    custom_qa_model = st.text_input(
-                        "Model Name",
-                        placeholder="e.g., gpt-4o, claude-3-haiku",
-                        help="Enter any OpenAI API compatible model name",
-                        key="custom_qa_model"
-                    )
-                    if custom_qa_model:
-                        final_qa_model = custom_qa_model
-                    else:
-                        final_qa_model = None  # Use current
-                elif selected_qa_model == "Current Model":
-                    final_qa_model = None  # Use current
-                else:
-                    final_qa_model = selected_qa_model
-            
-            with col_qa_model2:
-                if final_qa_model and final_qa_model != getattr(st.session_state.dataset_manager, 'default_model', None):
-                    if st.button("🔄 Switch Model", help="Switch to the selected model for question generation", key="load_qa_model_btn"):
-                        with st.spinner("Switching model..."):
-                            try:
-                                # Update the current model in the OpenAI client
-                                if hasattr(st.session_state.dataset_manager, 'client'):
-                                    st.session_state.dataset_manager.client.default_model = final_qa_model
-                                    st.success(f"✅ Switched to {final_qa_model}")
-                                else:
-                                    st.error("❌ Dataset manager not properly initialized")
-                            except Exception as e:
-                                st.error(f"❌ Failed to switch model: {e}")
-                
-                # Show current model
-                current_qa_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
-                if hasattr(st.session_state.dataset_manager, 'client'):
-                    current_qa_model = st.session_state.dataset_manager.client.default_model
-                st.info(f"**Current**: {current_qa_model}")
-            
             # ✅ NEW: Sampling Configuration for Question Generation
             st.markdown("#### 🎛️ Question Generation Settings")
             
             # Import and use sampling configuration
             from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
-            
-            # Get current model name for preset detection
-            current_qa_model = getattr(st.session_state.dataset_manager, 'default_model', None)
-            if hasattr(st.session_state.dataset_manager, 'client'):
-                current_qa_model = st.session_state.dataset_manager.client.default_model
-            
-            # Check if we have a model-specific preset
-            qa_model_preset = get_model_preset(current_qa_model) if current_qa_model else None
-            if qa_model_preset:
-                st.info(f"🎯 **{qa_model_preset['name']}** preset available for this model")
-            
             # Create default config for question generation (different from generation - better for questions)
             qa_default_config = SamplingConfig(
                 temperature=0.9,  # Slightly higher for more diverse questions
-                top_p=0.95,
-                top_k=50,
                 repetition_penalty=1.05,
                 max_tokens=100  # Questions are shorter
             )
@@ -715,7 +571,6 @@ def page_dataset_preview():
             # ✅ FIX: Pass use_expander=False to avoid nested expander error
             qa_sampling_config = render_sampling_config_ui(
                 current_config=qa_default_config,
-                model_name=current_qa_model,
                 key_prefix="qa_gen",
                 use_expander=False  # Important: Avoid nested expanders
             )
@@ -746,12 +601,6 @@ def page_dataset_preview():
                             )
                         )
                         st.session_state.generated_questions = qs
-                        
-                        # ✅ NEW: Restore original engine if we temporarily switched
-                        if st.session_state.get('qa_temp_engine') and final_qa_model is not None:
-                            st.session_state.dataset_manager = st.session_state.qa_temp_engine
-                            st.session_state.pop('qa_temp_engine', None)
-                            st.success("✅ Restored original generation engine")
                     finally:
                         loop.close()
                 st.success(f"Generated {len(st.session_state.generated_questions)} questions!")
@@ -874,98 +723,22 @@ def page_dataset_preview():
     with standard_tab:
         st.markdown("### 🚀 Standard Dataset Generation")
         
-        # ✅ NEW: Model Selection for Dataset Generation
-        st.markdown("#### 🤖 Model Selection")
-        col_model1, col_model2 = st.columns([2, 1])
-        
-        with col_model1:
-            # Available models for dataset generation via OpenAI API
-            available_models = [
-                "Current Model",
-                "gpt-4o-mini", 
-                "gpt-4o", 
-                "gpt-4-turbo",
-                "gpt-3.5-turbo",
-                "Custom (enter model name below)"
-            ]
-            
-            selected_gen_model = st.selectbox(
-                "Generation Model",
-                available_models,
-                help="Choose the model for dataset generation",
-                key="dataset_gen_model"
-            )
-            
-            # Handle custom model input
-            if selected_gen_model == "Custom (enter model name below)":
-                custom_gen_model = st.text_input(
-                    "Model Name",
-                    placeholder="e.g., gpt-4o, claude-3-haiku",
-                    help="Enter any OpenAI API compatible model name",
-                    key="custom_gen_model"
-                )
-                if custom_gen_model:
-                    final_gen_model = custom_gen_model
-                else:
-                    final_gen_model = available_models[0]  # Default
-            elif selected_gen_model == "Current Model":
-                final_gen_model = None
-            else:
-                final_gen_model = selected_gen_model
-        
-        with col_model2:
-            # Get current model name safely
-            current_engine_model_name = getattr(st.session_state.dataset_manager, 'default_model', None)
-            if hasattr(st.session_state.dataset_manager, 'client'):
-                current_engine_model_name = st.session_state.dataset_manager.client.default_model
-            
-            if final_gen_model and current_engine_model_name and final_gen_model != current_engine_model_name:
-                if st.button("🔄 Load Model", help="Load the selected model for generation"):
-                    with st.spinner("Loading model..."):
-                        try:
-                            # Update the model in the OpenAI client
-                            if hasattr(st.session_state.dataset_manager, 'client'):
-                                st.session_state.dataset_manager.client.default_model = final_gen_model
-                                st.success(f"✅ Switched to {final_gen_model}")
-                            else:
-                                st.error("❌ Dataset manager not properly initialized")
-                        except Exception as e:
-                            st.error(f"❌ Failed to switch model: {e}")
-            
-            # Show current model
-            current_gen_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
-            if hasattr(st.session_state.dataset_manager, 'client'):
-                current_gen_model = st.session_state.dataset_manager.client.default_model
-            st.info(f"**Current**: {current_gen_model}")
-        
         # Replace the basic parameter sliders with sampling configuration
         st.markdown("#### 🎛️ Generation Settings")
         
         # Import and use sampling configuration
         from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
-        
-        # Get current model name for preset detection
-        current_model = getattr(st.session_state.dataset_manager, 'default_model', None)
-        if hasattr(st.session_state.dataset_manager, 'client'):
-            current_model = st.session_state.dataset_manager.client.default_model
-        
-        # Check if we have a model-specific preset
-        model_preset = get_model_preset(current_model) if current_model else None
-        if model_preset:
-            st.info(f"🎯 **{model_preset['name']}** preset available for this model")
-        
+
         # Create default config
         default_config = SamplingConfig(
             temperature=0.8,
-            top_p=0.9,
-            max_tokens=400,
+            max_tokens=1000,
             repetition_penalty=1.1,
         )
         
         # Render sampling configuration UI
         sampling_config = render_sampling_config_ui(
             current_config=default_config,
-            model_name=current_model,
             key_prefix="standard_gen"
         )
         
@@ -1022,7 +795,6 @@ def page_dataset_preview():
             with col_b:
                 # Show configuration summary
                 st.markdown("**Configuration Summary:**")
-                st.write(f"• Model: {current_model.split('/')[-1] if current_model and '/' in current_model else 'Unknown'}")
                 st.write(f"• Temperature: {sampling_config.temperature}")
                 st.write(f"• Max Tokens: {sampling_config.max_tokens}")
                 st.write(f"• System Prompt: {'Custom' if use_custom_system else 'Temporal'}")
@@ -1219,20 +991,6 @@ def page_dataset_preview():
             system_prompt_quality = None
             st.info("Dataset will keep temporal context system prompts (varies per sample)")
         
-        # Judge model selection
-        with st.expander("🧑‍⚖️ Judge Model Configuration", expanded=False):
-            use_custom_judge = st.checkbox("Use custom judge model", value=False)
-            
-            if use_custom_judge:
-                judge_model = st.text_input(
-                    "Judge Model Name",
-                    placeholder="e.g., gpt-4o, gpt-4-turbo",
-                    help="OpenAI API model to use for quality evaluation"
-                )
-            else:
-                judge_model = None
-                st.info("Using the same model for generation and judging")
-        
         # Estimated time (OpenAI API is generally fast)
         samples_per_sec = 3  # OpenAI API is quite fast
         judge_per_sec = 6    # OpenAI API judgment is also fast
@@ -1293,7 +1051,6 @@ def page_dataset_preview():
                         quality_threshold=quality_threshold,
                         diversity_weight=diversity_weight,
                         judgment_batch_size=judgment_batch_size,
-                        judge_model=judge_model,
                         progress_callback=update_progress,
                         stage_callback=update_stage,
                         custom_system_prompt=system_prompt_quality if use_custom_system_quality else None,
@@ -1810,60 +1567,6 @@ def page_model_testing():
         
         st.info("🧪 **Pure LoRA Testing**: No character context is injected. Testing how well the LoRA learned character behavior during training.")
         
-        # ✅ SIMPLIFIED: Model Selection for Testing (OpenAI API only)
-        st.markdown("#### 🤖 Model Selection")
-        
-        # Available models for testing via OpenAI API
-        test_available_models = [
-            "Current Model",
-            "gpt-4o-mini",
-            "gpt-4o", 
-            "gpt-4-turbo",
-            "gpt-3.5-turbo",
-            "Custom (enter model name below)"
-        ]
-        
-        test_model_choice = st.selectbox(
-            "Test Model",
-            test_available_models,
-            help="Choose model for testing",
-            key="test_model_select"
-        )
-        
-        if test_model_choice == "Custom (enter model name below)":
-            custom_test_model = st.text_input(
-                "Model Name",
-                placeholder="e.g., gpt-4o, claude-3-haiku",
-                help="Enter any OpenAI API compatible model name",
-                key="custom_test_model"
-            )
-            final_test_model = custom_test_model if custom_test_model else None
-        elif test_model_choice == "Current Model":
-            final_test_model = None
-        else:
-            final_test_model = test_model_choice
-        
-        # Model switching
-        if final_test_model:
-            if st.button("🔄 Switch Test Model", help="Switch to selected model for testing"):
-                try:
-                    # Update the test model in the OpenAI client  
-                    if hasattr(st.session_state.dataset_manager, 'client'):
-                        # Store original model to restore later
-                        st.session_state.original_test_model = st.session_state.dataset_manager.client.default_model
-                        st.session_state.dataset_manager.client.default_model = final_test_model
-                        st.success(f"✅ Switched to {final_test_model} for testing")
-                    else:
-                        st.error("❌ Dataset manager not properly initialized")
-                except Exception as e:
-                    st.error(f"❌ Failed to switch test model: {e}")
-        
-        # Show current test configuration
-        current_test_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
-        if hasattr(st.session_state.dataset_manager, 'client'):
-            current_test_model = st.session_state.dataset_manager.client.default_model
-        
-        st.info(f"**Current Test Setup**: OpenAI API with {current_test_model}")
         
         # Model selection
         available_models = st.session_state.inference_manager.get_available_models()
