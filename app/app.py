@@ -22,7 +22,7 @@ from typing import Dict, Any, List, Optional
 sys.path.append(str(Path(__file__).parent))
 
 from utils.character import CharacterManager
-from utils.dataset import DatasetManager
+from utils.dataset import DatasetManager, QualityLevel, GenerationConfig
 from utils.training import TrainingManager
 from utils.inference import InferenceManager
 
@@ -457,11 +457,13 @@ def page_dataset_preview():
     # Check for existing dataset
     dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
     
-    # Generation mode tabs
-    generation_tab, standard_tab, quality_tab = st.tabs([
+    # Enhanced generation mode tabs
+    generation_tab, standard_tab, enhanced_tab, premium_tab, quality_tab = st.tabs([
         "📊 Overview", 
-        "🚀 Standard Generation", 
-        "⭐ Quality-First Generation"
+        "📝 Basic Generation",
+        "⭐ Enhanced Generation", 
+        "🌟 Premium Generation",
+        "🔬 Quality-First Generation"
     ])
     
     with generation_tab:
@@ -639,36 +641,6 @@ def page_dataset_preview():
             else:
                 st.info("No questions generated yet. Go to the Setup & Generation tab to create questions.")
 
-            # Show generated questions and allow user to add to baseline
-            gen_data = st.session_state.get('generated_questions')
-            if gen_data:
-                st.markdown("#### Review Generated Questions")
-                selections = []
-                for idx, item in enumerate(gen_data):
-                    # Layout: checkbox | question | context toggle
-                    cols = st.columns([0.08, 0.72, 0.2])
-                    with cols[0]:
-                        include = st.checkbox(f"q{idx+1}", value=True, label_visibility="hidden")
-                        if include:
-                            selections.append(item['question'])
-                    with cols[1]:
-                        st.markdown(f"**{idx+1}. {item['question']}**")
-                    with cols[2]:
-                        toggle_key = f"show_ctx_{idx}"
-                        if st.button("Context ↕"):
-                            st.session_state[toggle_key] = not st.session_state.get(toggle_key, False)
-                    # Display context when toggled
-                    if st.session_state.get(toggle_key, False) and item['context']:
-                        st.markdown("**Context used:**")
-                        for j, ctx in enumerate(item['context']):
-                            st.markdown(f"*Q{j+1}:* {ctx['user']}")
-                            st.markdown(f"*A{j+1}:* {ctx['assistant']}")
-                        st.markdown("---")
-
-                if selections and st.button("➕ Add Selected Questions", use_container_width=True):
-                    st.session_state.dataset_manager.default_user_prompts.extend(selections)
-                    st.success(f"Added {len(selections)} questions to baseline list.")
-
         # 📦 Dataset Import / Export
         st.markdown("### 📦 Import / Export Dataset")
         with st.expander("Manage dataset files (download or import)"):
@@ -721,7 +693,146 @@ def page_dataset_preview():
                         st.error("Failed to import dataset. Check file format.")
     
     with standard_tab:
-        st.markdown("### 🚀 Standard Dataset Generation")
+        st.markdown("### 📝 Basic Dataset Generation")
+        
+        st.info("""
+        🎯 **Basic Mode**:
+        - Standard generation with minimal quality filtering
+        - Fast generation for testing and prototyping
+        - Good for: Quick experiments, proof of concepts
+        """)
+        
+        # Basic generation settings
+        st.markdown("#### 🎛️ Basic Generation Settings")
+        
+        # Simple configuration for basic mode
+        with st.form("basic_generation"):
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                basic_num_samples = st.slider(
+                    "Number of samples",
+                    min_value=10,
+                    max_value=200,
+                    value=50,
+                    step=10,
+                    help="Number of samples to generate for basic testing"
+                )
+                
+                basic_temperature = st.slider(
+                    "Temperature",
+                    min_value=0.1,
+                    max_value=1.5,
+                    value=0.8,
+                    step=0.1,
+                    help="Controls randomness in generation"
+                )
+            
+            with col_b:
+                basic_max_tokens = st.slider(
+                    "Max tokens per response",
+                    min_value=50,
+                    max_value=500,
+                    value=200,
+                    step=50,
+                    help="Maximum length of each response"
+                )
+                
+                basic_use_custom_system = st.checkbox(
+                    "Apply custom system prompt", 
+                    value=False, 
+                    help="Replace temporal prompts with a custom prompt after generation"
+                )
+            
+            if basic_use_custom_system:
+                basic_system_prompt = st.text_area(
+                    "System Prompt for Training",
+                    placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
+                    height=100,
+                    help="Custom system prompt to use for training",
+                    key="basic_system_prompt"
+                )
+            else:
+                basic_system_prompt = None
+                st.info("Dataset will keep temporal context system prompts")
+            
+            # Generate button
+            basic_generate_button = st.form_submit_button(
+                "🚀 Generate Basic Dataset", 
+                use_container_width=True,
+                type="primary"
+            )
+        
+        if basic_generate_button:
+            # ✅ FIX: Set generation state to prevent UI interference
+            st.session_state._generating_dataset = True
+        
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                # Run basic generation using the same pattern as enhanced mode
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    dataset = loop.run_until_complete(
+                        st.session_state.dataset_manager.generate_dataset(
+                            st.session_state.current_character,
+                            num_samples=basic_num_samples,
+                            max_tokens=basic_max_tokens,
+                            temperature=basic_temperature,
+                            top_p=0.9,
+                            progress_callback=lambda p: progress_bar.progress(p),
+                            append_to_existing=True,
+                            custom_system_prompt=basic_system_prompt if basic_use_custom_system else None,
+                            extra_quality=False,  # No extra quality for basic mode
+                            quality_level=QualityLevel.BASIC  # Use basic quality level
+                        )
+                    )
+                finally:
+                    loop.close()
+                
+                st.session_state.dataset_preview = dataset
+                # Update metadata if we generated with custom system prompt
+                if basic_use_custom_system:
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'basic',
+                        'system_prompt_config': {
+                            'type': 'custom',
+                            'prompt': basic_system_prompt
+                        }
+                    }
+                else:
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'basic',
+                        'system_prompt_config': {
+                            'type': 'temporal',
+                            'prompt': None
+                        }
+                    }
+                progress_bar.progress(1.0)
+                status_text.text("Basic dataset generation complete!")
+                st.success(f"✅ Generated {len(dataset)} samples successfully!")
+            
+                # ✅ FIX: Clear generation state before rerun to prevent loops
+                st.session_state._generating_dataset = False
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error generating basic dataset: {str(e)}")
+                # ✅ FIX: Always clear generation state on error
+                st.session_state._generating_dataset = False
+    
+    with enhanced_tab:
+        st.markdown("### ⭐ Enhanced Dataset Generation")
+        
+        st.info("""
+        🎯 **Enhanced Mode**:
+        - vLLM-optimized batching for better performance
+        - Real-time quality filtering during generation
+        - Character-specific quality criteria
+        - Good for: Production datasets, balanced quality/speed
+        """)
         
         # Replace the basic parameter sliders with sampling configuration
         st.markdown("#### 🎛️ Generation Settings")
@@ -809,7 +920,7 @@ def page_dataset_preview():
             )
         
         if generate_button:
-        # ✅ FIX: Set generation state to prevent UI interference
+            # ✅ FIX: Set generation state to prevent UI interference
             st.session_state._generating_dataset = True
         
             progress_bar = st.progress(0)
@@ -868,6 +979,196 @@ def page_dataset_preview():
                 
             except Exception as e:
                 st.error(f"❌ Error generating dataset: {str(e)}")
+                # ✅ FIX: Always clear generation state on error
+                st.session_state._generating_dataset = False
+    
+    with premium_tab:
+        st.markdown("### 🌟 Premium Dataset Generation")
+        
+        st.info("""
+        🎯 **Premium Mode**:
+        - Multi-phase generation with progressive refinement
+        - Specialized character consistency judging
+        - Automatic quality improvement through iterative refinement
+        - Highest quality output with intelligent sample curation
+        - Good for: Production characters, best possible quality
+        """)
+        
+        # Premium generation settings
+        with st.form("premium_generation"):
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                premium_samples = st.slider(
+                    "Target high-quality samples",
+                    min_value=20,
+                    max_value=500,
+                    value=100,
+                    step=10,
+                    help="Premium mode generates 3x this amount and curates the best samples"
+                )
+                
+                enable_refinement = st.checkbox(
+                    "🔄 Progressive Refinement", 
+                    value=True,
+                    help="Automatically improve lower-quality samples through iterative refinement"
+                )
+                
+                quality_threshold = st.slider(
+                    "Quality Threshold (0-1)",
+                    min_value=0.7,
+                    max_value=0.95,
+                    value=0.8,
+                    step=0.05,
+                    help="Minimum quality score for sample acceptance"
+                )
+            
+            with col_b:
+                premium_extra_quality = st.checkbox(
+                    "🌟 MAXIMUM QUALITY", 
+                    value=True, 
+                    help="Enable all quality enhancement features for absolute best results"
+                )
+                
+                refinement_iterations = st.slider(
+                    "Max Refinement Iterations",
+                    min_value=1,
+                    max_value=5,
+                    value=2,
+                    help="Maximum attempts to improve each sample"
+                )
+                
+                # vLLM optimization settings
+                vllm_optimization = st.checkbox(
+                    "🚀 vLLM Optimization",
+                    value=True,
+                    help="Use advanced batching for better performance"
+                )
+            
+            # Premium system prompt configuration
+            st.markdown("#### 📝 System Prompt Configuration")
+            use_custom_system_premium = st.checkbox("Apply custom system prompt to dataset", value=False, key="premium_custom_system")
+            
+            if use_custom_system_premium:
+                system_prompt_premium = st.text_area(
+                    "System Prompt for Training",
+                    placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
+                    height=100,
+                    key="premium_system_prompt"
+                )
+            else:
+                system_prompt_premium = None
+                st.info("Dataset will use temporal context system prompts")
+            
+            # Estimated processing time
+            estimated_total_samples = premium_samples * 3
+            estimated_time = estimated_total_samples / 8 / 60  # Rough estimate
+            
+            st.info(f"""
+            📊 **Premium Generation Plan**:
+            - Generate: ~{estimated_total_samples} diverse samples
+            - Curate: {premium_samples} highest quality samples
+            - Estimated time: ~{estimated_time:.1f} minutes
+            - Quality threshold: {quality_threshold:.0%}
+            """)
+            
+            # Submit button
+            premium_generate_button = st.form_submit_button(
+                "🌟 Generate Premium Dataset", 
+                use_container_width=True,
+                type="primary"
+            )
+        
+        if premium_generate_button:
+            # ✅ FIX: Set generation state to prevent UI interference
+            st.session_state._generating_dataset = True
+        
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            # Enhanced progress callback for premium mode
+            def update_premium_progress(p: float):
+                phase = "Processing..." if p < 0.6 else "Judging..." if p < 0.8 else "Refining..."
+                status_text.text(f"Premium generation - {phase} {p*100:.1f}%")
+                
+            try:
+                # Run premium generation
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:                    
+                    # Create enhanced generation config
+                    generation_config = GenerationConfig(
+                        use_vllm_optimization=vllm_optimization,
+                        quality_threshold=quality_threshold,
+                        enable_progressive_refinement=enable_refinement,
+                        max_refinement_iterations=refinement_iterations,
+                        judge_batch_size=20,
+                        diversity_weight=0.3,
+                        enable_real_time_filtering=True
+                    )
+                    
+                    # Update dataset manager with new config
+                    st.session_state.dataset_manager.generation_config = generation_config
+                    
+                    dataset = loop.run_until_complete(
+                        st.session_state.dataset_manager.generate_dataset(
+                            st.session_state.current_character,
+                            num_samples=premium_samples,
+                            progress_callback=lambda p: progress_bar.progress(p),
+                            append_to_existing=True,
+                            custom_system_prompt=system_prompt_premium if use_custom_system_premium else None,
+                            extra_quality=premium_extra_quality,
+                            quality_level=QualityLevel.PREMIUM,  # Use premium quality
+                            temperature=0.8,
+                            top_p=0.9,
+                            max_tokens=400
+                        )
+                    )
+                finally:
+                    loop.close()
+                
+                st.session_state.dataset_preview = dataset
+                # Update metadata
+                if use_custom_system_premium:
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'premium',
+                        'quality_threshold': quality_threshold,
+                        'system_prompt_config': {
+                            'type': 'custom',
+                            'prompt': system_prompt_premium
+                        }
+                    }
+                else:
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'premium',
+                        'quality_threshold': quality_threshold,
+                        'system_prompt_config': {
+                            'type': 'temporal',
+                            'prompt': None
+                        }
+                    }
+                    
+                progress_bar.progress(1.0)
+                status_text.text("Premium dataset generation complete!")
+                st.success(f"🌟 Generated {len(dataset)} premium quality samples!")
+                
+                # Show generation statistics if available
+                if hasattr(st.session_state.dataset_manager, 'generation_stats'):
+                    stats = st.session_state.dataset_manager.generation_stats
+                    st.info(f"""
+                    📊 **Premium Generation Statistics**:
+                    - Average quality score: {stats.get('avg_quality_score', 0):.2f}
+                    - Samples refined: {stats.get('refined_samples', 0)}
+                    - Filter efficiency: {(1 - stats.get('filtered_out', 0) / max(stats.get('total_generated', 1), 1)) * 100:.1f}%
+                    """)
+            
+                # ✅ FIX: Clear generation state before rerun to prevent loops
+                st.session_state._generating_dataset = False
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error generating premium dataset: {str(e)}")
+                logger.exception("Premium generation error:")
                 # ✅ FIX: Always clear generation state on error
                 st.session_state._generating_dataset = False
     
@@ -1125,7 +1426,7 @@ def page_dataset_preview():
 
 # Training configuration page
 def page_training_config():
-    """Training configuration page"""
+    """Enhanced training configuration page with advanced features"""
     st.markdown('<h2 class="gradient-text">⚙️ Training Configuration</h2>', unsafe_allow_html=True)
     
     # If training is already running or paused, encourage user to switch to Dashboard
@@ -1138,6 +1439,80 @@ def page_training_config():
         return
     
     dataset_size = len(st.session_state.dataset_preview)
+    
+    # Advanced Features Configuration
+    with st.expander("🚀 Advanced Training Features", expanded=False):
+        st.markdown("### Core Improvements")
+        
+        col_adv1, col_adv2 = st.columns(2)
+        
+        with col_adv1:
+            enable_validation = st.checkbox(
+                "Enable Validation Split & Early Stopping",
+                value=True,
+                help="Split dataset for validation and enable early stopping to prevent overfitting"
+            )
+            
+            adaptive_lora = st.checkbox(
+                "Adaptive LoRA Parameters",
+                value=False,
+                help="Automatically adjust LoRA rank and alpha based on character complexity"
+            )
+            
+            enhanced_filtering = st.checkbox(
+                "Enhanced Quality Filtering",
+                value=False,
+                help="Apply character-specific quality filters to training data"
+            )
+        
+        with col_adv2:
+            enable_tensorboard = st.checkbox(
+                "TensorBoard Monitoring",
+                value=False,
+                help="Enable detailed TensorBoard logging for training analysis"
+            )
+            
+            enable_wandb = st.checkbox(
+                "Weights & Biases Integration",
+                value=False,
+                help="Log training to Wandb for advanced experiment tracking"
+            )
+        
+        st.markdown("### Logging Configuration")
+        logging_freq = st.slider(
+            "Logging Frequency (steps)",
+            min_value=1,
+            max_value=50,
+            value=10,
+            help="How often to log training metrics"
+        )
+        
+        early_stopping_patience = st.slider(
+            "Early Stopping Patience",
+            min_value=1,
+            max_value=10,
+            value=3,
+            help="Number of evaluation steps without improvement before stopping"
+        ) if enable_validation else 3
+        
+        # Force GPU option
+        force_gpu = st.checkbox(
+            "Force GPU Usage",
+            value=False,
+            help="Override device selection to use GPU (if available)"
+        )
+        
+        # Store advanced config in session state
+        st.session_state.advanced_training_config = {
+            'enable_validation': enable_validation,
+            'early_stopping_patience': early_stopping_patience,
+            'adaptive_lora': adaptive_lora,
+            'enhanced_quality_filtering': enhanced_filtering,
+            'enable_tensorboard': enable_tensorboard,
+            'enable_wandb': enable_wandb,
+            'configurable_logging_freq': logging_freq,
+            'force_gpu': force_gpu
+        }
     
     col1, col2 = st.columns([2, 1])
     
@@ -1401,7 +1776,7 @@ def page_training_config():
         """, unsafe_allow_html=True)
     
     if start_training:
-        # Store training config and start training
+        # Enhanced training config with advanced features
         config = {
             'epochs': epochs,
             'learning_rate': learning_rate,
@@ -1420,14 +1795,49 @@ def page_training_config():
             'max_steps_override': int(max_steps_override) if max_steps_override else 0,
             'resume_from_checkpoint': resume_ckpt,
             'include_system_prompts': include_system_prompts,
-            'max_samples': max_samples
+            'max_samples': max_samples,
+            # Enhanced scheduling options
+            'lr_scheduler_type': 'cosine',
+            'warmup_ratio': 0.05
         }
         
         try:
+            # Configure advanced features
+            advanced_config = st.session_state.get('advanced_training_config', {})
+            st.session_state.training_manager.configure_advanced_features(advanced_config)
+            
+            # Initialize with force_gpu if specified
+            if advanced_config.get('force_gpu', False):
+                from utils.training import TrainingManager
+                st.session_state.training_manager = TrainingManager(
+                    base_model=st.session_state.training_manager.base_model,
+                    force_gpu=True
+                )
+                st.session_state.training_manager.configure_advanced_features(advanced_config)
+            
             # Use different key to avoid widget conflict
             st.session_state.active_training_config = config
             
-            # Start training
+            # Show configuration summary
+            st.success("✅ Training configuration complete!")
+            
+            # Display what features are enabled
+            enabled_features = []
+            if advanced_config.get('enable_validation', True):
+                enabled_features.append("🔍 Validation & Early Stopping")
+            if advanced_config.get('adaptive_lora', False):
+                enabled_features.append("🎯 Adaptive LoRA Parameters")
+            if advanced_config.get('enhanced_quality_filtering', False):
+                enabled_features.append("✨ Enhanced Quality Filtering")
+            if advanced_config.get('enable_tensorboard', False):
+                enabled_features.append("📊 TensorBoard Monitoring")
+            if advanced_config.get('enable_wandb', False):
+                enabled_features.append("🌐 Wandb Integration")
+            
+            if enabled_features:
+                st.info("🚀 **Enhanced Features Active:**\n\n" + "\n".join([f"• {feature}" for feature in enabled_features]))
+            
+            # Start enhanced training
             st.session_state.training_manager.start_training(
                 st.session_state.current_character,
                 st.session_state.dataset_preview,
@@ -1437,12 +1847,14 @@ def page_training_config():
             # Update status
             st.session_state.training_status = 'training'
             
-            st.success("🚀 Training started! Switch to the Training Dashboard to monitor progress.")
+            st.success("🚀 Enhanced training started! Switch to the Training Dashboard to monitor progress.")
             st.rerun()
             
         except Exception as e:
             st.error(f"❌ Failed to start training: {str(e)}")
             st.session_state.training_status = 'error'
+            import traceback
+            st.error(f"Debug info: {traceback.format_exc()}")
 
 # Real-time training dashboard
 def page_training_dashboard():
@@ -1479,8 +1891,9 @@ def page_training_dashboard():
             st.session_state.training_status = 'complete'
             st.rerun()
     
-    # Real-time metrics
+    # Enhanced real-time metrics
     metrics_placeholder = st.empty()
+    health_placeholder = st.empty()
     chart_placeholder = st.empty()
     
     # Update training status from manager
@@ -1488,63 +1901,214 @@ def page_training_dashboard():
     if current_status != st.session_state.training_status:
         st.session_state.training_status = current_status
     
-    # Get training metrics
+    # Get enhanced training metrics
     metrics = st.session_state.training_manager.get_metrics()
     
     if metrics:
+        # Display training health alerts
+        with health_placeholder.container():
+            health_status = metrics.get('training_health_status', 'unknown')
+            health_warnings = metrics.get('health_warnings', [])
+            
+            if health_status == 'critical':
+                st.error("🚨 **Critical Training Issues Detected:**")
+                for warning in health_warnings:
+                    st.error(f"• {warning}")
+            elif health_status == 'warning':
+                st.warning("⚠️ **Training Warnings:**")
+                for warning in health_warnings:
+                    st.warning(f"• {warning}")
+            elif health_status == 'healthy':
+                st.success("✅ Training is healthy")
+        
         with metrics_placeholder.container():
+            # Primary metrics row
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
+                current_loss = metrics.get('current_loss', 0)
+                loss_delta = metrics.get('loss_delta', 0)
+                delta_color = "normal" if abs(loss_delta) < 0.01 else ("inverse" if loss_delta < 0 else "off")
+                
                 st.metric(
-                    "Current Loss",
-                    f"{metrics.get('current_loss', 0):.4f}",
-                    delta=f"{metrics.get('loss_delta', 0):.4f}"
+                    "Training Loss",
+                    f"{current_loss:.4f}",
+                    delta=f"{loss_delta:.4f}",
+                    delta_color=delta_color
                 )
             
             with col2:
                 current_step = metrics.get('current_step', 0)
                 total_steps = metrics.get('total_steps', 1)
+                progress_pct = (current_step/total_steps)*100 if total_steps > 0 else 0
+                
                 st.metric(
                     "Progress",
                     f"{current_step}/{total_steps}",
-                    delta=f"{(current_step/total_steps)*100:.1f}%"
+                    delta=f"{progress_pct:.1f}%"
                 )
             
             with col3:
+                lr = metrics.get('learning_rate', 0)
                 st.metric(
                     "Learning Rate",
-                    f"{metrics.get('learning_rate', 0):.2e}"
+                    f"{lr:.2e}" if lr > 0 else "N/A"
                 )
             
             with col4:
-                elapsed = int(metrics.get('elapsed_time', 0))  # Convert to int for formatting
+                elapsed = int(metrics.get('elapsed_time', 0))
                 st.metric(
                     "Elapsed Time",
                     f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
                 )
+            
+            # Secondary metrics row (if validation is enabled)
+            if 'eval_loss' in metrics or 'character_consistency' in metrics:
+                st.markdown("---")
+                col5, col6, col7, col8 = st.columns(4)
+                
+                with col5:
+                    if 'eval_loss' in metrics:
+                        eval_loss = metrics['eval_loss']
+                        st.metric(
+                            "Validation Loss",
+                            f"{eval_loss:.4f}",
+                            help="Loss on validation set"
+                        )
+                
+                with col6:
+                    if 'character_consistency' in metrics:
+                        consistency = metrics['character_consistency']
+                        consistency_color = "normal" if consistency > 0.7 else ("off" if consistency < 0.3 else "inverse")
+                        st.metric(
+                            "Character Consistency",
+                            f"{consistency:.2f}",
+                            delta_color=consistency_color,
+                            help="How well responses match character traits"
+                        )
+                
+                with col7:
+                    if 'avg_consistency' in metrics:
+                        avg_consistency = metrics['avg_consistency']
+                        st.metric(
+                            "Avg Consistency",
+                            f"{avg_consistency:.2f}",
+                            help="Overall character consistency score"
+                        )
+                
+                with col8:
+                    training_health = metrics.get('training_health_status', 'unknown').title()
+                    health_color = {"Healthy": "normal", "Warning": "inverse", "Critical": "off"}.get(training_health, "normal")
+                    st.metric(
+                        "Training Health",
+                        training_health,
+                        delta_color=health_color
+                    )
         
-        # Loss curve
+        # Enhanced loss curve with multiple metrics
         if 'loss_history' in metrics and metrics['loss_history']:
             with chart_placeholder.container():
-                st.markdown("### Loss Curve")
+                st.markdown("### Training Progress")
                 
-                loss_df = pd.DataFrame({
-                    'Step': range(len(metrics['loss_history'])),
-                    'Loss': metrics['loss_history']
+                # Create enhanced visualization
+                steps = list(range(len(metrics['loss_history'])))
+                
+                # Build chart data
+                chart_data = pd.DataFrame({
+                    'Step': steps,
+                    'Training Loss': metrics['loss_history']
                 })
                 
+                # Create figure with secondary y-axis for character consistency
                 fig = px.line(
-                    loss_df, x='Step', y='Loss',
-                    title="Training Loss Over Time",
+                    chart_data, x='Step', y='Training Loss',
+                    title="Training Progress Over Time",
                     template="plotly_dark"
                 )
+                
+                # Add validation loss if available
+                if 'eval_loss' in metrics and hasattr(st.session_state.training_manager, 'eval_loss_history'):
+                    eval_history = getattr(st.session_state.training_manager, 'eval_loss_history', [])
+                    if eval_history:
+                        eval_steps = list(range(0, len(eval_history) * (len(steps) // len(eval_history)), len(steps) // len(eval_history)))[:len(eval_history)]
+                        fig.add_scatter(
+                            x=eval_steps, y=eval_history,
+                            mode='lines+markers',
+                            name='Validation Loss',
+                            line=dict(color='orange', dash='dash')
+                        )
+                
+                # Style the chart
                 fig.update_layout(
                     plot_bgcolor='rgba(0,0,0,0)',
                     paper_bgcolor='rgba(0,0,0,0)',
-                    font_color='white'
+                    font_color='white',
+                    xaxis_title="Training Steps",
+                    yaxis_title="Loss",
+                    legend=dict(
+                        yanchor="top",
+                        y=0.99,
+                        xanchor="left",
+                        x=0.01
+                    )
                 )
+                
+                # Add training health indicators
+                if 'health_warnings' in metrics and metrics['health_warnings']:
+                    warning_step = metrics.get('current_step', len(steps))
+                    fig.add_vline(
+                        x=warning_step,
+                        line_dash="dot",
+                        line_color="red",
+                        annotation_text="Warning",
+                        annotation_position="top right"
+                    )
+                
                 st.plotly_chart(fig, use_container_width=True)
+                
+                # Character consistency chart (if available)
+                if 'character_consistency' in metrics:
+                    st.markdown("### Character Consistency")
+                    
+                    # Create a simple consistency indicator
+                    consistency_score = metrics['character_consistency']
+                    
+                    col_chart1, col_chart2 = st.columns([1, 2])
+                    
+                    with col_chart1:
+                        # Gauge-style visualization
+                        gauge_color = "green" if consistency_score > 0.7 else "orange" if consistency_score > 0.4 else "red"
+                        st.metric(
+                            "Current Consistency Score",
+                            f"{consistency_score:.2f}",
+                            help="1.0 = Perfect character consistency, 0.0 = Poor consistency"
+                        )
+                        
+                        # Progress bar visualization
+                        progress_bar_html = f"""
+                        <div style="background-color: #f0f0f0; border-radius: 10px; padding: 3px;">
+                            <div style="background-color: {gauge_color}; width: {consistency_score*100:.0f}%; 
+                                        height: 20px; border-radius: 7px; text-align: center; color: white; 
+                                        font-weight: bold; line-height: 20px;">
+                                {consistency_score:.2f}
+                            </div>
+                        </div>
+                        """
+                        st.markdown(progress_bar_html, unsafe_allow_html=True)
+                    
+                    with col_chart2:
+                        # Show consistency evaluation details if available
+                        last_eval_step = metrics.get('consistency_last_eval_step', 0)
+                        if last_eval_step > 0:
+                            st.info(f"Last consistency evaluation at step {last_eval_step}")
+                        
+                        # Recommendations based on consistency score
+                        if consistency_score < 0.3:
+                            st.warning("💡 **Low consistency detected:** Consider reviewing dataset quality or adjusting training parameters")
+                        elif consistency_score > 0.8:
+                            st.success("🎉 **Excellent consistency:** Character is learning well!")
+                        else:
+                            st.info("📈 **Moderate consistency:** Training is progressing normally")
     
     # Auto-refresh for real-time updates
     if st.session_state.training_status == 'training':

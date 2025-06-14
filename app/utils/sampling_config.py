@@ -1,499 +1,245 @@
-"""
-Model-specific sampling configuration and presets.
-Different models work best with different sampling parameters.
-"""
-
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 import streamlit as st
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
+
 
 @dataclass
 class SamplingConfig:
-    """Configuration for sampling parameters"""
+    """Configuration for sampling parameters in text generation"""
     temperature: float = 0.8
     top_p: float = 0.9
-    top_k: Optional[int] = None
-    min_p: Optional[float] = None
+    top_k: int = 0  # 0 means disabled
     repetition_penalty: float = 1.1
-    frequency_penalty: float = 0.0
-    presence_penalty: float = 0.0
-    max_tokens: int = 200
-    seed: Optional[int] = None
-    
-    # Advanced parameters
-    eta_cutoff: Optional[float] = None
-    epsilon_cutoff: Optional[float] = None
-    typical_p: Optional[float] = None
-    tfs: Optional[float] = None
-    mirostat_mode: Optional[int] = None
-    mirostat_tau: Optional[float] = None
-    mirostat_eta: Optional[float] = None
+    max_tokens: int = 400
+    min_tokens: int = 10
     
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary, excluding None values"""
-        result = {}
-        for key, value in self.__dict__.items():
-            if value is not None:
-                result[key] = value
-        return result
+        """Convert to dictionary for API calls"""
+        config = {
+            'temperature': self.temperature,
+            'top_p': self.top_p,
+            'repetition_penalty': self.repetition_penalty,
+            'max_tokens': self.max_tokens
+        }
+        if self.top_k > 0:
+            config['top_k'] = self.top_k
+        if self.min_tokens > 0:
+            config['min_tokens'] = self.min_tokens
+        return config
 
-# Model-specific sampling presets
-MODEL_SAMPLING_PRESETS = {
-    # RpR Model (ArliAI QwQ-32B-ArliAI-RpR-v4)
-    "ArliAI/QwQ-32B-ArliAI-RpR-v4": {
-        "name": "QwQ-32B RpR Optimized",
-        "description": "Optimized for RpR (Roleplay Reasoning) model - high creativity with controlled output",
-        "config": SamplingConfig(
-            temperature=1.0,
-            min_p=0.02,
-            top_k=40,
-            top_p=0.95,  # Higher top_p for more diversity
-            repetition_penalty=1.05,
-            max_tokens=2048,
-        ),
-        "use_cases": ["Roleplay", "Character conversations", "Creative writing"]
-    },
-    
-    # PersonalityEngine model
-    "PocketDoc/Dans-PersonalityEngine-V1.3.0-24b": {
-        "name": "PersonalityEngine Balanced",
-        "description": "Balanced settings for character personality modeling",
-        "config": SamplingConfig(
-            temperature=0.9,
-            top_p=0.92,
-            top_k=60,
-            min_p=0.05,
-            repetition_penalty=1.08,
-            max_tokens=300,
-        ),
-        "use_cases": ["Character modeling", "Personality consistency", "Dialogue"]
-    },
-    
-    # Llama models
-    "meta-llama/Llama-3.1-70B-Instruct": {
-        "name": "Llama 3.1 Instruct",
-        "description": "Conservative settings for instruction following",
-        "config": SamplingConfig(
-            temperature=0.7,
-            top_p=0.9,
-            top_k=50,
-            repetition_penalty=1.05,
-            max_tokens=512,
-        ),
-        "use_cases": ["Instructions", "Q&A", "Analysis"]
-    },
-    
-    "meta-llama/Llama-3.2-3B-Instruct": {
-        "name": "Llama 3.2 Small",
-        "description": "Optimized for smaller Llama models",
-        "config": SamplingConfig(
-            temperature=0.8,
-            top_p=0.95,
-            top_k=40,
-            min_p=0.03,
-            repetition_penalty=1.1,
-            max_tokens=256,
-        ),
-        "use_cases": ["General chat", "Simple tasks", "Fast responses"]
-    },
-    
-    # Mistral models
-    "mistralai/Mistral-7B-Instruct-v0.2": {
-        "name": "Mistral 7B Instruct",
-        "description": "Balanced settings for Mistral instruction model",
-        "config": SamplingConfig(
-            temperature=0.7,
-            top_p=0.9,
-            repetition_penalty=1.1,
-            max_tokens=400,
-        ),
-        "use_cases": ["Instructions", "Coding", "Analysis"]
-    },
-    
-    # Qwen models  
-    "Qwen/Qwen2.5-7B-Instruct": {
-        "name": "Qwen 2.5 Instruct",
-        "description": "Optimized for Qwen's instruction following",
-        "config": SamplingConfig(
-            temperature=0.8,
-            top_p=0.9,
-            top_k=50,
-            repetition_penalty=1.05,
-            max_tokens=512,
-        ),
-        "use_cases": ["Instructions", "Reasoning", "Multilingual"]
-    },
-    
-    # Phi models
-    "microsoft/Phi-3.5-mini-instruct": {
-        "name": "Phi 3.5 Mini",
-        "description": "Efficient settings for Phi small models",
-        "config": SamplingConfig(
-            temperature=0.8,
-            top_p=0.95,
-            top_k=40,
-            repetition_penalty=1.1,
-            max_tokens=300,
-        ),
-        "use_cases": ["Chat", "Simple reasoning", "Code assistance"]
-    },
-    
-    # SmolLM models
-    "HuggingFaceTB/SmolLM2-1.7B-Instruct": {
-        "name": "SmolLM Instruct",
-        "description": "Optimized for small language models",
-        "config": SamplingConfig(
-            temperature=0.9,
-            top_p=0.95,
-            top_k=30,
-            min_p=0.05,
-            repetition_penalty=1.15,
-            max_tokens=200,
-        ),
-        "use_cases": ["Basic chat", "Simple tasks", "Fast responses"]
-    },
-}
 
-# Generic presets for common use cases
-GENERIC_SAMPLING_PRESETS = {
-    "creative_writing": {
-        "name": "Creative Writing",
-        "description": "High creativity, diverse outputs for creative tasks",
-        "config": SamplingConfig(
-            temperature=1.1,
-            top_p=0.95,
-            top_k=50,
-            min_p=0.02,
-            repetition_penalty=1.05,
-            max_tokens=512,
-        ),
-        "use_cases": ["Stories", "Poetry", "Creative roleplay"]
+# Model-specific presets
+MODEL_PRESETS = {
+    'SmolLM2': {
+        'name': 'SmolLM2 Optimized',
+        'temperature': 0.8,
+        'top_p': 0.9,
+        'repetition_penalty': 1.05,
+        'max_tokens': 400
     },
-    
-    "conservative": {
-        "name": "Conservative",
-        "description": "Low temperature, focused outputs for factual tasks",
-        "config": SamplingConfig(
-            temperature=0.3,
-            top_p=0.8,
-            top_k=20,
-            repetition_penalty=1.1,
-            max_tokens=256,
-        ),
-        "use_cases": ["Facts", "Analysis", "Summaries"]
+    'Mistral': {
+        'name': 'Mistral Optimized',
+        'temperature': 0.7,
+        'top_p': 0.95,
+        'repetition_penalty': 1.1,
+        'max_tokens': 500
     },
-    
-    "balanced": {
-        "name": "Balanced",
-        "description": "Moderate creativity with good coherence",
-        "config": SamplingConfig(
-            temperature=0.8,
-            top_p=0.9,
-            top_k=40,
-            repetition_penalty=1.1,
-            max_tokens=300,
-        ),
-        "use_cases": ["General chat", "Q&A", "Dialogue"]
+    'Llama': {
+        'name': 'Llama Optimized',
+        'temperature': 0.8,
+        'top_p': 0.9,
+        'repetition_penalty': 1.1,
+        'max_tokens': 400
     },
-    
-    "roleplay": {
-        "name": "Roleplay Optimized",
-        "description": "High creativity with character consistency",
-        "config": SamplingConfig(
-            temperature=1.0,
-            top_p=0.92,
-            min_p=0.03,
-            top_k=50,
-            repetition_penalty=1.08,
-            max_tokens=400,
-        ),
-        "use_cases": ["Character roleplay", "Interactive fiction", "Dialogue"]
-    },
-    
-    "dataset_generation": {
-        "name": "Dataset Generation",
-        "description": "High diversity for synthetic data generation",
-        "config": SamplingConfig(
-            temperature=0.9,
-            top_p=0.95,
-            top_k=60,
-            min_p=0.04,
-            repetition_penalty=1.05,
-            max_tokens=400,
-        ),
-        "use_cases": ["Training data", "Diverse samples", "Data augmentation"]
+    'Qwen': {
+        'name': 'Qwen Optimized',
+        'temperature': 0.7,
+        'top_p': 0.9,
+        'repetition_penalty': 1.05,
+        'max_tokens': 350
     }
 }
 
-def get_model_preset(model_name: str) -> Optional[Dict[str, Any]]:
-    """Get sampling preset for a specific model"""
-    # Check exact match first
-    if model_name in MODEL_SAMPLING_PRESETS:
-        return MODEL_SAMPLING_PRESETS[model_name]
+
+def get_model_preset(model_name: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Get preset configuration for a specific model"""
+    if not model_name:
+        return None
     
-    # Check partial matches for flexibility
-    for preset_model, preset in MODEL_SAMPLING_PRESETS.items():
-        if any(part in model_name.lower() for part in preset_model.lower().split('/')):
-            return preset
+    model_lower = model_name.lower()
+    
+    for preset_key, preset_config in MODEL_PRESETS.items():
+        if preset_key.lower() in model_lower:
+            return preset_config
     
     return None
 
-def get_available_presets(model_name: str = None) -> Dict[str, Dict[str, Any]]:
-    """Get all available presets, with model-specific ones first if applicable"""
-    presets = {}
-    
-    # Add model-specific preset if available
-    model_preset = get_model_preset(model_name) if model_name else None
-    if model_preset:
-        presets[f"model_specific_{model_name}"] = model_preset
-    
-    # Add generic presets
-    presets.update(GENERIC_SAMPLING_PRESETS)
-    
-    return presets
 
-def render_sampling_config_ui(
-    current_config: Optional[SamplingConfig] = None,
-    model_name: str = None,
-    key_prefix: str = "",
-    use_expander: bool = True
-) -> SamplingConfig:
-    """Render UI for sampling configuration with model-specific presets"""
+def render_sampling_config_ui(current_config: SamplingConfig, 
+                             model_name: Optional[str] = None,
+                             key_prefix: str = "sampling",
+                             use_expander: bool = True) -> SamplingConfig:
+    """Render sampling configuration UI in Streamlit"""
     
-    # Get available presets
-    presets = get_available_presets(model_name)
-    
-    # Preset selection
-    preset_options = ["Custom"] + list(presets.keys())
-    preset_labels = ["Custom"] + [presets[key]["name"] for key in presets.keys()]
-    
-    selected_preset_idx = st.selectbox(
-        "Sampling Preset",
-        range(len(preset_options)),
-        format_func=lambda i: preset_labels[i],
-        help="Choose a preset optimized for your model or use case",
-        key=f"{key_prefix}_preset"
-    )
-    
-    selected_preset_key = preset_options[selected_preset_idx]
-    
-    # Show preset description if not custom
-    if selected_preset_key != "Custom":
-        preset_info = presets[selected_preset_key]
-        st.info(f"**{preset_info['name']}**: {preset_info['description']}")
+    def render_controls():
+        # Model preset selection
+        preset = get_model_preset(model_name)
+        if preset:
+            st.info(f"💡 **{preset['name']}** preset available")
+            if st.button(f"Apply {preset['name']} Preset", key=f"{key_prefix}_apply_preset"):
+                return SamplingConfig(**{k: v for k, v in preset.items() if k != 'name'})
         
-        # Show use cases
-        if 'use_cases' in preset_info:
-            use_cases = ", ".join(preset_info['use_cases'])
-            st.caption(f"Best for: {use_cases}")
+        col1, col2 = st.columns(2)
         
-        # Use preset config as default
-        default_config = preset_info["config"]
-    else:
-        # Use provided config or defaults
-        default_config = current_config or SamplingConfig()
-    
-    # Render parameter controls
-    st.markdown("#### Sampling Parameters")
-    
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown("**Core Parameters**")
-        temperature = st.slider(
-            "Temperature", 0.1, 2.0, default_config.temperature, 0.05,
-            help="Controls randomness. Higher = more creative",
-            key=f"{key_prefix}_temp"
-        )
-        
-        top_p = st.slider(
-            "Top-p (Nucleus)", 0.1, 1.0, default_config.top_p, 0.01,
-            help="Cumulative probability cutoff",
-            key=f"{key_prefix}_top_p"
-        )
-        
-        max_tokens = st.number_input(
-            "Max Tokens", 10, 4096, default_config.max_tokens,
-            help="Maximum response length",
-            key=f"{key_prefix}_max_tokens"
-        )
-    
-    with col2:
-        st.markdown("**Advanced Parameters**")
-        
-        # Top-k with optional None
-        top_k_enabled = st.checkbox(
-            "Enable Top-k", value=default_config.top_k is not None,
-            key=f"{key_prefix}_top_k_enabled"
-        )
-        if top_k_enabled:
-            top_k = st.number_input(
-                "Top-k", 1, 200, default_config.top_k or 50,
-                help="Consider only top-k tokens",
-                key=f"{key_prefix}_top_k"
+        with col1:
+            temperature = st.slider(
+                "Temperature",
+                min_value=0.1,
+                max_value=2.0,
+                value=current_config.temperature,
+                step=0.1,
+                help="Higher = more random, Lower = more focused",
+                key=f"{key_prefix}_temperature"
             )
-        else:
-            top_k = None
-        
-        # Min-p with optional None
-        min_p_enabled = st.checkbox(
-            "Enable Min-p", value=default_config.min_p is not None,
-            key=f"{key_prefix}_min_p_enabled"
-        )
-        if min_p_enabled:
-            min_p = st.slider(
-                "Min-p", 0.0, 0.5, default_config.min_p or 0.05, 0.01,
-                help="Minimum probability threshold",
-                key=f"{key_prefix}_min_p"
-            )
-        else:
-            min_p = None
-        
-        repetition_penalty = st.slider(
-            "Repetition Penalty", 0.5, 2.0, default_config.repetition_penalty, 0.05,
-            help="Penalize repeated tokens",
-            key=f"{key_prefix}_rep_penalty"
-        )
-    
-    with col3:
-        st.markdown("**Penalty Parameters**")
-        
-        frequency_penalty = st.slider(
-            "Frequency Penalty", -2.0, 2.0, default_config.frequency_penalty, 0.1,
-            help="Penalize frequent tokens",
-            key=f"{key_prefix}_freq_penalty"
-        )
-        
-        presence_penalty = st.slider(
-            "Presence Penalty", -2.0, 2.0, default_config.presence_penalty, 0.1,
-            help="Penalize repeated concepts",
-            key=f"{key_prefix}_pres_penalty"
-        )
-        
-        # Seed configuration
-        use_random_seed = st.checkbox(
-            "Random Seed", value=default_config.seed is None,
-            help="Use random seed for each generation",
-            key=f"{key_prefix}_random_seed"
-        )
-        
-        if not use_random_seed:
-            seed = st.number_input(
-                "Seed", 0, 2**31-1, default_config.seed or 42,
-                help="Fixed seed for reproducible results",
-                key=f"{key_prefix}_seed"
-            )
-        else:
-            seed = None
-    
-    # Define a function to render the advanced parameters
-    def render_advanced_params():
-        with col_a:
-            # Typical-p
-            typical_p_enabled = st.checkbox(
-                "Enable Typical-p", value=default_config.typical_p is not None,
-                key=f"{key_prefix}_typical_p_enabled"
-            )
-            if typical_p_enabled:
-                typical_p = st.slider(
-                    "Typical-p", 0.1, 1.0, default_config.typical_p or 0.95, 0.01,
-                    key=f"{key_prefix}_typical_p"
-                )
-            else:
-                typical_p = None
             
-            # TFS (Tail Free Sampling)
-            tfs_enabled = st.checkbox(
-                "Enable TFS", value=default_config.tfs is not None,
-                key=f"{key_prefix}_tfs_enabled"
+            top_p = st.slider(
+                "Top-p (Nucleus Sampling)",
+                min_value=0.1,
+                max_value=1.0,
+                value=current_config.top_p,
+                step=0.05,
+                help="Probability mass for nucleus sampling",
+                key=f"{key_prefix}_top_p"
             )
-            if tfs_enabled:
-                tfs = st.slider(
-                    "TFS", 0.1, 1.0, default_config.tfs or 1.0, 0.01,
-                    key=f"{key_prefix}_tfs"
-                )
-            else:
-                tfs = None
-        
-        with col_b:
-            # Eta cutoff
-            eta_cutoff_enabled = st.checkbox(
-                "Enable Eta Cutoff", value=default_config.eta_cutoff is not None,
-                key=f"{key_prefix}_eta_enabled"
-            )
-            if eta_cutoff_enabled:
-                eta_cutoff = st.slider(
-                    "Eta Cutoff", 0.0, 1.0, default_config.eta_cutoff or 0.0, 0.01,
-                    key=f"{key_prefix}_eta"
-                )
-            else:
-                eta_cutoff = None
             
-            # Epsilon cutoff
-            epsilon_cutoff_enabled = st.checkbox(
-                "Enable Epsilon Cutoff", value=default_config.epsilon_cutoff is not None,
-                key=f"{key_prefix}_epsilon_enabled"
+            repetition_penalty = st.slider(
+                "Repetition Penalty",
+                min_value=1.0,
+                max_value=1.5,
+                value=current_config.repetition_penalty,
+                step=0.01,
+                help="Penalize repetitive text",
+                key=f"{key_prefix}_rep_penalty"
             )
-            if epsilon_cutoff_enabled:
-                epsilon_cutoff = st.slider(
-                    "Epsilon Cutoff", 0.0, 1.0, default_config.epsilon_cutoff or 0.0, 0.01,
-                    key=f"{key_prefix}_epsilon"
+        
+        with col2:
+            max_tokens = st.number_input(
+                "Max Tokens",
+                min_value=50,
+                max_value=2000,
+                value=current_config.max_tokens,
+                step=50,
+                help="Maximum response length",
+                key=f"{key_prefix}_max_tokens"
+            )
+            
+            use_top_k = st.checkbox(
+                "Enable Top-K Sampling",
+                value=current_config.top_k > 0,
+                help="Limit to top K most likely tokens",
+                key=f"{key_prefix}_use_top_k"
+            )
+            
+            if use_top_k:
+                top_k = st.number_input(
+                    "Top-K Value",
+                    min_value=1,
+                    max_value=100,
+                    value=max(1, current_config.top_k),
+                    step=5,
+                    help="Number of top tokens to consider",
+                    key=f"{key_prefix}_top_k"
                 )
             else:
-                epsilon_cutoff = None
+                top_k = 0
+            
+            min_tokens = st.number_input(
+                "Min Tokens",
+                min_value=0,
+                max_value=200,
+                value=current_config.min_tokens,
+                step=10,
+                help="Minimum response length (0 = disabled)",
+                key=f"{key_prefix}_min_tokens"
+            )
         
-        return typical_p, tfs, eta_cutoff, epsilon_cutoff
+        return SamplingConfig(
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            max_tokens=max_tokens,
+            min_tokens=min_tokens
+        )
     
-    # Advanced parameters - either in expander or direct based on use_expander flag
-    if use_expander:
-        # Use expander for normal cases
-        with st.expander("🔬 Advanced Sampling Parameters"):
-            col_a, col_b = st.columns(2)
-            typical_p, tfs, eta_cutoff, epsilon_cutoff = render_advanced_params()
-    else:
-        # Use regular container when nested in another expander
-        st.markdown("**🔬 Advanced Sampling Parameters**")
-        col_a, col_b = st.columns(2)
-        typical_p, tfs, eta_cutoff, epsilon_cutoff = render_advanced_params()
+
+    return render_controls()
+
+
+def validate_sampling_config(config: SamplingConfig) -> tuple[bool, list[str]]:
+    """Validate sampling configuration and return errors if any"""
+    errors = []
     
-    # Create and return the configuration
+    if config.temperature <= 0 or config.temperature > 2:
+        errors.append("Temperature must be between 0.1 and 2.0")
+    
+    if config.top_p <= 0 or config.top_p > 1:
+        errors.append("Top-p must be between 0.1 and 1.0")
+    
+    if config.repetition_penalty < 1.0 or config.repetition_penalty > 2.0:
+        errors.append("Repetition penalty must be between 1.0 and 2.0")
+    
+    if config.max_tokens < 10 or config.max_tokens > 4000:
+        errors.append("Max tokens must be between 10 and 4000")
+    
+    if config.top_k < 0 or config.top_k > 200:
+        errors.append("Top-k must be between 0 and 200")
+    
+    if config.min_tokens < 0 or config.min_tokens >= config.max_tokens:
+        errors.append("Min tokens must be less than max tokens")
+    
+    return len(errors) == 0, errors
+
+
+def get_quality_optimized_config() -> SamplingConfig:
+    """Get configuration optimized for quality over speed"""
     return SamplingConfig(
-        temperature=temperature,
-        top_p=top_p,
-        top_k=top_k,
-        min_p=min_p,
-        repetition_penalty=repetition_penalty,
-        frequency_penalty=frequency_penalty,
-        presence_penalty=presence_penalty,
-        max_tokens=max_tokens,
-        seed=seed,
-        eta_cutoff=eta_cutoff,
-        epsilon_cutoff=epsilon_cutoff,
-        typical_p=typical_p,
-        tfs=tfs,
+        temperature=0.7,
+        top_p=0.9,
+        repetition_penalty=1.1,
+        max_tokens=500,
+        min_tokens=20
     )
 
-def validate_sampling_config(config: SamplingConfig) -> List[str]:
-    """Validate sampling configuration and return list of warnings"""
-    warnings = []
-    
-    if config.temperature < 0.1:
-        warnings.append("Very low temperature may produce repetitive outputs")
-    elif config.temperature > 1.5:
-        warnings.append("Very high temperature may produce incoherent outputs")
-    
-    if config.top_p < 0.1:
-        warnings.append("Very low top-p may be too restrictive")
-    
-    if config.top_k is not None and config.top_k < 10:
-        warnings.append("Very low top-k may be too restrictive")
-    
-    if config.repetition_penalty > 1.5:
-        warnings.append("High repetition penalty may produce unnatural text")
-    elif config.repetition_penalty < 0.8:
-        warnings.append("Low repetition penalty may cause excessive repetition")
-    
-    if config.max_tokens > 2048:
-        warnings.append("Very long responses may be slow to generate")
-    
-    return warnings 
+
+def get_speed_optimized_config() -> SamplingConfig:
+    """Get configuration optimized for speed over quality"""
+    return SamplingConfig(
+        temperature=0.8,
+        top_p=0.95,
+        repetition_penalty=1.05,
+        max_tokens=300,
+        min_tokens=10
+    )
+
+
+def get_creative_config() -> SamplingConfig:
+    """Get configuration optimized for creative/diverse outputs"""
+    return SamplingConfig(
+        temperature=1.0,
+        top_p=0.85,
+        repetition_penalty=1.15,
+        max_tokens=400,
+        min_tokens=15
+    )
+
+
+def get_conservative_config() -> SamplingConfig:
+    """Get configuration optimized for consistent/conservative outputs"""
+    return SamplingConfig(
+        temperature=0.6,
+        top_p=0.95,
+        repetition_penalty=1.1,
+        max_tokens=350,
+        min_tokens=20
+    ) 

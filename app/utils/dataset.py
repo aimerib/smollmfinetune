@@ -7,6 +7,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Callable, Union
 from datasets import Dataset
 from .openai_client import get_client, OpenAIClient
+try:
+    from .vllm_optimized_client import VLLMOptimizedClient, BatchConfig
+    VLLM_CLIENT_AVAILABLE = True
+except ImportError:
+    VLLM_CLIENT_AVAILABLE = False
+    
 import torch
 import json
 import os
@@ -16,30 +22,224 @@ import tempfile
 import warnings
 import gc
 from collections import defaultdict
+from dataclasses import dataclass
+from typing import Dict, List, Any, Optional, Callable, Union
+from enum import Enum
+import numpy as np
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class GenerationConfig:
+    """Enhanced configuration for dataset generation"""
+    use_vllm_optimization: bool = True
+    quality_threshold: float = 0.7
+    enable_progressive_refinement: bool = True
+    max_refinement_iterations: int = 2
+    batch_config: Optional[Dict[str, Any]] = None
+    judge_batch_size: int = 20
+    diversity_weight: float = 0.3
+    enable_real_time_filtering: bool = True
+
+
+class QualityLevel(Enum):
+    """Quality levels for generation"""
+    BASIC = "basic"
+    ENHANCED = "enhanced" 
+    PREMIUM = "premium"
+
+
+class ProgressiveRefiner:
+    """Progressive refinement system for improving dataset quality"""
+    
+    def __init__(self, client, character_profile):
+        self.client = client
+        self.character_profile = character_profile
+        
+    async def refine_sample(self, sample: Dict[str, Any], 
+                           quality_issues: List[str],
+                           revision_suggestions: List[str]) -> Optional[Dict[str, Any]]:
+        """Refine a sample based on quality feedback"""
+        
+        if not revision_suggestions:
+            return None
+            
+        messages = sample.get('messages', [])
+        if len(messages) < 3:
+            return None
+            
+        original_response = messages[2]['content']
+        user_prompt = messages[1]['content']
+        
+        # Create refinement prompt
+        refinement_prompt = f"""
+Please improve this character response based on the feedback provided.
+
+CHARACTER: {self.character_profile.name}
+USER: {user_prompt}
+ORIGINAL RESPONSE: {original_response}
+
+ISSUES TO ADDRESS:
+{chr(10).join(f"- {issue}" for issue in quality_issues)}
+
+SUGGESTIONS:
+{chr(10).join(f"- {suggestion}" for suggestion in revision_suggestions)}
+
+Please provide an improved response that maintains the character's voice while addressing these issues:
+"""
+        
+        try:
+            refined_response = await self.client.generate(
+                prompt=refinement_prompt,
+                max_tokens=min(len(original_response.split()) * 2, 800),
+                temperature=0.7,
+                top_p=0.9
+            )
+            
+            # Create refined sample
+            refined_sample = sample.copy()
+            refined_sample['messages'] = messages.copy()
+            refined_sample['messages'][2] = {
+                'role': 'assistant',
+                'content': refined_response.strip()
+            }
+            
+            return refined_sample
+            
+        except Exception as e:
+            logger.error(f"Error refining sample: {e}")
+            return None
+
+
+class EnhancedQualityFilter:
+    """Enhanced quality filtering with character-specific criteria"""
+    
+    def __init__(self, character_profile):
+        self.character_profile = character_profile
+        
+    def filter_sample(self, sample: Dict[str, Any]) -> Dict[str, Any]:
+        """Filter and score a sample for quality"""
+        
+        messages = sample.get('messages', [])
+        if len(messages) < 3:
+            return {'accept': False, 'score': 0.0, 'issues': ['Insufficient messages']}
+        
+        response = messages[2]['content']
+        user_prompt = messages[1]['content']
+        
+        issues = []
+        quality_score = 1.0
+        
+        # Basic quality checks
+        word_count = len(response.split())
+        if word_count < 10:
+            issues.append("Response too short")
+            quality_score -= 0.3
+        elif word_count > 500:
+            issues.append("Response excessively long") 
+            quality_score -= 0.1
+            
+        # Character name consistency
+        char_name = self.character_profile.name.lower()
+        if char_name in response.lower():
+            # Check for problematic third-person reference
+            if not any(indicator in response for indicator in ['"', "'", '*says*', '*thinks*']):
+                issues.append("Third-person self-reference")
+                quality_score -= 0.4
+        
+        # Meta-commentary detection
+        meta_phrases = ['as an ai', 'language model', 'i cannot', 'my training']
+        if any(phrase in response.lower() for phrase in meta_phrases):
+            issues.append("Contains meta-commentary")
+            quality_score -= 0.5
+            
+        # Relevance check
+        prompt_words = set(user_prompt.lower().split())
+        response_words = set(response.lower().split())
+        overlap = len(prompt_words.intersection(response_words))
+        relevance = overlap / max(len(prompt_words), 1)
+        
+        if relevance < 0.2:
+            issues.append("Low relevance to prompt")
+            quality_score -= 0.2
+            
+        # Character voice indicators
+        has_personality_markers = any(trait.lower() in response.lower() 
+                                    for trait in self.character_profile.personality_traits)
+        if not has_personality_markers and len(self.character_profile.personality_traits) > 0:
+            quality_score -= 0.1
+            
+        return {
+            'accept': quality_score >= 0.6 and len(issues) <= 2,
+            'score': max(0.0, quality_score),
+            'issues': issues,
+            'relevance': relevance,
+            'word_count': word_count
+        }
 
 
 class DatasetManager:
     """Manages synthetic dataset generation and processing using OpenAI API"""
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None,
+                 generation_config: Optional[GenerationConfig] = None):
         """
-        Initialize DatasetManager with OpenAI client
+        Initialize DatasetManager with enhanced client and configuration
         
         Args:
             api_key: OpenAI API key (defaults to OPENAI_API_KEY env var)
             base_url: Base URL for API (defaults to OpenAI, but can be changed for compatible endpoints)
-            model: Default model to use for requests
+            generation_config: Enhanced generation configuration
         """        
-        # Initialize OpenAI client
-        if api_key or base_url:
-            from .openai_client import OpenAIClient, set_client
-            client = OpenAIClient(api_key=api_key, base_url=base_url)
-            set_client(client)
+        # Enhanced generation configuration
+        self.generation_config = generation_config or GenerationConfig()
         
-        self.client = get_client()
+        # Initialize client with vLLM optimization if available
+        client_initialized = False
+        if self.generation_config.use_vllm_optimization and VLLM_CLIENT_AVAILABLE:
+            try:
+                logger.info("🚀 Attempting to use vLLM-optimized client for enhanced batching")
+                batch_config = BatchConfig(**(self.generation_config.batch_config or {}))
+                self.client = VLLMOptimizedClient(
+                    api_key=api_key,
+                    base_url=base_url,
+                    batch_config=batch_config
+                )
+                client_initialized = True
+                logger.info("✅ vLLM-optimized client initialized successfully")
+            except RuntimeError as e:
+                if "no running event loop" in str(e).lower():
+                    logger.info("⚠️ No event loop available for vLLM client, falling back to standard client")
+                else:
+                    logger.warning(f"⚠️ vLLM client initialization failed: {e}, falling back to standard client")
+            except Exception as e:
+                logger.warning(f"⚠️ vLLM client initialization failed: {e}, falling back to standard client")
+        
+        # Fallback to standard client if vLLM initialization failed or is disabled
+        if not client_initialized:
+            logger.info("🔄 Using standard OpenAI client")
+            if api_key or base_url:
+                from .openai_client import OpenAIClient, set_client
+                client = OpenAIClient(api_key=api_key, base_url=base_url)
+                set_client(client)
+            self.client = get_client()
+            
         logger.info(f"DatasetManager created with model: {os.getenv('MODEL_NAME')}")
+        
+        # Enhanced processing components
+        self.quality_filter = None  # Will be initialized per character
+        self.progressive_refiner = None  # Will be initialized per character
+        self.character_profile = None  # Current character profile
+        
+        # Performance tracking
+        self.generation_stats = {
+            'total_generated': 0,
+            'filtered_out': 0,
+            'refined_samples': 0,
+            'avg_quality_score': 0.0,
+            'batch_efficiency': []
+        }
 
         self.prompts_nsfw = [
             "*leans in close* What's the naughtiest thing you've ever done?",
@@ -398,6 +598,47 @@ class DatasetManager:
         # Dataset persistence
         self.datasets_dir = "app/training_output/datasets"
         os.makedirs(self.datasets_dir, exist_ok=True)
+        
+    def _setup_character_components(self, character: Dict[str, Any]):
+        """Setup character-specific processing components"""
+        # Create simplified character profile for enhanced processing
+        self.character_profile = self._create_character_profile(character)
+        
+        # Initialize quality filter
+        self.quality_filter = EnhancedQualityFilter(self.character_profile)
+        
+        # Initialize progressive refiner if enabled
+        if self.generation_config.enable_progressive_refinement:
+            self.progressive_refiner = ProgressiveRefiner(self.client, self.character_profile)
+            
+        logger.info(f"🎭 Character components initialized for {self.character_profile.name}")
+    
+    def _create_character_profile(self, character: Dict[str, Any]):
+        """Create a simplified character profile from character card"""
+        from dataclasses import dataclass
+        
+        @dataclass
+        class SimpleCharacterProfile:
+            name: str
+            personality_traits: List[str]
+        
+        name = character.get('name', 'Unknown')
+        
+        # Extract personality traits
+        personality_text = character.get('personality', '')
+        personality_traits = [trait.strip() for trait in personality_text.split(',') if trait.strip()]
+        
+        # Analyze description for additional traits
+        description = character.get('description', '')
+        trait_keywords = ['shy', 'confident', 'aggressive', 'kind', 'intelligent', 'playful', 'serious']
+        for keyword in trait_keywords:
+            if keyword in description.lower() and keyword not in [t.lower() for t in personality_traits]:
+                personality_traits.append(keyword.title())
+        
+        if not personality_traits:
+            personality_traits = ["Friendly"]
+            
+        return SimpleCharacterProfile(name=name, personality_traits=personality_traits)
 
     async def test_client(self) -> bool:
         """Test the OpenAI client with a simple prompt for debugging"""
@@ -921,13 +1162,17 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                max_tokens: Optional[int] = None, temperature: float = 0.8,
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                                append_to_existing: bool = True, custom_system_prompt: Optional[str] = None,
-                               extra_quality: bool = False, **sampling_kwargs) -> List[Dict[str, Any]]:
+                               extra_quality: bool = False, quality_level: QualityLevel = QualityLevel.ENHANCED,
+                               **sampling_kwargs) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         # ✅ FIX: Better error handling to prevent silent crashes
         try:
             # Suppress coroutine warnings in Streamlit environment
             warnings.filterwarnings(
                 "ignore", message="coroutine.*was never awaited")
+
+            # Setup character-specific components
+            self._setup_character_components(character)
 
             # Extract max_tokens from sampling_kwargs if provided there instead
             if max_tokens is None and 'max_tokens' in sampling_kwargs:
@@ -951,6 +1196,22 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 logger.warning(f"⚠️ CUDA cache clear failed: {cuda_error}")
 
             card_block = self._make_card_block(character)
+            
+            # Enhanced quality-based generation strategy
+            if quality_level == QualityLevel.PREMIUM:
+                logger.info("🌟 Using PREMIUM quality generation with progressive refinement")
+                return await self._generate_premium_dataset(
+                    character, num_samples, max_tokens, temperature, top_p,
+                    progress_callback, append_to_existing, custom_system_prompt,
+                    extra_quality, **sampling_kwargs
+                )
+            elif quality_level == QualityLevel.ENHANCED:
+                logger.info("⭐ Using ENHANCED quality generation with real-time filtering")
+                # Continue with enhanced standard generation (below)
+            else:
+                logger.info("📝 Using BASIC quality generation")
+                # Disable advanced features for basic mode
+                self.generation_config.enable_real_time_filtering = False
 
             # Load existing dataset if append_to_existing is True
             existing_samples = []
@@ -1044,7 +1305,17 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 multi_turn_convos.extend(convos)
             
             # Deduplicate prompts
-            unique_prompts = list(dict.fromkeys(all_prompts))  # Preserves order
+            unique_prompts_map = {}
+            for item in all_prompts:
+                if isinstance(item, dict):
+                    prompt_text = item.get('prompt')
+                    if prompt_text and prompt_text not in unique_prompts_map:
+                        unique_prompts_map[prompt_text] = item
+                elif isinstance(item, str):
+                    if item not in unique_prompts_map:
+                        unique_prompts_map[item] = {'prompt': item, 'type': 'simple'}
+
+            unique_prompts = list(unique_prompts_map.values())
             logger.info(f"📊 Generated {len(unique_prompts)} unique prompts")
             
             # Apply EXTRA QUALITY paraphrasing if requested
@@ -1052,10 +1323,11 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 logger.info("🌟 EXTRA QUALITY enabled - paraphrasing prompts for enhanced variety...")
                 paraphrased_prompts = []
                 
-                for i, prompt in enumerate(unique_prompts):
+                for i, prompt_item in enumerate(unique_prompts):
                     try:
+                        prompt_text = prompt_item['prompt']
                         # Use simple paraphrasing prompt with OpenAI
-                        paraphrase_prompt = f"Rewrite this question to mean the same thing but with different words. Keep the same tone and meaning, just vary the phrasing:\n\nOriginal: {prompt}\n\nRewritten:"
+                        paraphrase_prompt = f"Rewrite this question to mean the same thing but with different words. Keep the same tone and meaning, just vary the phrasing:\n\nOriginal: {prompt_text}\n\nRewritten:"
                         
                         paraphrased = await self.client.generate(
                             prompt=paraphrase_prompt,
@@ -1070,9 +1342,10 @@ Respond with ONLY the questions, one per line, no numbering:"""
                         
                     except Exception as e:
                         logger.debug(f"   Failed to paraphrase prompt {i+1}: {e}")
-                        paraphrased_prompts.append(prompt)
+                        paraphrased_prompts.append(prompt_item['prompt'])
                 
-                unique_prompts = paraphrased_prompts
+                # After paraphrasing, we have a list of strings. Convert back to dicts.
+                unique_prompts = [{'prompt': p, 'type': 'paraphrased'} for p in paraphrased_prompts]
                 logger.info(f"✅ EXTRA QUALITY complete - paraphrased {len(unique_prompts)} prompts")
             
             # Length buckets following best practices
@@ -1088,11 +1361,17 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 token_map = {n: t for n, _, t in length_buckets}
                 return token_map[bucket_name]
 
-            # Generate responses in batches
-            batch_size = 10  # Conservative batch size for API
+            # Enhanced batch processing with vLLM optimization
+            if self.generation_config.use_vllm_optimization and hasattr(self.client, 'generate_batch_optimized'):
+                logger.info("🚀 Using vLLM-optimized batch processing")
+                batch_size = 16  # Larger batch size for vLLM
+            else:
+                batch_size = 10  # Conservative batch size for standard API
+                
             processed_count = 0
+            filtered_count = 0
             
-            logger.info(f"📊 Starting batch processing: {len(unique_prompts)} prompts prepared")
+            logger.info(f"📊 Starting enhanced batch processing: {len(unique_prompts)} prompts prepared")
 
             for batch_start in range(0, len(unique_prompts), batch_size):
                 if len(samples) >= num_samples:
@@ -1103,28 +1382,45 @@ Respond with ONLY the questions, one per line, no numbering:"""
 
                 # Create messages for each prompt
                 batch_messages = []
-                for prompt in batch_prompts:
+                for prompt_item in batch_prompts:
                     # Always use temporal system prompt during generation
                     temporal_context = self._choose_temporal_bucket()
                     system_prompt = self._generate_temporal_system_prompt(character, temporal_context)
                     
+                    # Ensure prompt is a string
+                    user_prompt = prompt_item.get('prompt', '') if isinstance(prompt_item, dict) else prompt_item
+                    if not isinstance(user_prompt, str):
+                        logger.warning(f"Invalid prompt type: {type(user_prompt)}, skipping.")
+                        continue
+
                     messages = [
                         {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
+                        {"role": "user", "content": user_prompt}
                     ]
                     batch_messages.append(messages)
 
                 try:
-                    # Generate responses using chat completion
-                    replies = await self.client.generate_batch(
-                        prompts=batch_messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        top_p=top_p,
-                        **sampling_kwargs
-                    )
+                    # Use optimized batch generation if available
+                    if hasattr(self.client, 'generate_batch_optimized'):
+                        replies = await self.client.generate_batch_optimized(
+                            prompts=batch_messages,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            top_p=top_p,
+                            priority=2 if quality_level == QualityLevel.PREMIUM else 0,
+                            **sampling_kwargs
+                        )
+                    else:
+                        # Fallback to standard batch generation
+                        replies = await self.client.generate_batch(
+                            prompts=batch_messages,
+                            max_tokens=max_tokens,
+                            temperature=temperature,
+                            top_p=top_p,
+                            **sampling_kwargs
+                        )
 
-                    # Process batch results
+                    # Enhanced sample processing with real-time filtering
                     for i, (messages, reply) in enumerate(zip(batch_messages, replies)):
                         try:
                             reply_str = str(reply).strip()
@@ -1139,6 +1435,25 @@ Respond with ONLY the questions, one per line, no numbering:"""
                                     {"role": "assistant", "content": reply_str},
                                 ]
                             }
+                            
+                            # Apply real-time quality filtering if enabled
+                            if (self.generation_config.enable_real_time_filtering and 
+                                self.quality_filter and 
+                                quality_level != QualityLevel.BASIC):
+                                
+                                filter_result = self.quality_filter.filter_sample(sample)
+                                
+                                if not filter_result['accept']:
+                                    filtered_count += 1
+                                    logger.debug(f"Filtered sample: {filter_result['issues']}")
+                                    continue
+                                    
+                                # Update quality statistics
+                                self.generation_stats['avg_quality_score'] = (
+                                    self.generation_stats['avg_quality_score'] * 0.9 + 
+                                    filter_result['score'] * 0.1
+                                )
+                            
                             samples.append(sample)
                             processed_count += 1
 
@@ -1168,12 +1483,26 @@ Respond with ONLY the questions, one per line, no numbering:"""
                 progress_callback(1.0)
 
             new_generated = len(samples) - existing_count
-            logger.info(f"🎯 DATASET GENERATION COMPLETE:")
+            logger.info(f"🎯 ENHANCED DATASET GENERATION COMPLETE:")
             logger.info(f"   Existing samples: {existing_count}")
             logger.info(f"   New samples generated: {new_generated}")
             logger.info(f"   Total samples: {len(samples)}")
+            logger.info(f"   Filtered out: {filtered_count}")
             if len(unique_prompts) > 0:
                 logger.info(f"   Success rate: {new_generated/len(unique_prompts)*100:.1f}%")
+                logger.info(f"   Filter efficiency: {(1 - filtered_count/max(len(unique_prompts), 1))*100:.1f}%")
+            
+            # Log vLLM performance if available
+            if hasattr(self.client, 'get_batch_stats'):
+                batch_stats = self.client.get_batch_stats()
+                logger.info(f"   vLLM batch utilization: {batch_stats.get('batch_utilization', 0)*100:.1f}%")
+                logger.info(f"   Average batch size: {batch_stats.get('avg_batch_size', 0):.1f}")
+            
+            # Update generation statistics
+            self.generation_stats.update({
+                'total_generated': self.generation_stats['total_generated'] + new_generated,
+                'filtered_out': self.generation_stats['filtered_out'] + filtered_count,
+            })
 
             # If custom system prompt is provided, replace all temporal prompts with it
             if custom_system_prompt is not None:
@@ -1220,6 +1549,175 @@ Respond with ONLY the questions, one per line, no numbering:"""
             logger.error(f"❌ Failed to generate dataset: {e}")
             logger.exception("Full traceback:")
             return []
+    
+    async def _generate_premium_dataset(self, character: Dict[str, Any], num_samples: int,
+                                       max_tokens: int, temperature: float, top_p: float,
+                                       progress_callback: Optional[Callable] = None,
+                                       append_to_existing: bool = True,
+                                       custom_system_prompt: Optional[str] = None,
+                                       extra_quality: bool = False,
+                                       **sampling_kwargs) -> List[Dict[str, Any]]:
+        """Generate premium quality dataset with progressive refinement and specialized judging"""
+        
+        logger.info("🌟 Starting PREMIUM dataset generation with progressive refinement")
+        
+        # Load existing dataset
+        existing_samples = []
+        if append_to_existing:
+            existing_dataset = self.load_dataset(character)
+            if existing_dataset:
+                existing_samples = existing_dataset
+                logger.info(f"📂 Found existing dataset with {len(existing_samples)} samples")
+
+        existing_count = len(existing_samples)
+        new_samples_needed = num_samples - existing_count
+        
+        if existing_count >= num_samples:
+            logger.info(f"✅ Dataset already has sufficient samples ({existing_count} >= {num_samples})")
+            return existing_samples[:num_samples]
+        
+        # Phase 1: Generate initial samples with higher diversity
+        logger.info(f"📊 Phase 1: Generating {new_samples_needed * 3} diverse samples for selection")
+        
+        initial_samples = await self.generate_dataset(
+            character=character,
+            num_samples=new_samples_needed * 3,  # Generate 3x for selection
+            max_tokens=max_tokens,
+            temperature=min(temperature + 0.1, 1.0),  # Slightly higher temperature for diversity
+            top_p=top_p,
+            progress_callback=lambda p: progress_callback(p * 0.6) if progress_callback else None,
+            append_to_existing=False,  # Don't save intermediate results
+            custom_system_prompt=custom_system_prompt,
+            extra_quality=extra_quality,
+            quality_level=QualityLevel.ENHANCED,  # Use enhanced for initial generation
+            **sampling_kwargs
+        )
+        
+        if not initial_samples:
+            logger.error("❌ Failed to generate initial samples for premium dataset")
+            return existing_samples
+        
+        logger.info(f"✅ Generated {len(initial_samples)} initial samples")
+        
+        # Phase 2: Judge and select best samples
+        logger.info("📊 Phase 2: Judging sample quality with specialized evaluator")
+        
+        # Use existing quality curation system but with higher standards
+        judged_samples = []
+        batch_size = self.generation_config.judge_batch_size
+        
+        for i in range(0, len(initial_samples), batch_size):
+            batch = initial_samples[i:i + batch_size]
+            
+            # Apply enhanced quality filtering
+            for sample in batch:
+                if self.quality_filter:
+                    filter_result = self.quality_filter.filter_sample(sample)
+                    
+                    # Higher standards for premium
+                    if filter_result['score'] >= 0.8 and filter_result['accept']:
+                        judged_samples.append({
+                            'sample': sample,
+                            'score': filter_result['score'],
+                            'issues': filter_result['issues']
+                        })
+            
+            if progress_callback:
+                progress_callback(0.6 + (i / len(initial_samples)) * 0.2)
+        
+        # Sort by quality score and select best
+        judged_samples.sort(key=lambda x: x['score'], reverse=True)
+        selected_samples = [item['sample'] for item in judged_samples[:new_samples_needed]]
+        
+        logger.info(f"✅ Selected {len(selected_samples)} high-quality samples")
+        
+        # Phase 3: Progressive refinement for samples that need improvement
+        if (self.generation_config.enable_progressive_refinement and 
+            self.progressive_refiner and 
+            len(selected_samples) < new_samples_needed):
+            
+            logger.info("📊 Phase 3: Progressive refinement for improvement")
+            
+            # Try to refine some lower-scoring samples
+            refinement_candidates = [
+                item for item in judged_samples[new_samples_needed:new_samples_needed*2]
+                if item['score'] >= 0.6 and item['issues']
+            ]
+            
+            refined_count = 0
+            for candidate in refinement_candidates[:new_samples_needed - len(selected_samples)]:
+                try:
+                    # Create simple revision suggestions based on issues
+                    revision_suggestions = []
+                    for issue in candidate['issues']:
+                        if 'short' in issue.lower():
+                            revision_suggestions.append("Expand with more character-specific details")
+                        elif 'relevance' in issue.lower():
+                            revision_suggestions.append("Better address the user's question")
+                        elif 'personality' in issue.lower():
+                            revision_suggestions.append("Show more personality traits")
+                    
+                    if revision_suggestions:
+                        refined_sample = await self.progressive_refiner.refine_sample(
+                            candidate['sample'], candidate['issues'], revision_suggestions
+                        )
+                        
+                        if refined_sample:
+                            # Re-evaluate refined sample
+                            if self.quality_filter:
+                                refined_result = self.quality_filter.filter_sample(refined_sample)
+                                if refined_result['score'] > candidate['score'] and refined_result['accept']:
+                                    selected_samples.append(refined_sample)
+                                    refined_count += 1
+                                    logger.debug(f"✅ Refined sample improved: {candidate['score']:.2f} → {refined_result['score']:.2f}")
+                
+                except Exception as e:
+                    logger.debug(f"Error refining sample: {e}")
+                    continue
+                
+                if progress_callback:
+                    progress_callback(0.8 + (refined_count / (new_samples_needed - len(selected_samples))) * 0.2)
+            
+            logger.info(f"✅ Successfully refined {refined_count} additional samples")
+            self.generation_stats['refined_samples'] += refined_count
+        
+        # Combine with existing samples
+        final_samples = existing_samples + selected_samples[:new_samples_needed]
+        
+        logger.info(f"🌟 PREMIUM DATASET GENERATION COMPLETE:")
+        logger.info(f"   Initial generation: {len(initial_samples)} samples")
+        logger.info(f"   Quality acceptance rate: {len(judged_samples)/len(initial_samples)*100:.1f}%")
+        logger.info(f"   Final selected: {len(selected_samples)} samples")
+        logger.info(f"   Average quality score: {np.mean([item['score'] for item in judged_samples]) if judged_samples else 0:.2f}")
+        
+        # Apply final system prompt modifications
+        if custom_system_prompt is not None:
+            if custom_system_prompt == "":
+                for sample in final_samples:
+                    if 'messages' in sample and len(sample['messages']) > 0 and sample['messages'][0].get('role') == 'system':
+                        sample['messages'].pop(0)
+            else:
+                for sample in final_samples:
+                    if 'messages' in sample and len(sample['messages']) > 0:
+                        sample['messages'][0]['content'] = custom_system_prompt
+        
+        # Save with metadata
+        metadata = {
+            'generation_method': 'premium',
+            'quality_threshold': 0.8,
+            'refinement_enabled': self.generation_config.enable_progressive_refinement,
+            'system_prompt_config': {
+                'type': 'custom' if custom_system_prompt else 'temporal',
+                'prompt': custom_system_prompt
+            }
+        }
+        
+        self.save_dataset(character, final_samples, metadata)
+        
+        if progress_callback:
+            progress_callback(1.0)
+        
+        return final_samples
 
 
 
@@ -3951,7 +4449,8 @@ Respond with ONLY a JSON object with numeric scores:
         # Prepare judgment prompts
         judgment_prompts = []
         nsfw_indices = []  # Track which samples are NSFW
-        
+        batch_scores = [None] * len(samples)  # Pre-allocate list for scores
+
         for i, sample in enumerate(samples):
             user_msg = sample['messages'][1]['content']
             assistant_msg = sample['messages'][2]['content']
@@ -3964,7 +4463,7 @@ Respond with ONLY a JSON object with numeric scores:
                     assistant_msg, character, user_msg
                 )
                 # Store the scores directly
-                batch_scores.append(scores)
+                batch_scores[i] = scores
             else:
                 # Create standard judgment prompt
                 judgment_prompt = f"""You are evaluating roleplay responses for quality and character consistency.
@@ -3991,6 +4490,7 @@ Respond with ONLY a JSON object with numeric scores:
         
         # Process non-NSFW samples in batch
         prompts = [p for p in judgment_prompts if p is not None]
+        non_nsfw_indices = [i for i, sample in enumerate(samples) if not self.is_nsfw_content(sample)]
         
         if prompts:
             try:
@@ -4006,16 +4506,21 @@ Respond with ONLY a JSON object with numeric scores:
                 for response in responses:
                     scores = self._parse_judgment_scores(response)
                     parsed_scores.append(scores)
+
+                # Place scores in correct positions
+                for original_idx, scores in zip(non_nsfw_indices, parsed_scores):
+                    batch_scores[original_idx] = scores
+
             except Exception as e:
                 logger.error(f"Error in batch judgment: {e}")
                 parsed_scores = [self._get_default_scores() for _ in prompts]
+                for original_idx, scores in zip(non_nsfw_indices, parsed_scores):
+                    batch_scores[original_idx] = scores
         else:
             parsed_scores = []
         
         # Combine results, inserting NSFW evaluations where appropriate
-        batch_scores = []    
-        
-        return batch_scores
+        return [score or self._get_default_scores() for score in batch_scores]
     
     def _parse_judgment_scores(self, response: str) -> Dict[str, float]:
         """Parse quality scores from judge response."""
