@@ -525,7 +525,7 @@ def page_dataset_preview():
         "📝 Basic Generation",
         "⭐ Enhanced Generation", 
         "🌟 Premium Generation",
-        "🔬 Quality-First Generation"
+        "🎯 Factual Q&A Generation"
     ])
     
     with generation_tab:
@@ -1235,232 +1235,91 @@ def page_dataset_preview():
                 st.session_state._generating_dataset = False
     
     with quality_tab:
-        st.markdown("### ⭐ Quality-First Dataset Generation")
+        st.markdown("### 🎯 Factual Q&A Dataset Generation")
         
         st.info("""
-        🎯 **How it works:**
-        1. Generate a large number of diverse samples (e.g., 10,000)
-        2. Use AI to evaluate each sample for quality and character consistency
-        3. Curate the best samples while maintaining diversity
+        **How it works:** This method creates a high-quality, targeted dataset to teach a model the core facts about your character.
+        1.  **Fact Extraction:** An LLM analyzes your character card to extract a simple list of key facts.
+        2.  **Q&A Variation:** For each fact, an LLM generates multiple, varied question-and-answer pairs.
+        3.  **Reinforcement:** This process reinforces the most important information, making it easier for the LoRA to learn.
         
-        This produces much higher quality datasets but takes more time.
+        This approach is ideal for creating small, potent datasets that prevent model hallucination and ensure character consistency.
         """)
-        
-        # Show current model info
-        current_model = getattr(st.session_state.dataset_manager, 'default_model', 'Unknown')
-        if hasattr(st.session_state.dataset_manager, 'client'):
-            current_model = st.session_state.dataset_manager.client.default_model
-        st.info(f"🔧 Using **{current_model}** via OpenAI API for generation")
-        
-        # Quality generation settings
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            raw_samples = st.number_input(
-                "Samples to Generate",
-                min_value=1000,
-                max_value=50000,
-                value=10000,
-                step=1000,
-                help="More samples = better final quality but longer generation time"
-            )
+
+        with st.form("factual_qa_generation"):
+            st.markdown("#### ⚙️ Configuration")
             
-            final_size = st.number_input(
-                "Final Dataset Size",
-                min_value=50,
-                max_value=1000,
-                value=200,
-                help="Number of high-quality samples to keep"
-            )
-            
-            quality_threshold = st.slider(
-                "Quality Threshold (0-10)",
-                min_value=0.0,
-                max_value=10.0,
-                value=7.0,
-                step=0.5,
-                help="Minimum quality score to keep a sample"
-            )
-        
-        with col2:
-            diversity_weight = st.slider(
-                "Diversity Weight",
-                min_value=0.0,
-                max_value=1.0,
-                value=0.3,
-                step=0.1,
-                help="Balance between pure quality (0) and diversity (1)"
-            )
-            
-            judgment_batch_size = st.selectbox(
-                "Judgment Batch Size",
-                [10, 25, 50, 100],
-                index=2,
-                help="Larger batches can be more efficient with concurrent API calls"
-            )
-            
-            # Extra quality checkbox for quality generation
-            extra_quality_advanced = st.checkbox(
-                "🌟 EXTRA QUALITY", 
-                value=False, 
-                help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality.",
-                key="quality_extra_quality"
-            )
-        
-        # ✅ NEW: Sampling Configuration for Quality Generation
-        st.markdown("#### 🎛️ Generation Settings")
-        
-        # Import and use sampling configuration
-        from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
-        
-        # Get current model name for preset detection
-        current_model = getattr(st.session_state.dataset_manager, 'default_model', None)
-        if hasattr(st.session_state.dataset_manager, 'client'):
-            current_model = st.session_state.dataset_manager.client.default_model
-        
-        # Check if we have a model-specific preset
-        model_preset = get_model_preset(current_model) if current_model else None
-        if model_preset:
-            st.info(f"🎯 **{model_preset['name']}** preset available for your model")
-        
-        # Create default config for quality generation
-        default_quality_config = SamplingConfig(
-            temperature=0.9,
-            top_p=0.95,
-            max_tokens=400,
-            repetition_penalty=1.05,
-        )
-        
-        # Render sampling configuration UI
-        quality_sampling_config = render_sampling_config_ui(
-            current_config=default_quality_config,
-            model_name=current_model,
-            key_prefix="quality_gen"
-            )
-        
-        # System prompt configuration for quality generation
-        st.markdown("### System Prompt Configuration for Training")
-        use_custom_system_quality = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation", key="quality_custom_system")
-        
-        if use_custom_system_quality:
-            system_prompt_quality = st.text_area(
-                "System Prompt for Training",
-                placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
-                height=100,
-                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training.",
-                key="quality_system_prompt"
-            )
-        else:
-            system_prompt_quality = None
-            st.info("Dataset will keep temporal context system prompts (varies per sample)")
-        
-        # Estimated time (OpenAI API is generally fast)
-        samples_per_sec = 3  # OpenAI API is quite fast
-        judge_per_sec = 6    # OpenAI API judgment is also fast
-        est_gen_time = raw_samples / samples_per_sec / 60
-        est_judge_time = raw_samples / judge_per_sec / 60
-        est_total_time = est_gen_time + est_judge_time
-        
-        # Adjust estimated time for extra quality
-        extra_quality_time = 0
-        if 'extra_quality_advanced' in locals() and extra_quality_advanced:
-            # Estimate paraphrasing time: ~0.5 seconds per prompt, assuming ~100-200 prompts
-            estimated_prompts = min(raw_samples // 50, 200)  # Rough estimate
-            extra_quality_time = estimated_prompts * 0.5 / 60  # Convert to minutes
-            
-        total_with_extra = est_total_time + extra_quality_time
-        
-        time_info = f"""
-        📊 **Estimated Processing Time**: ~{total_with_extra:.1f} minutes
-        - Generation: ~{est_gen_time:.1f} minutes
-        - Evaluation: ~{est_judge_time:.1f} minutes"""
-        
-        if extra_quality_time > 0:
-            time_info += f"\n        - Extra Quality (Paraphrasing): ~{extra_quality_time:.1f} minutes"
-            
-        st.info(time_info)
-        
-        # Show extra quality warning if enabled
-        if extra_quality_advanced:
-            st.warning("🌟 EXTRA QUALITY enabled - Generation will take longer but produce cleaner, more varied prompts")
-        
-        # Quality generation button
-        if st.button("⭐ Start Quality-First Generation", use_container_width=True, type="primary"):
-            # ✅ FIX: Set generation state to prevent UI interference
+            col1, col2 = st.columns(2)
+            with col1:
+                num_facts = st.slider(
+                    "Number of Core Facts to Extract",
+                    min_value=5,
+                    max_value=50,
+                    value=15,
+                    step=1,
+                    help="The number of key facts to distill from the character card. This determines the breadth of the dataset."
+                )
+            with col2:
+                variations_per_fact = st.slider(
+                    "Q&A Variations per Fact",
+                    min_value=1,
+                    max_value=10,
+                    value=3,
+                    step=1,
+                    help="How many different question-answer pairs to create for each fact. More variations reinforce learning."
+                )
+
+            total_samples = num_facts * variations_per_fact
+            st.success(f"**Estimated dataset size:** ~{total_samples} samples.")
+
+            start_button = st.form_submit_button("🎯 Generate Factual Dataset", use_container_width=True, type="primary")
+
+        if start_button:
             st.session_state._generating_dataset = True
             
-            # Create placeholders for progress tracking
             stage_text = st.empty()
             progress_bar = st.progress(0)
-            stats_placeholder = st.empty()
             
-            # Callbacks
-            def update_progress(current_progress):
-                progress_bar.progress(current_progress)
-            
+            def update_progress(p):
+                progress_bar.progress(p)
+
             def update_stage(stage_info):
-                stage_text.info(f"**Stage**: {stage_info['message']}")
-            
+                stage_text.info(f"**Status:** {stage_info['message']}")
+
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 
-                # Run quality-first generation
                 dataset = loop.run_until_complete(
-                    st.session_state.dataset_manager.generate_with_quality_curation(
+                    st.session_state.dataset_manager.generate_factual_qa_dataset(
                         character=st.session_state.current_character,
-                        raw_samples_target=raw_samples,
-                        final_dataset_size=final_size,
-                        quality_threshold=quality_threshold,
-                        diversity_weight=diversity_weight,
-                        judgment_batch_size=judgment_batch_size,
+                        num_facts_to_use=num_facts,
+                        variations_per_fact=variations_per_fact,
                         progress_callback=update_progress,
-                        stage_callback=update_stage,
-                        custom_system_prompt=system_prompt_quality if use_custom_system_quality else None,
-                        extra_quality=extra_quality_advanced,
-                        **quality_sampling_config.to_dict()  # Pass all sampling parameters
+                        stage_callback=update_stage
                     )
                 )
                 
                 st.session_state.dataset_preview = dataset
-                # Update metadata if we generated with custom system prompt
-                if use_custom_system_quality:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'custom',
-                            'prompt': system_prompt_quality
-                        }
-                    }
-                else:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'temporal',
-                            'prompt': None
-                        }
-                    }
+                st.session_state.dataset_metadata = {
+                    'generation_method': 'factual_qa',
+                    'system_prompt_config': {'type': 'none'} # Factual QA datasets don't use system prompts
+                }
+
                 progress_bar.progress(1.0)
-                stage_text.success("✅ Quality-first generation complete!")
-                
-                # Show final stats
-                st.success(f"""
-                🎉 **Generation Complete!**
-                - Generated: {raw_samples} raw samples
-                - Curated: {len(dataset)} high-quality samples
-                - Acceptance rate: {(len(dataset)/raw_samples)*100:.1f}%
-                """)
-                
-                # ✅ FIX: Clear generation state before rerun
+                stage_text.success("✅ Factual Q&A dataset generated successfully!")
+                st.success(f"Generated {len(dataset)} high-quality factual samples.")
+
                 st.session_state._generating_dataset = False
                 st.rerun()
-                
+
             except Exception as e:
-                st.error(f"❌ Error in quality-first generation: {str(e)}")
-                logger.error(f"Quality generation error: {e}", exc_info=True)
-                # ✅ FIX: Always clear generation state on error
+                st.error(f"❌ Error during factual Q&A generation: {str(e)}")
+                logger.error(f"Factual Q&A generation error: {e}", exc_info=True)
                 st.session_state._generating_dataset = False
             finally:
                 loop.close()
-    
+
     # Dataset preview (shown in all tabs)
     if st.session_state.dataset_preview:
         st.markdown("---")
@@ -1551,6 +1410,26 @@ def page_training_config():
     """Enhanced training configuration page with advanced features"""
     st.markdown('<h2 class="gradient-text">⚙️ Training Configuration</h2>', unsafe_allow_html=True)
     
+    # Check if a profile needs to be applied
+    if 'profile_to_apply' in st.session_state and st.session_state.profile_to_apply:
+        profile = st.session_state.profile_to_apply
+        
+        # Store profile values in a dedicated session state key
+        st.session_state.training_form_defaults = {
+            **profile.get("advanced_training_config", {}),
+            **profile.get("hyperparameters", {}),
+            "base_model": profile.get("base_model")
+        }
+        
+        # Clear the flag
+        del st.session_state['profile_to_apply']
+        st.toast("✅ Profile applied to configuration below!", icon="✨")
+
+    # Get defaults from session state, or set to empty dict if not present
+    defaults = st.session_state.get('training_form_defaults', {})
+    if 'training_form_defaults' in st.session_state:
+        del st.session_state['training_form_defaults'] # One-time use
+
     # If training is already running or paused, encourage user to switch to Dashboard
     if st.session_state.get('training_status') in ['training', 'paused']:
         st.info("🚧 Training is in progress. Please use the Training Dashboard to monitor or control the run.")
@@ -1571,32 +1450,32 @@ def page_training_config():
         with col_adv1:
             enable_validation = st.checkbox(
                 "Enable Validation Split & Early Stopping",
-                value=True,
+                value=defaults.get("enable_validation", True),
                 help="Split dataset for validation and enable early stopping to prevent overfitting"
             )
             
             adaptive_lora = st.checkbox(
                 "Adaptive LoRA Parameters",
-                value=False,
+                value=defaults.get("adaptive_lora", False),
                 help="Automatically adjust LoRA rank and alpha based on character complexity"
             )
             
             enhanced_filtering = st.checkbox(
                 "Enhanced Quality Filtering",
-                value=False,
+                value=defaults.get("enhanced_quality_filtering", False),
                 help="Apply character-specific quality filters to training data"
             )
         
         with col_adv2:
             enable_tensorboard = st.checkbox(
-                "TensorBoard Monitoring",
-                value=False,
+                "Enable TensorBoard Monitoring",
+                value=defaults.get("enable_tensorboard", False),
                 help="Enable detailed TensorBoard logging for training analysis"
             )
             
             enable_wandb = st.checkbox(
                 "Weights & Biases Integration",
-                value=False,
+                value=defaults.get("enable_wandb", False),
                 help="Log training to Wandb for advanced experiment tracking"
             )
         
@@ -1605,7 +1484,7 @@ def page_training_config():
             "Logging Frequency (steps)",
             min_value=1,
             max_value=50,
-            value=10,
+            value=defaults.get("configurable_logging_freq", 10),
             help="How often to log training metrics"
         )
         
@@ -1613,14 +1492,14 @@ def page_training_config():
             "Early Stopping Patience",
             min_value=1,
             max_value=10,
-            value=3,
+            value=defaults.get("early_stopping_patience", 3),
             help="Number of evaluation steps without improvement before stopping"
         ) if enable_validation else 3
         
         # Force GPU option
         force_gpu = st.checkbox(
             "Force GPU Usage",
-            value=False,
+            value=defaults.get("force_gpu", False),
             help="Override device selection to use GPU (if available)"
         )
         
@@ -1660,15 +1539,24 @@ def page_training_config():
                 "Custom (enter HF ID below)"
             ]
             
+            # Get the index of the default base model
+            try:
+                default_model_index = base_model_options.index(defaults.get("base_model"))
+            except ValueError:
+                # If the model from profile is not in the standard list, select "Custom"
+                default_model_index = base_model_options.index("Custom (enter HF ID below)")
+
             base_model_choice = st.selectbox(
                 "Select base model",
                 base_model_options,
+                index=default_model_index,
                 help="Smaller models train faster and work better for character LoRAs"
             )
             
             if base_model_choice == "Custom (enter HF ID below)":
                 custom_base_model = st.text_input(
                     "HuggingFace Model ID",
+                    value=defaults.get("base_model", ""), # Pre-fill custom model
                     placeholder="e.g., teknium/OpenHermes-2.5-Mistral-7B",
                     help="Enter any HuggingFace model ID compatible with PEFT/LoRA"
                 )
@@ -1726,11 +1614,11 @@ def page_training_config():
                     
                     **Recommendation:** 5-6 epochs for small datasets (<100 samples), and 3-4 for larger ones is a good starting point.
                     """)
-            epochs = st.slider("Epochs", 1, 1000, optimal_epochs, label_visibility="collapsed", help="How many times the model sees the entire dataset.")
+            epochs = st.slider("Epochs", 1, 1000, defaults.get("epochs", optimal_epochs), label_visibility="collapsed", help="How many times the model sees the entire dataset.")
 
             # Learning Rate with explanation
             lr_options = [1e-5, 2e-5, 3e-5, 5e-5, 8e-5, 1e-4, 2e-4, 3e-4, 5e-4]
-            default_lr = 2e-4  # More conservative default
+            default_lr = defaults.get("learning_rate", 2e-4)
             c1, c2 = st.columns([0.9, 0.1])
             with c1:
                 st.markdown("**Learning Rate**")
@@ -1767,22 +1655,25 @@ def page_training_config():
                     
                     **Recommendation:** Start with 2 or 4 and adjust based on your hardware.
                     """)
-            batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1, label_visibility="collapsed")
+            batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], 
+                                      index=[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].index(defaults.get("batch_size", 2)), 
+                                      label_visibility="collapsed")
             
-            gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)  # Default to 2
-            warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
-            max_grad_norm = st.slider("Max Gradient Norm", 0.5, 8.0, 1.0, step=0.1, help="1.0 is standard")
+            gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], 
+                                                 index=[1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024].index(defaults.get("gradient_accumulation_steps", 2)))
+            warmup_steps = st.slider("Warmup Steps", 0, 100, defaults.get("warmup_steps", 10), help="10-20 steps usually sufficient")
+            max_grad_norm = st.slider("Max Gradient Norm", 0.5, 8.0, defaults.get("max_grad_norm", 1.0), step=0.1, help="1.0 is standard")
             
             # Sample selection for dataset
             st.markdown("**Dataset Sampling**")
             if dataset_size > 0:
-                use_all_samples = st.checkbox("Use All Samples", value=True, help="Use the entire dataset for training")
+                use_all_samples = st.checkbox("Use All Samples", value=not ("max_samples" in defaults and defaults["max_samples"] != dataset_size), help="Use the entire dataset for training")
                 if not use_all_samples:
                     max_samples = st.slider(
                         "Number of Samples", 
                         min_value=1, 
                         max_value=dataset_size, 
-                        value=min(dataset_size, 100),
+                        value=defaults.get("max_samples", min(dataset_size, 100)),
                         help=f"Select subset from {dataset_size} total samples (randomized selection)"
                     )
                 else:
@@ -1791,49 +1682,57 @@ def page_training_config():
                 max_samples = dataset_size
             
             # LoRA settings optimized for character training
-            st.markdown("#### LoRA Configuration (Character-Optimized)")
+            st.markdown("#### PEFT Configuration (Character-Optimized)")
             
-            default_r = 16  # Optimal for character LoRA per research
+            finetune_method = st.radio(
+                "Fine-tuning Method",
+                ("LoRA", "DoRA"),
+                horizontal=True,
+                index=["lora", "dora"].index(defaults.get("finetune_method", "lora")),
+                help="Choose between LoRA and DoRA for fine-tuning. DoRA can offer more precise training."
+            ).lower()
+            
+            default_r = defaults.get("lora_r", 16)  # Optimal for character LoRA per research
             # LoRA Rank with explanation
             c1, c2 = st.columns([0.9, 0.1])
             with c1:
-                st.markdown("**LoRA Rank (r)**")
+                st.markdown("**Rank (r)**")
             with c2:
-                with st.popover("ℹ️", help="Explain LoRA Rank (r)"):
+                with st.popover("ℹ️", help="Explain Rank (r)"):
                     st.markdown("""
-                    The **LoRA Rank (r)** determines the number of trainable parameters in the LoRA adapter. It controls the 'capacity' of the LoRA.
+                    The **Rank (r)** determines the number of trainable parameters in the PEFT adapter. It controls the 'capacity' of the adapter.
                     - **Higher Rank:** More parameters, allowing the model to learn more complex details. This also increases training time and VRAM usage.
                     - **Lower Rank:** Fewer parameters, faster training, less VRAM.
                     
                     **Recommendation:** `8` or `16` is highly effective for most characters. Use `32` for very complex characters with large datasets.
                     """)
-            lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4,
+            lora_r = st.slider("Rank (r)", 4, 256, default_r, step=4,
                                label_visibility="collapsed",
                                help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
 
             # LoRA Alpha with explanation
             c1, c2 = st.columns([0.9, 0.1])
             with c1:
-                st.markdown("**LoRA Alpha**")
+                st.markdown("**Alpha**")
             with c2:
-                with st.popover("ℹ️", help="Explain LoRA Alpha"):
+                with st.popover("ℹ️", help="Explain Alpha"):
                     st.markdown("""
-                    **LoRA Alpha** is a scaling factor for the LoRA adjustments. Think of it as controlling the 'intensity' of the training.
+                    **Alpha** is a scaling factor for the PEFT adjustments. Think of it as controlling the 'intensity' of the training.
                     - By setting **Alpha equal to Rank (α = r)**, you are using a standard configuration that works very well for character training. This helps balance the learning process.
                     - Deviating from this (e.g., alpha = 2 * rank) is an advanced technique and not typically recommended for characters.
                     
-                    **Recommendation:** Keep this value the same as your LoRA Rank.
+                    **Recommendation:** Keep this value the same as your Rank.
                     """)
-            lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8,
+            lora_alpha = st.slider("Alpha", 8, 1024, defaults.get("lora_alpha", default_r), step=8,
                                    label_visibility="collapsed",
                                    help="Set equal to rank (α = r) for character training")
             
-            lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01, 
+            lora_dropout = st.slider("Dropout", 0.0, 0.2, defaults.get("lora_dropout", 0.1), step=0.01, 
                                      help="0.05-0.1 for regularization")
             target_modules = st.multiselect(
                 "Target Modules",
                 ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-                default=["q_proj", "k_proj", "v_proj", "o_proj"],  # Focus on attention layers
+                default=defaults.get("target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"]),  # Focus on attention layers
                 help="Attention layers (q,k,v,o) are most important for character behavior"
             )
             
@@ -1864,7 +1763,7 @@ def page_training_config():
                 
                 include_system_prompts = st.checkbox(
                     "Include System Prompts in Training",
-                    value=False,
+                    value=defaults.get("include_system_prompts", False),
                     help="If checked, system prompts will be included in training data. Usually better to let LoRA internalize character behavior without system prompts.",
                     disabled=not dataset_has_system
                 )
@@ -1876,15 +1775,15 @@ def page_training_config():
                 elif not dataset_has_system:
                     st.info("ℹ️ Dataset has no system prompts")
                 
-                fp16 = st.checkbox("Enable FP16", value=True, help="Enables mixed precision training for better performance")
-                save_steps = st.slider("Save Every N Steps", 1, 200, 50, step=1)
-                logging_steps = st.slider("Log Every N Steps", 1, 100, 5, step=1)
-                eval_steps = st.slider("Evaluation Steps", 1, 100, 10, step=1)
+                fp16 = st.checkbox("Enable FP16", value=defaults.get("fp16", True), help="Enables mixed precision training for better performance")
+                save_steps = st.slider("Save Every N Steps", 1, 200, defaults.get("save_steps", 50), step=1)
+                logging_steps = st.slider("Log Every N Steps", 1, 100, defaults.get("logging_steps", 5), step=1)
+                eval_steps = st.slider("Evaluation Steps", 1, 100, defaults.get("eval_steps", 10), step=1)
                 max_steps_override = st.number_input(
                     "Override Total Training Steps (0 = auto)",
                     min_value=0,
                     max_value=50000,
-                    value=0,
+                    value=defaults.get("max_steps_override", 0),
                     step=100,
                     help="Manually set the total number of optimisation steps if you need finer control. Leave at 0 to use the computed value."
                 )
@@ -1894,6 +1793,89 @@ def page_training_config():
     with col2:
         st.markdown("### Training Recommendations")
         
+        # Profile I/O: Create a dedicated expander for this
+        # with st.expander("💾 Save, Load, and Apply Training Profiles", expanded=True):
+        profile_cols = st.columns(2)
+        with profile_cols[0]:
+            if st.button("💾 Save Current Profile", use_container_width=True, help="Save the current settings as a profile"):
+                try:
+                    # Use a more robust way to get the character name
+                    char_name = st.session_state.current_character.get("name", "untitled")
+                    
+                    config_to_save = {
+                        "character_name": char_name,
+                        "base_model": selected_base_model,
+                        "dataset_file": st.session_state.dataset_metadata.get('path'),
+                        "advanced_training_config": st.session_state.get('advanced_training_config', {}),
+                        "hyperparameters": {
+                            'epochs': epochs,
+                            'learning_rate': learning_rate,
+                            'batch_size': batch_size,
+                            'gradient_accumulation_steps': gradient_accumulation,
+                            'warmup_steps': warmup_steps,
+                            'max_grad_norm': max_grad_norm,
+                            'max_samples': max_samples,
+                            'finetune_method': finetune_method,
+                            'lora_r': lora_r,
+                            'lora_alpha': lora_alpha,
+                            'lora_dropout': lora_dropout,
+                            'target_modules': target_modules,
+                            'include_system_prompts': include_system_prompts,
+                            'fp16': fp16,
+                            'save_steps': save_steps,
+                            'logging_steps': logging_steps,
+                            'eval_steps': eval_steps,
+                            'max_steps_override': int(max_steps_override) if max_steps_override else 0,
+                        }
+                    }
+                    
+                    # Create profiles directory if it doesn't exist
+                    profiles_dir = Path("profiles")
+                    profiles_dir.mkdir(exist_ok=True)
+                    
+                    # Save the profile
+                    save_path = profiles_dir / f"{char_name}_profile.json"
+                    with open(save_path, 'w') as f:
+                        json.dump(config_to_save, f, indent=4)
+                    
+                    st.toast(f"✅ Profile saved: {save_path.name}", icon="💾")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error saving profile: {e}")
+
+        with profile_cols[1]:
+            uploaded_profile = st.file_uploader(
+                "Load Profile", 
+                type=['json'], 
+                label_visibility="collapsed",
+                help="Upload a saved training profile"
+            )
+
+        if uploaded_profile:
+            try:
+                profile_data = json.load(uploaded_profile)
+                
+                # Store loaded profile in session state to be applied
+                st.session_state.loaded_profile = profile_data
+                
+                st.success(f"📂 Profile '{uploaded_profile.name}' loaded!")
+                st.info("Click 'Apply Profile' to update the configuration below.")
+
+            except Exception as e:
+                st.error(f"❌ Error loading profile: {e}")
+        
+        # Button to apply the loaded profile
+        if 'loaded_profile' in st.session_state and st.session_state.loaded_profile:
+            if st.button("✨ Apply Profile", use_container_width=True):
+                # In a real app, you would now update all the widgets.
+                # Streamlit makes this tricky without re-running the script.
+                # The "correct" way is to store defaults in session state
+                # and use them to set widget values.
+                # We will add this logic in the next step.
+                st.session_state.profile_to_apply = st.session_state.loaded_profile
+                del st.session_state['loaded_profile'] # Clear after flagging
+                st.rerun() # Rerun to apply the settings
+
         # Calculate training recommendations based on selected samples
         effective_dataset_size = max_samples if 'max_samples' in locals() else dataset_size
         total_steps = (effective_dataset_size * epochs) // (batch_size * gradient_accumulation)
@@ -1986,6 +1968,7 @@ def page_training_config():
             'resume_from_checkpoint': resume_ckpt,
             'include_system_prompts': include_system_prompts,
             'max_samples': max_samples,
+            'finetune_method': finetune_method,
             # Enhanced scheduling options
             'lr_scheduler_type': 'cosine',
             'warmup_ratio': 0.05

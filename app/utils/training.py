@@ -460,7 +460,7 @@ class TrainingManager:
         raise RuntimeError(f"Failed to load model after {max_retries} attempts")
     
     def _setup_lora_model(self, model, config: Dict[str, Any], character: Dict[str, Any] = None, dataset_size: int = 0):
-        """Setup LoRA configuration for the model with adaptive parameters"""
+        """Setup LoRA or DoRA configuration for the model with adaptive parameters"""
         if self.device == "cuda":
             model = prepare_model_for_kbit_training(model)
         
@@ -472,24 +472,30 @@ class TrainingManager:
                 if key not in config or config[key] == 16:  # Default value
                     config[key] = value
         
-        # Apply guideline-driven defaults for character LoRA
+        # Apply guideline-driven defaults for character PEFT
         r_val = config.get('lora_r', 16)
         alpha_val = config.get('lora_alpha', r_val)  # Use α = r for character training
         dropout_val = config.get('lora_dropout', 0.1)
         target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+        finetune_method = config.get('finetune_method', 'lora').lower()
         
-        logger.info(f"LoRA Configuration: r={r_val}, α={alpha_val}, dropout={dropout_val}")
+        logger.info(f"PEFT Configuration (Method: {finetune_method.upper()}): r={r_val}, α={alpha_val}, dropout={dropout_val}")
+
+        common_peft_params = {
+            'r': r_val,
+            'lora_alpha': alpha_val,
+            'target_modules': target_modules_val,
+            'lora_dropout': dropout_val,
+            'bias': "none",
+            'task_type': "CAUSAL_LM",
+        }
         
-        lora_config = LoraConfig(
-            r=r_val,
-            lora_alpha=alpha_val,
-            target_modules=target_modules_val,
-            lora_dropout=dropout_val,
-            bias="none",
-            task_type="CAUSAL_LM",
-        )
+        if finetune_method == 'dora':
+            common_peft_params['use_dora'] = True
         
-        return get_peft_model(model, lora_config)
+        peft_config = LoraConfig(**common_peft_params)
+        
+        return get_peft_model(model, peft_config)
     
     def _training_worker(self, character: Dict[str, Any], dataset: List[Dict[str, Any]], 
                         config: Dict[str, Any]):

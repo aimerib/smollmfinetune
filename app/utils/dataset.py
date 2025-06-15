@@ -4713,3 +4713,182 @@ Respond with ONLY a JSON object with numeric scores:
         logger.info(f"📊 Curated {len(selected_samples)} samples with diversity weight {diversity_weight}")
         
         return selected_samples
+
+    async def _extract_and_simplify_facts(self, character: Dict[str, Any], max_facts: int = 20) -> List[str]:
+        """
+        Uses an LLM to distill a character card into a list of simple, verifiable facts.
+        This is the foundation of the factual Q&A generation process.
+        """
+        logger.info(f"Extracting and simplifying facts for character: {character.get('name', 'Unknown')}")
+        
+        # Consolidate key character information
+        char_name = character.get("name", "the character")
+        description = character.get("description", "")
+        personality = character.get("personality", "")
+        scenario = character.get("scenario", "")
+        example_dialogue = character.get("mes_example", "")
+
+        source_text = f"""
+        Character Name: {char_name}
+        Description: {description}
+        Personality: {personality}
+        Scenario: {scenario}
+        Example Dialogue: {example_dialogue}
+        """
+
+        prompt = f"""
+        Analyze the following character information. Your task is to extract a list of simple, declarative, and easily verifiable facts about the character. These facts should be "fluff-free" and focus on core traits, history, and personality. Each fact must be a standalone statement.
+
+        Rules:
+        1.  Each fact must be a simple, declarative sentence.
+        2.  Focus on concrete details: appearance, abilities, key personality traits, relationships, background.
+        3.  Avoid jargon, complex sentences, and figurative language.
+        4.  Do not include introductory phrases like "The character is..." or "She has...". Start directly with the fact.
+        5.  Output ONLY a numbered list of facts. Do not include any other text or explanation.
+
+        Here is the character information:
+        ---
+        {textwrap.dedent(source_text)}
+        ---
+
+        Extract the top {max_facts} most important facts as a numbered list:
+        """
+
+        try:
+            response = await self.client.generate(prompt, temperature=0.2, max_tokens=1024)
+            
+            # Parse the numbered list
+            facts = re.findall(r'^\s*\d+\.\s*(.*)', response, re.MULTILINE)
+            
+            if not facts:
+                logger.warning("LLM failed to return a numbered list of facts. Falling back to splitting by newline.")
+                facts = [line.strip() for line in response.split('\n') if line.strip()]
+
+            logger.info(f"Extracted {len(facts)} facts for {char_name}.")
+            return facts[:max_facts]
+
+        except Exception as e:
+            logger.error(f"Failed to extract facts from character card: {e}", exc_info=True)
+            return []
+
+    async def _generate_factual_qa_variations(self, fact: str, character: Dict[str, Any], num_variations: int = 3) -> List[Dict[str, str]]:
+        """
+        Given a single fact, generates multiple Q&A pairs that teach that fact.
+        The goal is to reinforce the fact through varied questioning.
+        """
+        char_name = character.get("name", "the character")
+        
+        prompt = f"""
+        You are a dataset creation assistant. Your task is to generate {num_variations} unique question-and-answer pairs based on a single fact about a character. The answer must always be from the character's perspective.
+
+        The Core Fact: "{fact}"
+
+        Character Name: {char_name}
+
+        Instructions:
+        1.  Create {num_variations} different questions that a user might ask to learn this fact. The questions should be phrased differently.
+        2.  For each question, write a concise answer from the character's point of view, directly confirming the fact. The answer should sound natural for the character.
+        3.  Return the result as a JSON array of objects, where each object has a "question" and "answer" key.
+        4.  Do NOT include any text outside of the JSON array.
+
+        Example Format:
+        [
+            {{"question": "A user's question here.", "answer": "The character's answer here."}},
+            {{"question": "A different user's question.", "answer": "A different phrasing of the character's answer."}}
+        ]
+
+        Generate the JSON array now.
+        """
+
+        try:
+            response = await self.client.generate(prompt, temperature=0.8, top_p=0.95, max_tokens=1500)
+            # Clean the response to ensure it's valid JSON
+            json_response = response.strip()
+            # Find the start of the JSON array
+            start_index = json_response.find('[')
+            # Find the end of the JSON array
+            end_index = json_response.rfind(']')
+            if start_index != -1 and end_index != -1:
+                json_response = json_response[start_index:end_index+1]
+            
+            qa_pairs = json.loads(json_response)
+            if isinstance(qa_pairs, list) and all("question" in d and "answer" in d for d in qa_pairs):
+                return qa_pairs
+            else:
+                logger.warning(f"Could not parse valid Q&A pairs from LLM response for fact: {fact}")
+                return []
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error(f"Failed to parse JSON for Q&A variations for fact '{fact}': {e}\nResponse was:\n{response}")
+            return []
+        except Exception as e:
+            logger.error(f"An unexpected error occurred during Q&A generation for fact '{fact}': {e}", exc_info=True)
+            return []
+
+
+    async def generate_factual_qa_dataset(
+        self, 
+        character: Dict[str, Any], 
+        num_facts_to_use: int = 15, 
+        variations_per_fact: int = 3,
+        progress_callback: Optional[Callable] = None,
+        stage_callback: Optional[Callable] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Generates a high-quality dataset consisting of varied Q&A pairs based on
+        distilled facts from the character card. This method prioritizes factual accuracy
+        and reinforcement over narrative generation.
+        """
+        char_name = character.get("name", "Unknown")
+        logger.info(f"Starting factual Q&A dataset generation for {char_name}.")
+        
+        if stage_callback:
+            stage_callback({"message": "Step 1/3: Extracting and simplifying facts..."})
+
+        facts = await self._extract_and_simplify_facts(character, max_facts=num_facts_to_use)
+        if not facts:
+            logger.error("No facts could be extracted. Aborting dataset generation.")
+            if stage_callback:
+                stage_callback({"message": "Error: Could not extract facts."})
+            return []
+
+        if stage_callback:
+            stage_callback({"message": f"Step 2/3: Generating Q&A variations for {len(facts)} facts..."})
+
+        dataset = []
+        tasks = []
+        for fact in facts:
+            task = self._generate_factual_qa_variations(fact, character, num_variations=variations_per_fact)
+            tasks.append(task)
+        
+        total_tasks = len(tasks)
+        completed_tasks = 0
+        
+        for future in asyncio.as_completed(tasks):
+            try:
+                qa_pairs = await future
+                for pair in qa_pairs:
+                    # Create the standard message format
+                    sample = {
+                        "messages": [
+                            {"role": "system", "content": ""}, # Factual datasets often have no system prompt
+                            {"role": "user", "content": pair["question"]},
+                            {"role": "assistant", "content": pair["answer"]},
+                        ]
+                    }
+                    dataset.append(sample)
+                
+                completed_tasks += 1
+                if progress_callback:
+                    progress_callback(completed_tasks / total_tasks)
+
+            except Exception as e:
+                logger.error(f"Error processing Q&A generation task: {e}", exc_info=True)
+
+        logger.info(f"Generated {len(dataset)} factual Q&A pairs for {char_name}.")
+        if stage_callback:
+            stage_callback({"message": f"Step 3/3: Finalizing dataset..."})
+
+        # Save the dataset
+        self.save_dataset(character, dataset, metadata={"generation_method": "factual_qa"})
+
+        return dataset
