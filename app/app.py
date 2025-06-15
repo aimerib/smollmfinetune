@@ -7,6 +7,7 @@ os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
 import streamlit as st
 from streamlit_option_menu import option_menu
 import plotly.express as px
+import plotly.graph_objects as go
 import pandas as pd
 import json
 import time
@@ -25,6 +26,7 @@ from utils.character import CharacterManager
 from utils.dataset import DatasetManager, QualityLevel, GenerationConfig
 from utils.training import TrainingManager
 from utils.inference import InferenceManager
+from utils.comparison import ComparisonManager
 
 # Configure logging for debugging
 import logging
@@ -84,6 +86,8 @@ def init_session_state():
         st.session_state.training_manager = TrainingManager()
     if 'inference_manager' not in st.session_state:
         st.session_state.inference_manager = InferenceManager()
+    if 'comparison_manager' not in st.session_state:
+        st.session_state.comparison_manager = ComparisonManager(st.session_state.inference_manager)
     if 'current_character' not in st.session_state:
         st.session_state.current_character = None
     if 'training_status' not in st.session_state:
@@ -94,6 +98,49 @@ def init_session_state():
         st.session_state.dataset_metadata = {}
     if 'generated_questions' not in st.session_state:
         st.session_state.generated_questions = None
+
+def render_healthy_run_example():
+    """Renders an SVG example of a healthy training run loss curve."""
+    svg_html = """
+    <svg width="250" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
+        <style>
+            .bg { fill: rgba(30, 41, 59, 0.5); }
+            .axis-line { stroke: #475569; stroke-width: 1.5; }
+            .axis-text { fill: #94a3b8; font-family: 'Inter', sans-serif; font-size: 12px; }
+            .loss-curve { stroke: #10b981; stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+            .grid-line { stroke: #334155; stroke-width: 1; stroke-dasharray: 2,3; }
+            .title-text { fill: #f1f5f9; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; text-anchor: middle; }
+        </style>
+        <rect width="300" height="150" class="bg" rx="12"/>
+        
+        <!-- Title -->
+        <text x="150" y="22" class="title-text">💡 Example: Healthy Loss Curve</text>
+
+        <!-- Axes -->
+        <line x1="40" y1="35" x2="40" y2="125" class="axis-line"/> <!-- Y-axis -->
+        <text x="35" y="40" class="axis-text" text-anchor="end">High</text>
+        <text x="35" y="125" class="axis-text" text-anchor="end">Low</text>
+        <text x="15" y="85" class="axis-text" transform="rotate(-90 15,85)">Loss</text>
+
+        <line x1="40" y1="125" x2="280" y2="125" class="axis-line"/> <!-- X-axis -->
+        <text x="160" y="142" class="axis-text" text-anchor="middle">Training Steps</text>
+        
+        <!-- Grid Lines -->
+        <line x1="40" y1="35" x2="280" y2="35" class="grid-line" />
+        <line x1="40" y1="80" x2="280" y2="80" class="grid-line" />
+
+        <!-- Healthy Loss Curve Path -->
+        <path d="M 45,50 C 90,55 120,100 270,115" class="loss-curve" />
+    </svg>
+    """
+    st.markdown(f"""
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
+            <p style="text-align: center; font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0.5rem;">
+                A healthy run shows loss decreasing and stabilizing.
+            </p>
+            {svg_html}
+        </div>
+    """, unsafe_allow_html=True)
 
 
 # Page config
@@ -264,8 +311,8 @@ def render_sidebar():
         # Navigation menu
         selected = option_menu(
             menu_title=None,
-            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing"],
-            icons=["upload", "search", "table", "gear", "graph-up", "flask"],
+            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison"],
+            icons=["upload", "search", "table", "gear", "graph-up", "flask", "shuffle"],
             menu_icon="cast",
             default_index=0,
             styles={
@@ -2064,7 +2111,11 @@ def page_training_dashboard():
                         annotation_position="top right"
                     )
                 
-                st.plotly_chart(fig, use_container_width=True)
+                chart_col, example_col = st.columns([3, 1])
+                with chart_col:
+                    st.plotly_chart(fig, use_container_width=True)
+                with example_col:
+                    render_healthy_run_example()
                 
                 # Character consistency chart (if available)
                 if 'character_consistency' in metrics:
@@ -2340,10 +2391,7 @@ def page_model_testing():
         st.markdown("### Model Comparison")
         
         if len(available_models) > 1:
-            st.info("Compare responses from different model checkpoints to evaluate training progress.")
-            
-            if st.button("📊 Compare Models"):
-                st.info("Model comparison feature coming soon!")
+            st.info("Go to the '⚔️ Model Comparison' page from the sidebar to compare models side-by-side.")
         else:
             st.info("Train multiple checkpoints to enable model comparison.")
 
@@ -2420,6 +2468,187 @@ def page_dataset_explorer():
         if stats:
             st.json(stats)
 
+def page_model_comparison():
+    """Page for comparing different models side-by-side."""
+    st.markdown('<h2 class="gradient-text">⚔️ Model Comparison Dashboard</h2>', unsafe_allow_html=True)
+
+    if not st.session_state.current_character:
+        st.warning("⚠️ Please upload a character card first.")
+        return
+
+    char_name = st.session_state.current_character.get("name", "Unknown")
+    st.markdown(f"### Comparing models for: **{char_name}**")
+
+    # Get available models
+    available_models = st.session_state.inference_manager.get_available_models()
+    
+    # Filter for models related to the current character, plus the base model
+    character_models = [m for m in available_models if char_name.lower().replace(' ', '_') in m.lower() or "Base:" in m]
+    
+    if len(character_models) < 2:
+        st.info("ℹ️ You need at least two trained models/checkpoints for this character to compare them. The base model is always available for comparison.")
+        # Also add base if not present, in case no models are trained yet
+        if not any("Base:" in m for m in character_models):
+             character_models.append(f"Base: {st.session_state.inference_manager.base_model}")
+        if len(character_models) < 2:
+             return
+    
+    selected_models = st.multiselect(
+        "Select models to compare (2 or more)",
+        options=character_models,
+        default=character_models[:2] if len(character_models) >= 2 else character_models,
+        help="Choose checkpoints or final LoRA models to test side-by-side."
+    )
+
+    if len(selected_models) < 2:
+        st.warning("⚠️ Please select at least two models to compare.")
+        return
+
+    # Test prompt
+    prompt = st.text_area(
+        "Enter a test prompt",
+        "Who are you and what are your core beliefs?",
+        height=100,
+        key="comparison_prompt"
+    )
+
+    # Generation settings
+    with st.expander("⚙️ Generation Settings"):
+        from utils.sampling_config import render_sampling_config_ui, SamplingConfig
+        default_test_config = SamplingConfig(
+            temperature=0.7,
+            top_p=0.9,
+            max_tokens=200,
+            repetition_penalty=1.1,
+        )
+        test_sampling_config = render_sampling_config_ui(
+            current_config=default_test_config,
+            key_prefix="model_comparison_gen"
+        )
+    
+    if st.button("🚀 Compare Responses", use_container_width=True, type="primary"):
+        if not prompt.strip():
+            st.error("❌ Please enter a prompt.")
+            return
+
+        # Store results in session state to persist them
+        with st.spinner("Generating responses and fetching metrics..."):
+            comparison_results = st.session_state.comparison_manager.compare_models_side_by_side(
+                model_identifiers=selected_models,
+                prompt=prompt,
+                generation_config=test_sampling_config.to_dict()
+            )
+            metrics_data = st.session_state.comparison_manager.get_comparison_metrics(selected_models)
+            
+            st.session_state.comparison_data = {
+                "responses": comparison_results,
+                "metrics": metrics_data
+            }
+        st.success("✅ Comparison complete!")
+
+    # Display comparison if data exists
+    if 'comparison_data' in st.session_state:
+        st.markdown("---")
+        st.markdown("### 📊 Comparison Results")
+
+        responses = st.session_state.comparison_data['responses']
+        metrics = st.session_state.comparison_data['metrics']
+
+        # Side-by-side responses
+        st.markdown("#### Side-by-Side Responses")
+        cols = st.columns(len(selected_models))
+        for i, model_id in enumerate(selected_models):
+            with cols[i]:
+                st.markdown(f"##### {model_id}")
+                st.markdown(f"""
+                    <div style="background: rgba(255, 255, 255, 0.05); padding: 1rem; border-radius: 8px; height: 300px; overflow-y: auto;">
+                        {responses.get(model_id, "N/A")}
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Promotion button
+                if "Base:" not in model_id:
+                    if st.button(f"🏆 Promote {model_id.split('/')[-1]}", key=f"promote_{i}", use_container_width=True):
+                        checkpoint_id = model_id.split(': ')[1]
+                        success = st.session_state.comparison_manager.promote_checkpoint(
+                            character_name=char_name,
+                            checkpoint_id=checkpoint_id,
+                            reason=f"Promoted after comparing with prompt: '{prompt[:50]}...'"
+                        )
+                        if success:
+                            st.success(f"✅ Promoted {checkpoint_id} as the best version!")
+                        else:
+                            st.error("❌ Failed to promote checkpoint.")
+        
+        # Display promoted checkpoint info
+        promoted_checkpoint = st.session_state.comparison_manager.get_promoted_checkpoint(char_name)
+        if promoted_checkpoint:
+            st.success(f"🏆 **Promoted Model:** `{promoted_checkpoint}` is currently selected as the best version for this character.")
+
+
+        # Radar Chart for Metrics
+        st.markdown("#### Quantitative Metrics Comparison")
+        
+        # Check if we have any metrics data to plot
+        if any(metrics.values()):
+            fig = go.Figure()
+
+            # Define metrics to plot and their properties
+            metric_info = {
+                'eval_loss': {'name': 'Eval Loss (1/x)', 'invert': True},
+                'avg_consistency': {'name': 'Avg Consistency', 'invert': False},
+                'loss': {'name': 'Train Loss (1/x)', 'invert': True},
+            }
+            metric_labels = list(metric_info.keys())
+            
+            # Find max value for normalization after inversion
+            max_inverted_loss = 1
+            all_values = []
+            for model_id in selected_models:
+                model_metrics = metrics.get(model_id, {})
+                for label in metric_labels:
+                    val = model_metrics.get(label)
+                    if val is not None and metric_info[label]['invert'] and val > 0:
+                        all_values.append(1 / val)
+                    elif val is not None and not metric_info[label]['invert']:
+                        all_values.append(val)
+            
+            max_radial_value = max(all_values) if all_values else 1
+
+            for model_id in selected_models:
+                model_metrics = metrics.get(model_id, {})
+                values = []
+                for label in metric_labels:
+                    val = model_metrics.get(label)
+                    if val is None:
+                        values.append(0)
+                    elif metric_info[label]['invert']:
+                        values.append(1 / val if val > 0 else 0)
+                    else:
+                        values.append(val)
+                
+                fig.add_trace(go.Scatterpolar(
+                    r=values,
+                    theta=[info['name'] for info in metric_info.values()],
+                    fill='toself',
+                    name=model_id
+                ))
+
+            fig.update_layout(
+                polar=dict(
+                    radialaxis=dict(
+                        visible=True,
+                        range=[0, max_radial_value * 1.1] # Add padding
+                    )),
+                showlegend=True,
+                template="plotly_dark",
+                title="Model Metrics Radar Chart (Higher is Better)"
+            )
+
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("No quantitative metrics found to generate a radar chart. Make sure `training_summary.json` exists for the selected models.")
+
 # Main app function
 def main():
     """Main app function"""
@@ -2442,6 +2671,8 @@ def main():
         page_training_dashboard()
     elif selected_page == "🧪 Model Testing":
         page_model_testing()
+    elif selected_page == "⚔️ Model Comparison":
+        page_model_comparison()
     
     # Footer
     st.markdown("""

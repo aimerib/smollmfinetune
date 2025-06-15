@@ -4,6 +4,7 @@ from typing import Dict, Any, List, Optional
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 import logging
+import json
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -98,6 +99,38 @@ class InferenceManager:
         
         return models
     
+    def _get_model_path(self, model_identifier: str) -> Optional[Path]:
+        """Resolve a model identifier to a filesystem path."""
+        if model_identifier.startswith("Base:"):
+            return None
+            
+        parts = model_identifier.split(": ", 1)[1].split("/")
+        character_name = parts[0]
+        
+        if len(parts) > 1:  # Checkpoint
+            checkpoint_name = parts[1]
+            adapter_path = self.project_dir / "adapters" / character_name / checkpoint_name
+        else:  # Final LoRA
+            adapter_path = self.project_dir / "adapters" / character_name
+        
+        return adapter_path if adapter_path.exists() else None
+
+    def get_model_metrics(self, model_identifier: str) -> Dict[str, Any]:
+        """Load training metrics from the training_summary.json file."""
+        model_path = self._get_model_path(model_identifier)
+        if not model_path:
+            return {}
+
+        summary_path = model_path / "training_summary.json"
+        if summary_path.exists():
+            with summary_path.open('r') as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not decode JSON from {summary_path}")
+                    return {}
+        return {}
+    
     def load_model(self, model_path: str) -> tuple:
         """Load a specific model (base, LoRA, or checkpoint)"""
         if model_path in self.loaded_models:
@@ -131,17 +164,9 @@ class InferenceManager:
             logger.info("Using base model without adapters")
         elif model_path.startswith("LoRA:") or model_path.startswith("Checkpoint:"):
             # Extract character name and optional checkpoint
-            parts = model_path.split(": ", 1)[1].split("/")
-            character_name = parts[0]
-            
-            if len(parts) > 1:  # Checkpoint
-                checkpoint_name = parts[1]
-                adapter_path = self.project_dir / "adapters" / character_name / checkpoint_name
-            else:  # Final LoRA
-                adapter_path = self.project_dir / "adapters" / character_name
-            
-            if not adapter_path.exists():
-                raise FileNotFoundError(f"Model not found: {adapter_path}")
+            adapter_path = self._get_model_path(model_path)
+            if not adapter_path:
+                raise FileNotFoundError(f"Model not found: {model_path}")
             
             # Load LoRA adapter
             logger.info(f"Loading LoRA adapter from: {adapter_path}")
