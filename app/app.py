@@ -2718,10 +2718,15 @@ def page_model_comparison():
 
         # Store results in session state to persist them
         with st.spinner("Generating responses and fetching metrics..."):
+            sp_config = test_sampling_config.to_dict()
+            if 'min_tokens' in sp_config:
+                sp_config.pop('min_tokens')
+            if 'max_tokens' in sp_config:
+                sp_config.pop('max_tokens')
             comparison_results = st.session_state.comparison_manager.compare_models_side_by_side(
                 model_identifiers=selected_models,
                 prompt=prompt,
-                generation_config=test_sampling_config.to_dict()
+                generation_config=sp_config
             )
             metrics_data = st.session_state.comparison_manager.get_comparison_metrics(selected_models)
             

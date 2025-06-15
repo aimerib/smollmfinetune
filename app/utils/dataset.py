@@ -241,6 +241,15 @@ class DatasetManager:
             'batch_efficiency': []
         }
 
+        self.templates = [
+            "short_qa",
+            "narration",
+            "monologue",
+            "dialogue_turn",
+            "internal_thought",
+            "character_response",
+        ]
+
         self.prompts_nsfw = [
             "*leans in close* What's the naughtiest thing you've ever done?",
             "Tell me about a forbidden desire you can't shake.",

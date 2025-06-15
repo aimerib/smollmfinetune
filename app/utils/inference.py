@@ -197,7 +197,7 @@ class InferenceManager:
         
         return messages
     
-    def generate_response(self, model_path: str, prompt: str, max_new_tokens: int = 150,
+    def generate_response(self, model_path: str, prompt: str, max_tokens: int = 150,
                          temperature: float = 0.8, top_p: float = 0.9,
                          repetition_penalty: float = 1.1, do_sample: bool = True,
                          system_prompt: Optional[str] = None) -> str:
@@ -205,7 +205,7 @@ class InferenceManager:
         try:
             logger.info(f"Generating response with model: {model_path}")
             logger.debug(f"Raw prompt: {prompt[:100]}...")
-            logger.debug(f"Generation params: max_tokens={max_new_tokens}, temp={temperature}, top_p={top_p}")
+            logger.debug(f"Generation params: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}")
             
             model, tokenizer = self.load_model(model_path)
             
@@ -267,7 +267,7 @@ class InferenceManager:
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    max_new_tokens=max_new_tokens,
+                    # max_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
                     repetition_penalty=repetition_penalty,
