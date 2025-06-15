@@ -36,7 +36,8 @@ export PYTORCH_CUDA_ALLOC_CONF=max_split_size_mb:512
 # ✅ FIX: HuggingFace cache optimization to prevent rate limiting
 export HF_HUB_CACHE=/workspace/.cache/vllm_hf
 export HF_HOME=/workspace/.cache/vllm_hf
-export TRANSFORMERS_CACHE=/workspace/.cache/vllm_hf
+
+export OPENAI_BASE_URL=
 
 # ✅ FIX: Force offline mode to avoid unnecessary HF requests (uncomment if needed)
 # export HF_HUB_OFFLINE=1
@@ -55,6 +56,14 @@ run_server() {
        --browser.gatherUsageStats false \
        --server.fileWatcherType none \
        --logger.level debug
+
+  aphrodite run PocketDoc/Dans-PersonalityEngine-V1.3.0-24b \
+      -q fp8 \
+      --kv-cache-dtype fp8 \
+      --launch-kobold-api \
+      --host 0.0.0.0 \
+      --max-model-len 16000 \
+      --single-user-mode
 }
 
 if [[ -n ${TMUX:-} ]]; then

@@ -7,11 +7,11 @@ set -Eeuo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
 ##### Config – override with env vars if you like #############################
-REPO_URL=${REPO_URL:-https://github.com/aimerib/smollmfinetune.git}
-WORKDIR=${WORKDIR:-/workspace}
-REPO_DIR=${REPO_DIR:-smollmfinetune}
-PYTHON_VERSION=${PYTHON_VERSION:-3.11}
-VENV_DIR=${VENV_DIR:-.venv}
+export REPO_URL=${REPO_URL:-https://github.com/aimerib/smollmfinetune.git}
+export WORKDIR=${WORKDIR:-/workspace}
+export REPO_DIR=${REPO_DIR:-smollmfinetune}
+export PYTHON_VERSION=${PYTHON_VERSION:-3.11}
+export VENV_DIR=${VENV_DIR:-.venv}
 ##### helpers #################################################################
 info()    { printf "\033[0;34m[INFO]\033[0m    %s\n" "$*"; }
 success() { printf "\033[0;32m[SUCCESS]\033[0m %s\n" "$*"; }
