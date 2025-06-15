@@ -2193,7 +2193,7 @@ def page_training_dashboard():
                         eval_loss = metrics['eval_loss']
                         st.metric(
                             "Validation Loss",
-                            f"{eval_loss:.4f}",
+                            f"{eval_loss:.4f}" if isinstance(eval_loss, (int, float)) else str(eval_loss),
                             help="Loss on validation set"
                         )
                 
@@ -2213,7 +2213,7 @@ def page_training_dashboard():
                         avg_consistency = metrics['avg_consistency']
                         st.metric(
                             "Avg Consistency",
-                            f"{avg_consistency:.2f}",
+                            f"{avg_consistency:.2f}" if isinstance(avg_consistency, (int, float)) else str(avg_consistency),
                             help="Overall character consistency score"
                         )
                 
