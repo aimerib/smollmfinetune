@@ -281,6 +281,21 @@ st.markdown("""
         border: none;
         backdrop-filter: blur(10px);
     }
+
+    /* Custom styles for Dataset Explorer */
+    .data-cell {
+        height: 120px;
+        overflow-y: auto;
+        padding: 0.5rem;
+        border-radius: 6px;
+        background-color: rgba(255, 255, 255, 0.03);
+        font-size: 0.9em;
+        border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    .row-divider {
+        margin: 0.25rem 0;
+        border-color: rgba(255, 255, 255, 0.1);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -1690,143 +1705,137 @@ def page_training_config():
         with st.form("training_config"):
             # Basic settings
             st.markdown("#### Basic Settings")
-            col_a, col_b = st.columns(2)
             
-            with col_a:
-                # Dynamically pick a sensible default epoch count based on dataset size
-                if dataset_size >= 200:
-                    optimal_epochs = 3  # Reduced for larger datasets
-                else:
-                    optimal_epochs = min(6, max(3, 10000 // dataset_size))  # 3-6 epochs for smaller datasets
-                
-                # Epochs with explanation
-                c1, c2 = st.columns([0.9, 0.1])
-                with c1:
-                    st.markdown("**Epochs**")
-                with c2:
-                    with st.popover("ℹ️", help="Explain Epochs"):
-                        st.markdown("""
-                        An **epoch** is one full pass through the entire training dataset.
-                        
-                        - **Too few epochs:** The model might not learn enough about the character (underfitting).
-                        - **Too many epochs:** The model might memorize the training data and lose its ability to be creative (overfitting).
-                        
-                        **Recommendation:** 5-6 epochs for small datasets (<100 samples), and 3-4 for larger ones is a good starting point.
-                        """)
-                epochs = st.slider("Epochs", 1, 1000, optimal_epochs, label_visibility="collapsed", help="How many times the model sees the entire dataset.")
-
-                # Learning Rate with explanation
-                lr_options = [1e-5, 2e-5, 3e-5, 5e-5, 8e-5, 1e-4, 2e-4, 3e-4, 5e-4]
-                default_lr = 2e-4  # More conservative default
-                c1, c2 = st.columns([0.9, 0.1])
-                with c1:
-                    st.markdown("**Learning Rate**")
-                with c2:
-                    with st.popover("ℹ️", help="Explain Learning Rate"):
-                        st.markdown("""
-                        The **Learning Rate** controls how much the model's parameters are adjusted during each training step.
-                        
-                        - **Too high:** The model might learn too fast and become unstable, with loss jumping around wildly.
-                        - **Too low:** Training will be very slow, and the model might get stuck.
-                        
-                        **Recommendation:** `2e-4` is a safe and effective starting point for most characters.
-                        """)
-                learning_rate = st.select_slider(
-                    "Learning Rate",
-                    options=lr_options,
-                    value=default_lr,
-                    format_func=lambda x: f"{x:.0e}",
-                    help="5e-5 to 5e-4 recommended for character LoRA training",
-                    label_visibility="collapsed"
-                )
-
-                # Batch Size with explanation
-                c1, c2 = st.columns([0.9, 0.1])
-                with c1:
-                    st.markdown("**Batch Size**")
-                with c2:
-                    with st.popover("ℹ️", help="Explain Batch Size"):
-                        st.markdown("""
-                        The **Batch Size** is the number of training samples processed before the model's internal parameters are updated.
-                        - It's limited by your GPU memory (VRAM).
-                        - A larger batch size can lead to more stable training, but uses more memory.
-                        - If you run out of memory, lower this value. You can compensate for a small batch size by increasing **Gradient Accumulation Steps**.
-                        
-                        **Recommendation:** Start with 2 or 4 and adjust based on your hardware.
-                        """)
-                batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1, label_visibility="collapsed")
+            # Dynamically pick a sensible default epoch count based on dataset size
+            if dataset_size >= 200:
+                optimal_epochs = 3  # Reduced for larger datasets
+            else:
+                optimal_epochs = min(6, max(3, 10000 // dataset_size))  # 3-6 epochs for smaller datasets
             
-            with col_b:
-                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)  # Default to 2
-                warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
-                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 8.0, 1.0, step=0.1, help="1.0 is standard")
-                
-                # Sample selection for dataset
-                st.markdown("**Dataset Sampling**")
-                if dataset_size > 0:
-                    use_all_samples = st.checkbox("Use All Samples", value=True, help="Use the entire dataset for training")
-                    if not use_all_samples:
-                        max_samples = st.slider(
-                            "Number of Samples", 
-                            min_value=1, 
-                            max_value=dataset_size, 
-                            value=min(dataset_size, 100),
-                            help=f"Select subset from {dataset_size} total samples (randomized selection)"
-                        )
-                    else:
-                        max_samples = dataset_size
+            # Epochs with explanation
+            c1, c2 = st.columns([0.9, 0.1])
+            with c1:
+                st.markdown("**Epochs**")
+            with c2:
+                with st.popover("ℹ️", help="Explain Epochs"):
+                    st.markdown("""
+                    An **epoch** is one full pass through the entire training dataset.
+                    
+                    - **Too few epochs:** The model might not learn enough about the character (underfitting).
+                    - **Too many epochs:** The model might memorize the training data and lose its ability to be creative (overfitting).
+                    
+                    **Recommendation:** 5-6 epochs for small datasets (<100 samples), and 3-4 for larger ones is a good starting point.
+                    """)
+            epochs = st.slider("Epochs", 1, 1000, optimal_epochs, label_visibility="collapsed", help="How many times the model sees the entire dataset.")
+
+            # Learning Rate with explanation
+            lr_options = [1e-5, 2e-5, 3e-5, 5e-5, 8e-5, 1e-4, 2e-4, 3e-4, 5e-4]
+            default_lr = 2e-4  # More conservative default
+            c1, c2 = st.columns([0.9, 0.1])
+            with c1:
+                st.markdown("**Learning Rate**")
+            with c2:
+                with st.popover("ℹ️", help="Explain Learning Rate"):
+                    st.markdown("""
+                    The **Learning Rate** controls how much the model's parameters are adjusted during each training step.
+                    
+                    - **Too high:** The model might learn too fast and become unstable, with loss jumping around wildly.
+                    - **Too low:** Training will be very slow, and the model might get stuck.
+                    
+                    **Recommendation:** `2e-4` is a safe and effective starting point for most characters.
+                    """)
+            learning_rate = st.select_slider(
+                "Learning Rate",
+                options=lr_options,
+                value=default_lr,
+                format_func=lambda x: f"{x:.0e}",
+                help="5e-5 to 5e-4 recommended for character LoRA training",
+                label_visibility="collapsed"
+            )
+
+            # Batch Size with explanation
+            c1, c2 = st.columns([0.9, 0.1])
+            with c1:
+                st.markdown("**Batch Size**")
+            with c2:
+                with st.popover("ℹ️", help="Explain Batch Size"):
+                    st.markdown("""
+                    The **Batch Size** is the number of training samples processed before the model's internal parameters are updated.
+                    - It's limited by your GPU memory (VRAM).
+                    - A larger batch size can lead to more stable training, but uses more memory.
+                    - If you run out of memory, lower this value. You can compensate for a small batch size by increasing **Gradient Accumulation Steps**.
+                    
+                    **Recommendation:** Start with 2 or 4 and adjust based on your hardware.
+                    """)
+            batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1, label_visibility="collapsed")
+            
+            gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)  # Default to 2
+            warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
+            max_grad_norm = st.slider("Max Gradient Norm", 0.5, 8.0, 1.0, step=0.1, help="1.0 is standard")
+            
+            # Sample selection for dataset
+            st.markdown("**Dataset Sampling**")
+            if dataset_size > 0:
+                use_all_samples = st.checkbox("Use All Samples", value=True, help="Use the entire dataset for training")
+                if not use_all_samples:
+                    max_samples = st.slider(
+                        "Number of Samples", 
+                        min_value=1, 
+                        max_value=dataset_size, 
+                        value=min(dataset_size, 100),
+                        help=f"Select subset from {dataset_size} total samples (randomized selection)"
+                    )
                 else:
                     max_samples = dataset_size
+            else:
+                max_samples = dataset_size
             
             # LoRA settings optimized for character training
             st.markdown("#### LoRA Configuration (Character-Optimized)")
-            col_c, col_d = st.columns(2)
             
-            with col_c:
-                default_r = 16  # Optimal for character LoRA per research
-                # LoRA Rank with explanation
-                c1, c2 = st.columns([0.9, 0.1])
-                with c1:
-                    st.markdown("**LoRA Rank (r)**")
-                with c2:
-                    with st.popover("ℹ️", help="Explain LoRA Rank (r)"):
-                        st.markdown("""
-                        The **LoRA Rank (r)** determines the number of trainable parameters in the LoRA adapter. It controls the 'capacity' of the LoRA.
-                        - **Higher Rank:** More parameters, allowing the model to learn more complex details. This also increases training time and VRAM usage.
-                        - **Lower Rank:** Fewer parameters, faster training, less VRAM.
-                        
-                        **Recommendation:** `8` or `16` is highly effective for most characters. Use `32` for very complex characters with large datasets.
-                        """)
-                lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4,
-                                   label_visibility="collapsed",
-                                   help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
+            default_r = 16  # Optimal for character LoRA per research
+            # LoRA Rank with explanation
+            c1, c2 = st.columns([0.9, 0.1])
+            with c1:
+                st.markdown("**LoRA Rank (r)**")
+            with c2:
+                with st.popover("ℹ️", help="Explain LoRA Rank (r)"):
+                    st.markdown("""
+                    The **LoRA Rank (r)** determines the number of trainable parameters in the LoRA adapter. It controls the 'capacity' of the LoRA.
+                    - **Higher Rank:** More parameters, allowing the model to learn more complex details. This also increases training time and VRAM usage.
+                    - **Lower Rank:** Fewer parameters, faster training, less VRAM.
+                    
+                    **Recommendation:** `8` or `16` is highly effective for most characters. Use `32` for very complex characters with large datasets.
+                    """)
+            lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4,
+                               label_visibility="collapsed",
+                               help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
 
-                # LoRA Alpha with explanation
-                c1, c2 = st.columns([0.9, 0.1])
-                with c1:
-                    st.markdown("**LoRA Alpha**")
-                with c2:
-                    with st.popover("ℹ️", help="Explain LoRA Alpha"):
-                        st.markdown("""
-                        **LoRA Alpha** is a scaling factor for the LoRA adjustments. Think of it as controlling the 'intensity' of the training.
-                        - By setting **Alpha equal to Rank (α = r)**, you are using a standard configuration that works very well for character training. This helps balance the learning process.
-                        - Deviating from this (e.g., alpha = 2 * rank) is an advanced technique and not typically recommended for characters.
-                        
-                        **Recommendation:** Keep this value the same as your LoRA Rank.
-                        """)
-                lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8,
-                                       label_visibility="collapsed",
-                                       help="Set equal to rank (α = r) for character training")
+            # LoRA Alpha with explanation
+            c1, c2 = st.columns([0.9, 0.1])
+            with c1:
+                st.markdown("**LoRA Alpha**")
+            with c2:
+                with st.popover("ℹ️", help="Explain LoRA Alpha"):
+                    st.markdown("""
+                    **LoRA Alpha** is a scaling factor for the LoRA adjustments. Think of it as controlling the 'intensity' of the training.
+                    - By setting **Alpha equal to Rank (α = r)**, you are using a standard configuration that works very well for character training. This helps balance the learning process.
+                    - Deviating from this (e.g., alpha = 2 * rank) is an advanced technique and not typically recommended for characters.
+                    
+                    **Recommendation:** Keep this value the same as your LoRA Rank.
+                    """)
+            lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8,
+                                   label_visibility="collapsed",
+                                   help="Set equal to rank (α = r) for character training")
             
-            with col_d:
-                lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01, 
-                                         help="0.05-0.1 for regularization")
-                target_modules = st.multiselect(
-                    "Target Modules",
-                    ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-                    default=["q_proj", "k_proj", "v_proj", "o_proj"],  # Focus on attention layers
-                    help="Attention layers (q,k,v,o) are most important for character behavior"
-                )
+            lora_dropout = st.slider("LoRA Dropout", 0.0, 0.2, 0.1, step=0.01, 
+                                     help="0.05-0.1 for regularization")
+            target_modules = st.multiselect(
+                "Target Modules",
+                ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+                default=["q_proj", "k_proj", "v_proj", "o_proj"],  # Focus on attention layers
+                help="Attention layers (q,k,v,o) are most important for character behavior"
+            )
             
             # --------------------------------------------------------------
             # Resume-from-checkpoint selection
@@ -2581,77 +2590,234 @@ def page_model_testing():
             st.info("Train multiple checkpoints to enable model comparison.")
 
 # Dataset explorer page
-def page_dataset_explorer():
-    """Dataset explorer page"""
-    st.markdown('<h2 class="gradient-text">📚 Dataset Explorer</h2>', unsafe_allow_html=True)
-    
-    if not st.session_state.dataset_preview:
-        st.warning("⚠️ Please generate a dataset first.")
+def page_dataset_explorer_v2():
+    """
+    An advanced UI for dataset exploration, curation, and management.
+    Allows for bucketing, bulk actions, editing, and manual additions.
+    """
+    st.markdown('<h2 class="gradient-text">📚 Dataset Explorer & Curator</h2>', unsafe_allow_html=True)
+
+    if not st.session_state.current_character:
+        st.warning("⚠️ Please upload a character card first.")
         return
+
+    char_name = st.session_state.current_character.get("name", "unknown_char")
+    bucket_key = f"dataset_buckets_{char_name}"
+    selection_key = f"selection_{char_name}"
+
+    # Initialize bucket and selection state for the current character
+    if bucket_key not in st.session_state:
+        main_dataset = st.session_state.get('dataset_preview', [])
+        st.session_state[bucket_key] = {
+            "main": main_dataset,
+            "quarantined": [],
+        }
+    if selection_key not in st.session_state:
+        st.session_state[selection_key] = {}
+
+    buckets = st.session_state[bucket_key]
+    selection_state = st.session_state[selection_key]
+
+    # --- TOP-LEVEL OVERVIEW & ACTIONS ---
+    st.markdown("### 🗄️ Dataset Overview")
+    total_samples = sum(len(v) for v in buckets.values())
     
-    dataset = st.session_state.dataset_preview
-    dataset_size = len(dataset)
-    
-    if dataset_size == 0:
-        st.info("Dataset is empty. Generate samples first.")
-        return
-    
-    # Pagination
-    page_size = st.selectbox("Samples per page", [10, 25, 50, 100], index=1)
-    page_number = st.session_state.get('dataset_page', 1)
-    total_pages = (dataset_size + page_size - 1) // page_size
-    
-    # Pagination controls
-    col1, col2, col3 = st.columns([1, 2, 1])
+    overview_cols = st.columns(4)
+    overview_cols[0].metric("Total Active Samples", sum(len(v) for k, v in buckets.items() if k != 'quarantined'))
+    overview_cols[1].metric("Quarantined Samples", len(buckets.get('quarantined', [])))
+    overview_cols[2].metric("Total Buckets", len(buckets))
+
+    with overview_cols[3]:
+        # Consolidate all non-quarantined data for export
+        active_data = [sample for b_name, b_list in buckets.items() if b_name != 'quarantined' for sample in b_list]
+        if active_data:
+            json_data = json.dumps(active_data, indent=2)
+            st.download_button(
+                label="⬇️ Export Active Dataset",
+                data=json_data,
+                file_name=f"{char_name}_active_dataset.json",
+                mime="application/json",
+                use_container_width=True
+            )
+
+    st.markdown("---")
+
+    # --- DIALOG FOR EDITING A SAMPLE ---
+    if st.session_state.get('item_to_edit'):
+        item_info = st.session_state.item_to_edit
+        sample_to_edit = buckets[item_info['bucket']][item_info['index']]
+
+        @st.dialog("✍️ Edit Sample")
+        def edit_dialog():
+            st.markdown("### Edit Conversation Turn")
+            user_content = st.text_area("User Prompt", sample_to_edit['messages'][1]['content'], height=150)
+            asst_content = st.text_area("Assistant Response", sample_to_edit['messages'][2]['content'], height=200)
+
+            if st.button("💾 Save Changes", use_container_width=True):
+                buckets[item_info['bucket']][item_info['index']]['messages'][1]['content'] = user_content
+                buckets[item_info['bucket']][item_info['index']]['messages'][2]['content'] = asst_content
+                st.session_state.item_to_edit = None
+                st.rerun()
+
+        edit_dialog()
+
+    # --- MAIN CURATION UI ---
+    col1, col2 = st.columns([1, 2.5])
+
     with col1:
-        if st.button("⏮️ First"):
-            page_number = 1
+        st.markdown("### 🗃️ Buckets")
+        bucket_names = list(buckets.keys())
+        if 'selected_bucket' not in st.session_state or st.session_state.selected_bucket not in bucket_names:
+            st.session_state.selected_bucket = bucket_names[0]
+
+        def format_bucket_name(b_name):
+            return f"{b_name.replace('_', ' ').title()} ({len(buckets.get(b_name, []))})"
+
+        selected_bucket = st.radio(
+            "Select a bucket:",
+            bucket_names,
+            format_func=format_bucket_name,
+            key='selected_bucket'
+        )
+        
+        with st.expander("Manage Buckets"):
+            new_bucket_name = st.text_input("New bucket name", key="new_bucket_name").strip().lower().replace(" ", "_")
+            if st.button("➕ Create Bucket", use_container_width=True):
+                if new_bucket_name and new_bucket_name not in buckets:
+                    buckets[new_bucket_name] = []
+                    st.rerun()
+                else:
+                    st.warning("Invalid or duplicate bucket name.")
+            
+            # Allow deleting custom buckets
+            custom_buckets = [b for b in bucket_names if b not in ['main', 'quarantined']]
+            if custom_buckets:
+                bucket_to_delete = st.selectbox("Delete bucket", custom_buckets)
+                if st.button("🗑️ Delete Bucket", use_container_width=True):
+                    # Move items to main before deleting
+                    items_to_move = buckets.pop(bucket_to_delete, [])
+                    buckets['main'].extend(items_to_move)
+                    st.session_state.selected_bucket = 'main'
+                    st.success(f"Deleted bucket '{bucket_to_delete}' and moved its contents to 'main'.")
+                    st.rerun()
+
     with col2:
-        page_number = st.number_input("Page", min_value=1, max_value=total_pages, value=page_number)
-    page_number = int(page_number)
-    with col3:
-        if st.button("⏭️ Last"):
-            page_number = total_pages
+        st.markdown(f"### ✏️ Contents of `{selected_bucket}`")
+        bucket_data = buckets[selected_bucket]
+        
+        # --- BULK ACTIONS ---
+        selected_indices = [int(k.split('_')[1]) for k, v in selection_state.items() if v and k.startswith(selected_bucket)]
+        if selected_indices:
+            st.markdown("#### **Bulk Actions** for selected items")
+            bulk_cols = st.columns(2)
+            
+            with bulk_cols[0]:
+                other_buckets = [b for b in bucket_names if b != selected_bucket]
+                if other_buckets:
+                    target_bucket = st.selectbox("Move to bucket", other_buckets, key="bulk_move_target")
+                    if st.button("➡️ Move Selected", use_container_width=True):
+                        items_to_move = [bucket_data[i] for i in sorted(selected_indices, reverse=True)]
+                        buckets[target_bucket].extend(items_to_move)
+                        for i in sorted(selected_indices, reverse=True):
+                            del bucket_data[i]
+                        # Clear selection state
+                        st.session_state[selection_key] = {}
+                        st.success(f"Moved {len(items_to_move)} items to `{target_bucket}`.")
+                        st.rerun()
+
+            with bulk_cols[1]:
+                if st.button("🗑️ Delete Selected Permanently", use_container_width=True, type="primary"):
+                    for i in sorted(selected_indices, reverse=True):
+                        del bucket_data[i]
+                    st.session_state[selection_key] = {}
+                    st.success(f"Permanently deleted {len(selected_indices)} items.")
+                    st.rerun()
+            st.markdown("---")
+
+        # --- DATA TABLE ---
+        if not bucket_data:
+            st.info("This bucket is empty. You can add a sample below.")
+        else:
+            # Pagination
+            page_size = st.select_slider("Items per page", [10, 25, 50, 100], value=25)
+            page_count = (len(bucket_data) + page_size - 1) // page_size
+            page_num = 1
+            if page_count > 1:
+                page_num = st.number_input("Page", 1, page_count, 1)
+            
+            start_idx = (page_num - 1) * page_size
+            end_idx = min(start_idx + page_size, len(bucket_data))
+            page_data = bucket_data[start_idx:end_idx]
+
+            # Header
+            header_cols = st.columns([0.08, 0.38, 0.38, 0.08, 0.08])
+            with header_cols[0]:
+                select_all = st.checkbox("All", key=f"select_all_{selected_bucket}_{page_num}", label_visibility="hidden")
+            header_cols[1].markdown("**User Prompt**")
+            header_cols[2].markdown("**Assistant Response**")
+            header_cols[3].markdown("**Actions**")
+            header_cols[4].markdown("**Actions**")
+
+            # Handle Select All
+            if select_all:
+                for i in range(start_idx, end_idx):
+                    selection_state[f"{selected_bucket}_{i}"] = True
+            
+            # Display items
+            for i, sample in enumerate(page_data):
+                global_idx = start_idx + i
+                item_key = f"{selected_bucket}_{global_idx}"
+                
+                row_cols = st.columns([0.08, 0.38, 0.38, 0.08, 0.08])
+                with row_cols[0]:
+                    is_selected = st.checkbox(" ", key=f"sel_{item_key}", value=selection_state.get(item_key, False), label_visibility="hidden")
+                    selection_state[item_key] = is_selected
+
+                with row_cols[1]:
+                    st.markdown(f"<div class='data-cell'>{sample['messages'][1]['content']}</div>", unsafe_allow_html=True)
+                with row_cols[2]:
+                    st.markdown(f"<div class='data-cell'>{sample['messages'][2]['content']}</div>", unsafe_allow_html=True)
+                
+                with row_cols[3]:
+                    if st.button("✏️", key=f"edit_{item_key}", help="Edit sample"):
+                        st.session_state.item_to_edit = {"bucket": selected_bucket, "index": global_idx}
+                        st.rerun()
+                with row_cols[4]:
+                    if st.button("🗑️", key=f"del_{item_key}", help="Delete sample"):
+                        del bucket_data[global_idx]
+                        st.rerun()
+                st.markdown('<hr class="row-divider">', unsafe_allow_html=True)
+        
+        # --- ADD NEW SAMPLE ---
+        with st.expander("✍️ Add a new sample to this bucket"):
+            with st.form(key="new_sample_form", clear_on_submit=True):
+                user_prompt = st.text_area("User Prompt", height=100)
+                assistant_response = st.text_area("Assistant Response", height=150)
+                
+                if st.form_submit_button("Add Sample", use_container_width=True):
+                    if user_prompt and assistant_response:
+                        system_prompt = st.session_state.dataset_metadata.get('system_prompt_config', {}).get('prompt', '')
+                        new_sample = {
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                                {"role": "assistant", "content": assistant_response}
+                            ]
+                        }
+                        buckets[selected_bucket].append(new_sample)
+                        st.success("Sample added!")
+                        st.rerun()
+                    else:
+                        st.warning("Both fields are required.")
     
-    # Update session state
-    st.session_state.dataset_page = page_number
-    
-    # Display dataset stats
-    st.markdown(f"""
-        <div class="metric-card">
-            <h4 style="margin: 0 0 1rem 0;">📊 Dataset Stats</h4>
-            <p><strong>Total Samples:</strong> {dataset_size}</p>
-            <p><strong>Page Size:</strong> {page_size}</p>
-            <p><strong>Total Pages:</strong> {total_pages}</p>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Display current page of dataset
-    start_idx = (page_number - 1) * page_size
-    end_idx = start_idx + page_size
-    page_data = dataset[start_idx:end_idx]
-    
-    delete_selection = []
-    for local_i, sample in enumerate(page_data):
-        global_idx = start_idx + local_i
-        with st.expander(f"Sample {global_idx + 1}"):
-            st.markdown(f"**👤 User:** {sample['messages'][1]['content']}")
-            st.markdown(f"**🎭 Assistant:** {sample['messages'][2]['content']}")
-            if st.checkbox("Mark for deletion", key=f"del_{global_idx}"):
-                delete_selection.append(global_idx)
-    
-    if delete_selection and st.button("🗑️ Delete Selected Samples"):
-        if st.session_state.dataset_manager.delete_samples(st.session_state.current_character, delete_selection):
-            # Reload dataset preview
-            st.session_state.dataset_preview = st.session_state.dataset_manager.load_dataset(st.session_state.current_character)
-            st.success(f"Deleted {len(delete_selection)} samples.")
-            st.rerun()
-    
-    # Quality analysis block
-    if st.checkbox("Show quality analysis", value=False):
-        stats = st.session_state.dataset_manager.analyze_dataset_quality(dataset)
-        if stats:
-            st.json(stats)
+    # --- PERSIST CHANGES ---
+    # Update the main dataset preview for other parts of the app
+    # The "active" dataset for training is everything NOT in 'quarantined'.
+    st.session_state.dataset_preview = [
+        sample for bucket_name, bucket_list in buckets.items() 
+        if bucket_name != 'quarantined' 
+        for sample in bucket_list
+    ]
 
 def page_model_comparison():
     """Page for comparing different models side-by-side."""
@@ -2869,7 +3035,7 @@ def main():
     elif selected_page == "🔍 Dataset Preview":
         page_dataset_preview()
     elif selected_page == "📚 Dataset Explorer":
-        page_dataset_explorer()
+        page_dataset_explorer_v2()
     elif selected_page == "⚙️ Training Config":
         page_training_config()
     elif selected_page == "📊 Training Dashboard":
