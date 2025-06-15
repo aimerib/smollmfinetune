@@ -1638,17 +1638,63 @@ def page_training_config():
                     optimal_epochs = 3  # Reduced for larger datasets
                 else:
                     optimal_epochs = min(6, max(3, 10000 // dataset_size))  # 3-6 epochs for smaller datasets
-                epochs = st.slider("Epochs", 1, 1000, optimal_epochs, help="5-20 epochs recommended by research for character LoRA")
+                
+                # Epochs with explanation
+                c1, c2 = st.columns([0.9, 0.1])
+                with c1:
+                    st.markdown("**Epochs**")
+                with c2:
+                    with st.popover("ℹ️", help="Explain Epochs"):
+                        st.markdown("""
+                        An **epoch** is one full pass through the entire training dataset.
+                        
+                        - **Too few epochs:** The model might not learn enough about the character (underfitting).
+                        - **Too many epochs:** The model might memorize the training data and lose its ability to be creative (overfitting).
+                        
+                        **Recommendation:** 5-6 epochs for small datasets (<100 samples), and 3-4 for larger ones is a good starting point.
+                        """)
+                epochs = st.slider("Epochs", 1, 1000, optimal_epochs, label_visibility="collapsed", help="How many times the model sees the entire dataset.")
+
+                # Learning Rate with explanation
                 lr_options = [1e-5, 2e-5, 3e-5, 5e-5, 8e-5, 1e-4, 2e-4, 3e-4, 5e-4]
                 default_lr = 2e-4  # More conservative default
+                c1, c2 = st.columns([0.9, 0.1])
+                with c1:
+                    st.markdown("**Learning Rate**")
+                with c2:
+                    with st.popover("ℹ️", help="Explain Learning Rate"):
+                        st.markdown("""
+                        The **Learning Rate** controls how much the model's parameters are adjusted during each training step.
+                        
+                        - **Too high:** The model might learn too fast and become unstable, with loss jumping around wildly.
+                        - **Too low:** Training will be very slow, and the model might get stuck.
+                        
+                        **Recommendation:** `2e-4` is a safe and effective starting point for most characters.
+                        """)
                 learning_rate = st.select_slider(
                     "Learning Rate",
                     options=lr_options,
                     value=default_lr,
                     format_func=lambda x: f"{x:.0e}",
-                    help="5e-5 to 5e-4 recommended for character LoRA training"
+                    help="5e-5 to 5e-4 recommended for character LoRA training",
+                    label_visibility="collapsed"
                 )
-                batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)
+
+                # Batch Size with explanation
+                c1, c2 = st.columns([0.9, 0.1])
+                with c1:
+                    st.markdown("**Batch Size**")
+                with c2:
+                    with st.popover("ℹ️", help="Explain Batch Size"):
+                        st.markdown("""
+                        The **Batch Size** is the number of training samples processed before the model's internal parameters are updated.
+                        - It's limited by your GPU memory (VRAM).
+                        - A larger batch size can lead to more stable training, but uses more memory.
+                        - If you run out of memory, lower this value. You can compensate for a small batch size by increasing **Gradient Accumulation Steps**.
+                        
+                        **Recommendation:** Start with 2 or 4 and adjust based on your hardware.
+                        """)
+                batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1, label_visibility="collapsed")
             
             with col_b:
                 gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)  # Default to 2
@@ -1678,10 +1724,38 @@ def page_training_config():
             
             with col_c:
                 default_r = 16  # Optimal for character LoRA per research
-                lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4, 
+                # LoRA Rank with explanation
+                c1, c2 = st.columns([0.9, 0.1])
+                with c1:
+                    st.markdown("**LoRA Rank (r)**")
+                with c2:
+                    with st.popover("ℹ️", help="Explain LoRA Rank (r)"):
+                        st.markdown("""
+                        The **LoRA Rank (r)** determines the number of trainable parameters in the LoRA adapter. It controls the 'capacity' of the LoRA.
+                        - **Higher Rank:** More parameters, allowing the model to learn more complex details. This also increases training time and VRAM usage.
+                        - **Lower Rank:** Fewer parameters, faster training, less VRAM.
+                        
+                        **Recommendation:** `8` or `16` is highly effective for most characters. Use `32` for very complex characters with large datasets.
+                        """)
+                lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4,
+                                   label_visibility="collapsed",
                                    help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
-                # Alpha = rank for character training (not 2x)
-                lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8, 
+
+                # LoRA Alpha with explanation
+                c1, c2 = st.columns([0.9, 0.1])
+                with c1:
+                    st.markdown("**LoRA Alpha**")
+                with c2:
+                    with st.popover("ℹ️", help="Explain LoRA Alpha"):
+                        st.markdown("""
+                        **LoRA Alpha** is a scaling factor for the LoRA adjustments. Think of it as controlling the 'intensity' of the training.
+                        - By setting **Alpha equal to Rank (α = r)**, you are using a standard configuration that works very well for character training. This helps balance the learning process.
+                        - Deviating from this (e.g., alpha = 2 * rank) is an advanced technique and not typically recommended for characters.
+                        
+                        **Recommendation:** Keep this value the same as your LoRA Rank.
+                        """)
+                lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8,
+                                       label_visibility="collapsed",
                                        help="Set equal to rank (α = r) for character training")
             
             with col_d:
@@ -2055,7 +2129,27 @@ def page_training_dashboard():
         # Enhanced loss curve with multiple metrics
         if 'loss_history' in metrics and metrics['loss_history']:
             with chart_placeholder.container():
-                st.markdown("### Training Progress")
+                # Use columns to place an info icon next to the title
+                col_title, col_info = st.columns([0.95, 0.05])
+                with col_title:
+                    st.markdown("### Training Progress")
+                with col_info:
+                    with st.popover("ℹ️", help="Explain this chart"):
+                        st.markdown("""
+                        **What am I looking at?**
+                        This chart shows how well the model is learning over time.
+
+                        - **🔵 Training Loss (Blue Line):** This shows the error on the data the model is currently training on. It should always go down.
+                        - **🟠 Validation Loss (Orange Line):** This shows the error on a separate set of data the model hasn't seen. It's a key indicator of how well the model will perform on new, unseen conversations.
+
+                        **What's a good sign? ✅**
+                        Both lines go down and then flatten out. This means the model is learning and generalizing well.
+
+                        **What's a bad sign? 🚨**
+                        The blue line keeps going down, but the orange line starts to go **up**. This is called **overfitting**. The model has memorized the training data instead of learning the character's personality. 
+                        
+                        **If you see overfitting, it's a good time to stop training.**
+                        """)
                 
                 # Create enhanced visualization
                 steps = list(range(len(metrics['loss_history'])))
