@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Any, Optional, Callable, Union
 from enum import Enum
 import numpy as np
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -1037,58 +1038,51 @@ French version:"""
         character: Dict[str, Any], 
         num_variations: int = 3
     ) -> List[str]:
-        """Generate variations of a popular question to increase diversity"""
+        """Generate question paraphrases using structured output for reliability."""
         char_name = character.get('name', 'Assistant')
-        
-        variation_prompt = f"""Given this popular roleplay question, create {num_variations} different variations that ask the same core thing but with different wording, tone, or approach.
 
-Character: {char_name}
-Original Question: {base_question}
+        # JSON schema: array of unique question strings
+        json_schema = {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": num_variations,
+            "maxItems": num_variations,
+        }
 
-Create {num_variations} variations that:
-- Ask the same basic thing but with different phrasing
-- Use different emotional tones (casual, formal, intimate, curious, etc.)
-- Approach the topic from different angles
-- Maintain roleplay context
-
-Respond with ONLY the questions, one per line, no numbering:"""
+        variation_prompt = (
+            f"Paraphrase the following user question in {num_variations} different ways.\n"
+            f"The paraphrases must all retain the same intent but use different wording or tone.\n\n"
+            f"Original question: {base_question}\n\n"
+            f"Respond ONLY with the JSON array of strings that matches the provided schema."
+        )
 
         try:
             response = await self.client.generate(
-                prompt=variation_prompt,
-                max_tokens=1000,
+                prompt=[{"role": "user", "content": variation_prompt}],
+                max_tokens=300,
                 temperature=0.8,
                 top_p=0.9,
-                stop=["Character:", f"{char_name}:", "User:"]
+                guided_json=json_schema,
             )
-            
-            # Parse variations from response
-            variations = []
-            for line in response.split('\n'):
-                line = line.strip()
-                if not line:
+
+            variations: List[str] = json.loads(response)
+
+            # Post-process & ensure formatting
+            clean_vars: List[str] = []
+            for v in variations:
+                if not isinstance(v, str):
                     continue
-                    
-                # Clean up the line
-                line = re.sub(r'^[\d\-\*\.\s]+', '', line)  # Remove numbering
-                line = line.strip(' "\'')
-                
-                # Ensure it ends with ?
-                if line and not line.endswith('?'):
-                    line += '?'
-                
-                # Validate and add
-                if line and len(line) > 10 and line != base_question:
-                    variations.append(line)
-                    
-                if len(variations) >= num_variations:
-                    break
-            
-            logger.debug(f"Generated {len(variations)} variations for: {base_question[:30]}...")
-            return variations
-            
+                text = v.strip().strip('"\'')
+                if text and not text.endswith('?'):
+                    text += '?'
+                if text and len(text) > 5 and text != base_question:
+                    clean_vars.append(text)
+
+            return clean_vars[:num_variations]
         except Exception as e:
-            logger.debug(f"Failed to generate variations for '{base_question[:30]}...': {e}")
+            logger.debug(
+                f"Structured variation generation failed for '{base_question[:30]}…': {e}"
+            )
             return []
 
     # ---------------------------------------------------------------------------
@@ -4736,23 +4730,21 @@ Respond with ONLY a JSON object with numeric scores:
         Example Dialogue: {example_dialogue}
         """
 
-        prompt = f"""
-        Analyze the following character information. Your task is to extract a list of simple, declarative, and easily verifiable facts about the character. These facts should be "fluff-free" and focus on core traits, history, and personality. Each fact must be a standalone statement.
+        base_prompt_template = (
+            "You are given background information about a fictional role-play character named '{char_name}'. "
+            "Your task is to list clear, easily verifiable FACTS about this character only — ignore any unrelated "
+            "meaning of the name (e.g. the sport 'cricket').\n\n"
+            "Rules:\n"
+            "1. Each fact must be a single, declarative sentence with no introductory phrases.\n"
+            "2. Focus on concrete traits, skills, relationships, history, motivations, appearance, etc.\n"
+            "3. Avoid fluff, figurative language, or speculation.\n"
+            "4. Produce as many distinct facts as possible (up to {max_facts}).\n"
+            "5. Output ONLY a numbered list (e.g. '1. ...'). DO NOT add any other text.\n\n"
+            "Character information:\n---\n{card}\n---\n\n"
+            "List the facts now:"
+        )
 
-        Rules:
-        1.  Each fact must be a simple, declarative sentence.
-        2.  Focus on concrete details: appearance, abilities, key personality traits, relationships, background.
-        3.  Avoid jargon, complex sentences, and figurative language.
-        4.  Do not include introductory phrases like "The character is..." or "She has...". Start directly with the fact.
-        5.  Output ONLY a numbered list of facts. Do not include any other text or explanation.
-
-        Here is the character information:
-        ---
-        {textwrap.dedent(source_text)}
-        ---
-
-        Extract the top {max_facts} most important facts as a numbered list:
-        """
+        prompt = base_prompt_template.format(char_name=char_name, max_facts=max_facts, card=textwrap.dedent(source_text))
 
         try:
             response = await self.client.generate(prompt, temperature=0.2, max_tokens=1024)
@@ -4771,57 +4763,93 @@ Respond with ONLY a JSON object with numeric scores:
             logger.error(f"Failed to extract facts from character card: {e}", exc_info=True)
             return []
 
-    async def _generate_factual_qa_variations(self, fact: str, character: Dict[str, Any], num_variations: int = 3) -> List[Dict[str, str]]:
+        # --- Simple retry if extraction is unexpectedly small ---
+        if len(facts) <= 1:
+            logger.info("⚠️  Very few facts extracted, retrying with reinforced instructions…")
+            retry_prompt = (
+                "IMPORTANT REMINDER: The name '{char_name}' refers to the CHARACTER described above. "
+                "Extract facts **about that character only** (ignore anything about sports)."\
+            ).format(char_name=char_name) + "\n\n" + prompt
+
+            retry_response = await self.client.generate(retry_prompt, temperature=0.2, max_tokens=1024)
+            retry_facts = re.findall(r'^\s*\d+\.\s*(.*)', retry_response, re.MULTILINE)
+            if len(retry_facts) > len(facts):
+                facts = retry_facts
+
+            logger.info(f"Extracted {len(facts)} facts for {char_name}.")
+            return facts[:max_facts]
+
+    async def _generate_factual_qa_variations(
+        self,
+        fact: str,
+        character: Dict[str, Any],
+        *,
+        num_variations: int = 3,
+        length_category: str = "short",
+    ) -> List[Dict[str, str]]:
+        """Generate Q&A pairs for a fact with a targeted length style.
+
+        length_category: 'short'  (≈ < 20 words answer)
+                         'medium' (≈ 20-60 words answer)
+                         'long'   (≈ 60-120 words answer)
         """
-        Given a single fact, generates multiple Q&A pairs that teach that fact.
-        The goal is to reinforce the fact through varied questioning.
-        """
+
         char_name = character.get("name", "the character")
-        
-        prompt = f"""
-        You are a dataset creation assistant. Your task is to generate {num_variations} unique question-and-answer pairs based on a single fact about a character. The answer must always be from the character's perspective.
 
-        The Core Fact: "{fact}"
+        # Word-count guidance
+        if length_category == "short":
+            q_words = "under 12 words"
+            a_words = "under 20 words"
+        elif length_category == "medium":
+            q_words = "around 15-25 words"
+            a_words = "around 30-60 words"
+        else:  # long
+            q_words = "30-40 words"
+            a_words = "80-120 words"
 
-        Character Name: {char_name}
+        # JSON schema for an array of QAPair items
+        qa_schema = {
+            "type": "array",
+            "items": QAPair.model_json_schema(),
+            "minItems": num_variations,
+            "maxItems": num_variations,
+        }
 
-        Instructions:
-        1.  Create {num_variations} different questions that a user might ask to learn this fact. The questions should be phrased differently.
-        2.  For each question, write a concise answer from the character's point of view, directly confirming the fact. The answer should sound natural for the character.
-        3.  Return the result as a JSON array of objects, where each object has a "question" and "answer" key.
-        4.  Do NOT include any text outside of the JSON array.
-
-        Example Format:
-        [
-            {{"question": "A user's question here.", "answer": "The character's answer here."}},
-            {{"question": "A different user's question.", "answer": "A different phrasing of the character's answer."}}
-        ]
-
-        Generate the JSON array now.
-        """
+        prompt = (
+            f"You are role-playing as the user who wants to learn about {char_name}.\n"
+            f"Using the FACT below, craft {num_variations} distinct question & answer pairs.\n"
+            f"• Question length: {q_words}.\n"
+            f"• Answer length: {a_words}, written in first-person as {char_name}.\n"
+            "• Make the wording natural and engaging.\n"
+            "• Do not reveal meta reasoning.\n\n"
+            f"FACT: {fact}\n\n"
+            "Return ONLY the JSON array that matches the provided schema."
+        )
 
         try:
-            response = await self.client.generate(prompt, temperature=0.8, top_p=0.95, max_tokens=1500)
-            # Clean the response to ensure it's valid JSON
-            json_response = response.strip()
-            # Find the start of the JSON array
-            start_index = json_response.find('[')
-            # Find the end of the JSON array
-            end_index = json_response.rfind(']')
-            if start_index != -1 and end_index != -1:
-                json_response = json_response[start_index:end_index+1]
-            
-            qa_pairs = json.loads(json_response)
-            if isinstance(qa_pairs, list) and all("question" in d and "answer" in d for d in qa_pairs):
-                return qa_pairs
-            else:
-                logger.warning(f"Could not parse valid Q&A pairs from LLM response for fact: {fact}")
-                return []
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error(f"Failed to parse JSON for Q&A variations for fact '{fact}': {e}\nResponse was:\n{response}")
-            return []
+            response = await self.client.generate(
+                prompt=[{"role": "user", "content": prompt}],
+                max_tokens=800,
+                temperature=0.7,
+                top_p=0.9,
+                guided_json=qa_schema,
+            )
+
+            qa_pairs: List[Dict[str, str]] = json.loads(response)
+            # Basic validation: ensure required keys are present
+            validated_pairs: List[Dict[str, str]] = []
+            for pair in qa_pairs:
+                try:
+                    validated = QAPair.model_validate(pair).model_dump()
+                    validated_pairs.append(validated)
+                except Exception as val_err:
+                    logger.debug(f"Validation failed for pair {pair}: {val_err}")
+            return validated_pairs
         except Exception as e:
-            logger.error(f"An unexpected error occurred during Q&A generation for fact '{fact}': {e}", exc_info=True)
+            logger.error(
+                f"Failed to generate structured Q&A variations for fact '{fact}': {e}",
+                exc_info=True,
+            )
             return []
 
 
@@ -4854,11 +4882,25 @@ Respond with ONLY a JSON object with numeric scores:
         if stage_callback:
             stage_callback({"message": f"Step 2/3: Generating Q&A variations for {len(facts)} facts..."})
 
-        dataset = []
+        dataset: List[Dict[str, Any]] = []
         tasks = []
+
+        # length distribution – tweakable
+        length_plan = [
+            ("short", 2),  # two short pairs per fact
+            ("medium", 1),
+            ("long", 1),
+        ]
+
         for fact in facts:
-            task = self._generate_factual_qa_variations(fact, character, num_variations=variations_per_fact)
-            tasks.append(task)
+            for length_cat, count in length_plan:
+                task = self._generate_factual_qa_variations(
+                    fact,
+                    character,
+                    num_variations=count,
+                    length_category=length_cat,
+                )
+                tasks.append(task)
         
         total_tasks = len(tasks)
         completed_tasks = 0
@@ -4892,3 +4934,9 @@ Respond with ONLY a JSON object with numeric scores:
         self.save_dataset(character, dataset, metadata={"generation_method": "factual_qa"})
 
         return dataset
+
+
+class QAPair(BaseModel):
+    """A single question–answer pair used for factual QA datasets."""
+    question: str = Field(..., description="User question to reveal the fact")
+    answer: str = Field(..., description="Character's first-person answer confirming the fact")
