@@ -461,7 +461,8 @@ class TrainingManager:
     
     def _setup_lora_model(self, model, config: Dict[str, Any], character: Dict[str, Any] = None, dataset_size: int = 0):
         """Setup LoRA configuration for the model with adaptive parameters"""
-        model = prepare_model_for_kbit_training(model)
+        if self.device == "cuda":
+            model = prepare_model_for_kbit_training(model)
         
         # Get adaptive LoRA configuration if enabled
         if character and dataset_size > 0:
@@ -640,6 +641,36 @@ class TrainingManager:
             # Configure logging frequency
             log_freq = self.advanced_config.get('configurable_logging_freq', 10)
             
+            save_steps_val = config.get('save_steps', 50)
+
+            # When load_best_model_at_end is True, save_steps must be a multiple of eval_steps.
+            # We adjust eval_steps to be the closest divisor of save_steps to the original target.
+            eval_steps_val = None
+            if processed_val_dataset:
+                original_eval_steps = max(25, log_freq * 2)
+                # Check for compatibility.
+                if save_steps_val > 0 and save_steps_val % original_eval_steps == 0:
+                    eval_steps_val = original_eval_steps
+                else:
+                    # Find a compatible evaluation step count.
+                    if save_steps_val > 0:
+                        # Find all divisors of save_steps_val
+                        divs = {i for i in range(1, int(save_steps_val**0.5) + 1) if save_steps_val % i == 0}
+                        divs.update({save_steps_val // d for d in divs})
+                        
+                        if divs:
+                            # Find the divisor closest to original_eval_steps, preferring the higher value on a tie.
+                            eval_steps_val = min(divs, key=lambda d: (abs(d - original_eval_steps), -d))
+                        else:
+                            # Fallback, though this case is unlikely if save_steps_val > 0
+                            eval_steps_val = save_steps_val
+                    else:
+                        # If save_steps is 0 or less, let transformers handle potential errors.
+                        eval_steps_val = original_eval_steps
+
+                    if eval_steps_val != original_eval_steps:
+                        print(f"⚠️  Adjusted eval_steps from {original_eval_steps} to {eval_steps_val} to be compatible with save_steps={save_steps_val}")
+            
             training_args = TrainingArguments(
                 output_dir=str(output_dir),
                 per_device_train_batch_size=batch_size,
@@ -651,12 +682,12 @@ class TrainingManager:
                 
                 # Enhanced logging and evaluation
                 logging_steps=log_freq,
-                save_steps=config.get('save_steps', 50),
+                save_steps=save_steps_val,
                 save_strategy="steps",
                 
                 # Validation and early stopping configuration
                 eval_strategy="steps" if processed_val_dataset else "no",
-                eval_steps=max(25, log_freq * 2) if processed_val_dataset else None,
+                eval_steps=eval_steps_val,
                 load_best_model_at_end=processed_val_dataset is not None,
                 metric_for_best_model="eval_loss" if processed_val_dataset else None,
                 greater_is_better=False,

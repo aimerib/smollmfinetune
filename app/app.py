@@ -1877,7 +1877,7 @@ def page_training_config():
                     st.info("ℹ️ Dataset has no system prompts")
                 
                 fp16 = st.checkbox("Enable FP16", value=True, help="Enables mixed precision training for better performance")
-                save_steps = st.slider("Save Every N Steps", 1, 200, 50, step=5)
+                save_steps = st.slider("Save Every N Steps", 1, 200, 50, step=1)
                 logging_steps = st.slider("Log Every N Steps", 1, 100, 5, step=1)
                 eval_steps = st.slider("Evaluation Steps", 1, 100, 10, step=1)
                 max_steps_override = st.number_input(
