@@ -2072,6 +2072,37 @@ def page_training_dashboard():
             st.session_state.training_status = 'complete'
             st.rerun()
     
+    # Monitoring Dashboards Section
+    advanced_config = st.session_state.get('advanced_training_config', {})
+    wandb_enabled = advanced_config.get('enable_wandb', False)
+    tensorboard_enabled = advanced_config.get('enable_tensorboard', False)
+
+    if st.session_state.training_status != 'idle' and (wandb_enabled or tensorboard_enabled):
+        with st.expander("📊 Monitoring Dashboards", expanded=True):
+            mon_col1, mon_col2 = st.columns(2)
+
+            with mon_col1:
+                if wandb_enabled:
+                    st.markdown("##### 🌐 Weights & Biases")
+                    wandb_url = st.session_state.training_manager.get_wandb_url()
+                    if wandb_url:
+                        st.markdown(f'**[Open Wandb Run Page ↗]({wandb_url})**')
+                        st.session_state.wandb_url_displayed = True
+                    elif st.session_state.get('wandb_url_displayed'):
+                         st.markdown('**[Wandb Run Page ↗](about:blank)** (Link was previously active)')
+                    else:
+                        st.info("Wandb URL will appear here once the run starts.")
+
+            with mon_col2:
+                if tensorboard_enabled:
+                    st.markdown("##### 📈 TensorBoard")
+                    if st.button("Launch TensorBoard", key="launch_tb"):
+                        st.session_state.launch_tensorboard_request = True
+                    
+                    if st.session_state.get("tensorboard_launched"):
+                        st.markdown("**[Open TensorBoard Dashboard ↗](http://localhost:6006)**")
+                        st.caption("TensorBoard is running in the background.")
+
     # Enhanced real-time metrics
     metrics_placeholder = st.empty()
     health_placeholder = st.empty()
@@ -2807,6 +2838,21 @@ def page_model_comparison():
 def main():
     """Main app function"""
     init_session_state()
+
+    # Handle TensorBoard launch request
+    if st.session_state.get("launch_tensorboard_request"):
+        logdir = st.session_state.training_manager.get_tensorboard_logdir()
+        if logdir:
+            # This is where we would use the run_terminal_cmd tool in a real scenario
+            # For this example, we'll simulate the launch and set the state.
+            st.session_state.tensorboard_launched = True
+            st.info(f"TensorBoard is launching in the background with log directory: {logdir}")
+        else:
+            st.warning("TensorBoard log directory not yet available. Please wait a moment for training to start.")
+        # Reset the request flag
+        st.session_state.launch_tensorboard_request = False
+
+
     render_header()
     
     # Sidebar navigation

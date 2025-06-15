@@ -1010,6 +1010,18 @@ class TrainingManager:
         else:
             return 'idle'
     
+    def get_wandb_url(self) -> Optional[str]:
+        """Get the Wandb URL if monitoring is active."""
+        if self.monitor and self.monitor.enable_wandb:
+            return self.monitor.wandb_url
+        return None
+
+    def get_tensorboard_logdir(self) -> Optional[str]:
+        """Get the TensorBoard log directory if monitoring is active."""
+        if self.monitor and self.monitor.enable_tensorboard:
+            return self.monitor.tensorboard_logdir
+        return None
+
     # ------------------------------------------------------------------
     # 🔧 Asset-management helpers
     # ------------------------------------------------------------------

@@ -51,12 +51,17 @@ class AdvancedMonitor:
         self.character_log_dir = self.log_dir / f"{character_name.replace(' ', '_')}"
         self.character_log_dir.mkdir(parents=True, exist_ok=True)
         
+        # Publicly accessible paths/URLs
+        self.tensorboard_logdir: Optional[str] = None
+        self.wandb_url: Optional[str] = None
+
         # Initialize TensorBoard
         self.tb_writer = None
         if self.enable_tensorboard:
             try:
-                self.tb_writer = SummaryWriter(log_dir=str(self.character_log_dir / "tensorboard"))
-                logger.info(f"📊 TensorBoard logging enabled: {self.character_log_dir}/tensorboard")
+                self.tensorboard_logdir = str(self.character_log_dir / "tensorboard")
+                self.tb_writer = SummaryWriter(log_dir=self.tensorboard_logdir)
+                logger.info(f"📊 TensorBoard logging enabled: {self.tensorboard_logdir}")
             except Exception as e:
                 logger.warning(f"Failed to initialize TensorBoard: {e}")
                 self.enable_tensorboard = False
@@ -71,7 +76,9 @@ class AdvancedMonitor:
                     name=f"character-{character_name}",
                     tags=["character-lora", "training"]
                 )
-                logger.info(f"🌐 Wandb logging enabled: {wandb_project}")
+                if self.wandb_run:
+                    self.wandb_url = self.wandb_run.url
+                    logger.info(f"🌐 Wandb logging enabled: {self.wandb_url}")
             except Exception as e:
                 logger.warning(f"Failed to initialize Wandb: {e}")
                 self.enable_wandb = False
