@@ -15,6 +15,7 @@ import shutil
 import zipfile
 import datetime
 import random
+import json
 from .metrics import CharacterConsistencyMetrics, TrainingQualityTracker
 from .monitoring import AdvancedMonitor
 
@@ -37,9 +38,14 @@ class TrainingCallback(TrainerCallback):
         self.monitor = monitor
         self.log_interval = log_interval
         self.eval_dataset_samples = []  # Cache for consistency evaluation
+        self.last_log_metrics: Dict[str, Any] = {}
+        self.last_consistency_metrics: Dict[str, Any] = {}
     
     def on_log(self, args, state, control, logs=None, **kwargs):
         """Called when training logs are available"""
+        if logs and 'loss' in logs:
+            self.last_log_metrics = logs.copy()
+
         if logs and 'loss' in logs and state.global_step % self.log_interval == 0:
             elapsed_time = time.time() - self.start_time
             
@@ -101,6 +107,7 @@ class TrainingCallback(TrainerCallback):
                 sample_indices = random.sample(range(len(dataset)), min(5, len(dataset)))
                 
                 consistency_scores = []
+                evaluated_samples_for_ui = []
                 for idx in sample_indices:
                     try:
                         # Reconstruct the sample format for evaluation
@@ -126,6 +133,11 @@ class TrainingCallback(TrainerCallback):
                                 # Evaluate consistency
                                 scores = self.consistency_metrics.evaluate_character_consistency(sample, self.character)
                                 consistency_scores.append(scores)
+                                evaluated_samples_for_ui.append({
+                                    'user': user_content,
+                                    'assistant': assistant_content,
+                                    'scores': scores
+                                })
                     except Exception as e:
                         logger.debug(f"Error evaluating sample {idx}: {e}")
                         continue
@@ -137,11 +149,18 @@ class TrainingCallback(TrainerCallback):
                     
                     # Add to status queue
                     avg_consistency = sum(score['overall_consistency'] for score in consistency_scores) / len(consistency_scores)
+                    
+                    self.last_consistency_metrics = {
+                        'avg_consistency': avg_consistency,
+                        'evaluated_samples': evaluated_samples_for_ui,
+                    }
+
                     self.status_queue.put({
                         'type': 'consistency_evaluation',
                         'step': state.global_step,
                         'avg_consistency': avg_consistency,
-                        'consistency_scores': consistency_scores
+                        'consistency_scores': consistency_scores,
+                        'evaluated_samples': evaluated_samples_for_ui
                     })
                     
             except Exception as e:
@@ -181,11 +200,29 @@ class TrainingCallback(TrainerCallback):
     
     def on_save(self, args, state, control, **kwargs):
         """Called when a checkpoint is saved"""
+        checkpoint_dir = kwargs.get('output_dir')
+        if not checkpoint_dir:
+            # Fallback for older transformers versions
+            checkpoint_dir = Path(args.output_dir) / f"checkpoint-{state.global_step}"
+
         self.status_queue.put({
             'type': 'checkpoint_saved',
             'step': state.global_step,
-            'checkpoint_dir': args.output_dir
+            'checkpoint_dir': checkpoint_dir
         })
+
+        # Save latest metrics to checkpoint directory
+        metrics_to_save = {
+            'step': state.global_step,
+            'epoch': state.epoch,
+        }
+        metrics_to_save.update(self.last_log_metrics)
+        metrics_to_save.update(self.last_consistency_metrics)
+
+        if checkpoint_dir:
+            summary_path = Path(checkpoint_dir) / "training_summary.json"
+            with summary_path.open('w') as f:
+                json.dump(metrics_to_save, f, indent=4)
 
 
 class TrainingManager:
@@ -734,6 +771,12 @@ class TrainingManager:
                 except Exception as e:
                     logger.warning(f"Failed to create final plots: {e}")
             
+            # Also save final metrics to adapter directory
+            final_metrics_to_save = self.current_metrics.copy()
+            summary_path = output_dir / "training_summary.json"
+            with summary_path.open('w') as f:
+                json.dump(final_metrics_to_save, f, indent=4)
+            
             self.status_queue.put({
                 'type': 'training_complete',
                 'output_dir': str(output_dir),
@@ -921,7 +964,8 @@ class TrainingManager:
             # Update character consistency metrics
             self.current_metrics.update({
                 'character_consistency': status.get('avg_consistency', 0),
-                'consistency_last_eval_step': status.get('step', 0)
+                'consistency_last_eval_step': status.get('step', 0),
+                'evaluated_samples': status.get('evaluated_samples', [])
             })
         
         elif status_type == 'train_begin':
