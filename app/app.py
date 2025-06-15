@@ -1471,6 +1471,66 @@ def page_dataset_preview():
                 
                 st.markdown("---")
 
+def render_consistency_deep_dive(metrics: Dict[str, Any]):
+    """Renders the expandable deep-dive for character consistency."""
+    
+    consistency = metrics.get('character_consistency', 0)
+    
+    with st.expander(f"Character Consistency: {consistency:.2f}", expanded=False):
+        st.markdown("##### 🔬 Consistency Score Deep Dive")
+        st.markdown(
+            """
+            This shows a detailed breakdown of the consistency score based on a random sample of validation data. 
+            It helps diagnose *why* the score is what it is.
+            """
+        )
+
+        evaluated_samples = metrics.get('evaluated_samples', [])
+        if not evaluated_samples:
+            st.info("No detailed evaluation samples available for this step yet.")
+            return
+
+        # Helper to display score with color/icon
+        def display_score(name, value, explanation):
+            # For meta commentary, lower is better (it's a penalty score).
+            if name == "Meta Commentary":
+                icon = "✅" if value < 0.1 else "❌"
+            else:
+                icon = "✅" if value >= 0.7 else "⚠️" if value >= 0.4 else "❌"
+            
+            # Format value to 2 decimal places
+            score_str = f"{value:.2f}"
+            
+            st.markdown(f"{icon} **{name}:** `{score_str}`", help=explanation)
+
+        for i, sample_eval in enumerate(evaluated_samples):
+            st.markdown(f"---")
+            st.markdown(f"**Sample Evaluation {i+1}** (from validation set)")
+            
+            # Use columns for a cleaner layout
+            col_convo, col_scores = st.columns([2, 1])
+
+            with col_convo:
+                st.markdown(f"**👤 User:**")
+                st.info(sample_eval['user'])
+                st.markdown(f"**🎭 Assistant's Response:**")
+                st.info(sample_eval['assistant'])
+            
+            with col_scores:
+                scores = sample_eval.get('scores', {})
+                if scores:
+                    st.markdown("**Score Breakdown:**")
+                    
+                    display_score("Overall", scores.get('overall_consistency', 0), "The weighted average of all consistency metrics.")
+                    display_score("Name Consistency", scores.get('name_consistency', 0), "Checks for incorrect third-person self-references (e.g., 'CharacterName did...'). Should be 1.0.")
+                    display_score("Personality", scores.get('personality_alignment', 0), "Aligns response with character's defined personality traits.")
+                    display_score("Speech Pattern", scores.get('speech_pattern', 0), "Compares speech patterns (e.g., use of '...') to character examples.")
+                    display_score("Response Quality", scores.get('response_quality', 0), "Evaluates response length and relevance to the user's prompt.")
+                    display_score("Voice", scores.get('voice_consistency', 0), "Checks for general tone, use of actions (*...*), and emotional expression.")
+                    display_score("Meta Commentary", scores.get('meta_commentary', 0), "PENALTY for breaking character by mentioning being an AI. Lower is better (0.0 is best).")
+                else:
+                    st.warning("No score breakdown available for this sample.")
+
 # Training configuration page
 def page_training_config():
     """Enhanced training configuration page with advanced features"""
@@ -2099,13 +2159,13 @@ def page_training_dashboard():
                 
                 with col6:
                     if 'character_consistency' in metrics:
-                        consistency = metrics['character_consistency']
-                        consistency_color = "normal" if consistency > 0.7 else ("off" if consistency < 0.3 else "inverse")
+                        # Use the new deep-dive renderer
+                        render_consistency_deep_dive(metrics)
+                    else:
                         st.metric(
                             "Character Consistency",
-                            f"{consistency:.2f}",
-                            delta_color=consistency_color,
-                            help="How well responses match character traits"
+                            "N/A",
+                            help="Calculated during evaluation."
                         )
                 
                 with col7:
