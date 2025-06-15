@@ -1590,23 +1590,23 @@ def page_training_config():
                 if dataset_size >= 200:
                     optimal_epochs = 3  # Reduced for larger datasets
                 else:
-                    optimal_epochs = min(6, max(3, 600 // dataset_size))  # 3-6 epochs for smaller datasets
-                epochs = st.slider("Epochs", 1, 10, optimal_epochs, help="5-10 epochs recommended by research for character LoRA")
-                lr_options = [1e-4, 2e-4, 3e-4, 5e-4]
+                    optimal_epochs = min(6, max(3, 10000 // dataset_size))  # 3-6 epochs for smaller datasets
+                epochs = st.slider("Epochs", 1, 1000, optimal_epochs, help="5-20 epochs recommended by research for character LoRA")
+                lr_options = [1e-5, 2e-5, 3e-5, 5e-5, 8e-5, 1e-4, 2e-4, 3e-4, 5e-4]
                 default_lr = 2e-4  # More conservative default
                 learning_rate = st.select_slider(
                     "Learning Rate",
                     options=lr_options,
                     value=default_lr,
                     format_func=lambda x: f"{x:.0e}",
-                    help="1e-4 to 5e-4 recommended for character LoRA training"
+                    help="5e-5 to 5e-4 recommended for character LoRA training"
                 )
-                batch_size = st.selectbox("Batch Size", [1, 2, 4, 8], index=1)
+                batch_size = st.selectbox("Batch Size", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)
             
             with col_b:
-                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8], index=1)  # Default to 2
+                gradient_accumulation = st.selectbox("Gradient Accumulation Steps", [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024], index=1)  # Default to 2
                 warmup_steps = st.slider("Warmup Steps", 0, 100, 10, help="10-20 steps usually sufficient")
-                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 2.0, 1.0, step=0.1, help="1.0 is standard")
+                max_grad_norm = st.slider("Max Gradient Norm", 0.5, 8.0, 1.0, step=0.1, help="1.0 is standard")
                 
                 # Sample selection for dataset
                 st.markdown("**Dataset Sampling**")
@@ -1631,10 +1631,10 @@ def page_training_config():
             
             with col_c:
                 default_r = 16  # Optimal for character LoRA per research
-                lora_r = st.slider("LoRA Rank (r)", 4, 64, default_r, step=4, 
+                lora_r = st.slider("LoRA Rank (r)", 4, 256, default_r, step=4, 
                                    help="8-16 optimal for character LoRAs. Higher rank = more capacity but slower.")
                 # Alpha = rank for character training (not 2x)
-                lora_alpha = st.slider("LoRA Alpha", 8, 64, default_r, step=8, 
+                lora_alpha = st.slider("LoRA Alpha", 8, 1024, default_r, step=8, 
                                        help="Set equal to rank (α = r) for character training")
             
             with col_d:
