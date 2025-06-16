@@ -123,6 +123,9 @@ class DatasetManager:
         # Create simplified character profile for enhanced processing
         self.character_profile = self._create_character_profile(character)
         
+        # Initialize character relationships for context generation
+        self.character_relationships = self.character_profile.key_relationships or []
+        
         # Initialize quality filter
         self.quality_filter = EnhancedQualityFilter(self.character_profile)
         
@@ -131,6 +134,27 @@ class DatasetManager:
             self.progressive_refiner = ProgressiveRefiner(self.client, self.character_profile)
             
         logger.info(f"🎭 Character components initialized for {self.character_profile.name}")
+
+    async def _generate_single_response(self, prompt: str, max_tokens: int = 300, 
+                                      temperature: float = 0.8, system_prompt: Optional[str] = None) -> str:
+        """Generate a single response using the LLM client."""
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+            
+            response = await self.client.chat_complete(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature
+            )
+            
+            return response.strip() if response else ""
+            
+        except Exception as e:
+            logger.warning(f"Error generating single response: {e}")
+            return ""
 
     def _create_character_profile(self, character: Dict[str, Any]) -> SimpleCharacterProfile:
         """Create a simplified character profile for processing"""
@@ -602,6 +626,8 @@ class DatasetManager:
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                                append_to_existing: bool = True, custom_system_prompt: Optional[str] = None,
                                extra_quality: bool = False, quality_level: QualityLevel = QualityLevel.ENHANCED,
+                               few_shot_examples: Optional[List[Dict[str, str]]] = None,
+                               negative_patterns: Optional[List[str]] = None,
                                **sampling_kwargs) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
         try:
@@ -613,6 +639,32 @@ class DatasetManager:
 
             # Setup character-specific components
             self._setup_character_components(character)
+            
+            # Enhanced prompts with feedback integration for auto-completion
+            if few_shot_examples or negative_patterns:
+                logger.info("🤝 Applying interactive feedback to auto-completion generation...")
+                
+                # Add few-shot examples to improve quality
+                if few_shot_examples:
+                    logger.info(f"🎯 Using {len(few_shot_examples)} few-shot examples for guidance")
+                    # Use few-shot examples to generate similar high-quality prompts
+                    for example in few_shot_examples[-5:]:  # Use last 5 examples
+                        try:
+                            variation_prompt = f"Generate a question similar in style and quality to: '{example['user']}'"
+                            variation = await self._paraphrase(variation_prompt)
+                            if variation and variation not in self.default_user_prompts:
+                                self.default_user_prompts.append(variation)
+                        except Exception as e:
+                            logger.warning(f"Failed to generate variation from few-shot: {e}")
+                
+                # Store negative patterns for use in system prompts
+                if negative_patterns:
+                    logger.info(f"🚫 Avoiding {len(negative_patterns)} negative patterns in auto-completion")
+                    self._negative_patterns = negative_patterns
+                else:
+                    self._negative_patterns = []
+            else:
+                self._negative_patterns = []
 
             # Extract max_tokens from sampling_kwargs if provided there instead
             if max_tokens is None and 'max_tokens' in sampling_kwargs:
@@ -781,6 +833,12 @@ class DatasetManager:
                 system_prompt = custom_system_prompt
             else:
                 system_prompt = self._generate_temporal_system_prompt(character, "present")
+                
+                # Add negative instruction from interactive feedback
+                if hasattr(self, '_negative_patterns') and self._negative_patterns:
+                    pattern_examples = ". ".join(self._negative_patterns[:3])  # Use first 3 patterns
+                    negative_instruction = f"\n\nIMPORTANT: Avoid generating responses that are similar to these problematic examples: {pattern_examples}. Make responses more engaging, character-appropriate, and natural."
+                    system_prompt += negative_instruction
 
             # Prepare prompts for batch generation
             batch_prompts = []
@@ -896,3 +954,694 @@ Provide {num_variations} variations, one per line:"""
             logger.warning(f"Failed to generate question variations: {e}")
         
         return [base_question]  # Return original if generation fails 
+
+    async def generate_interactive_batch(self, character: Dict[str, Any], num_samples: int = 20,
+                                       max_tokens: Optional[int] = None, temperature: float = 0.9,
+                                       top_p: float = 0.95, progress_callback: Optional[Callable] = None,
+                                       extra_quality: bool = True, few_shot_examples: Optional[List[Dict[str, str]]] = None,
+                                       negative_patterns: Optional[List[str]] = None,
+                                       **sampling_kwargs) -> List[Dict[str, Any]]:
+        """
+        Generate a small batch of samples for interactive curation.
+        Uses accumulated feedback to improve generation quality.
+        """
+        if not await self.test_client():
+            raise RuntimeError("LLM client not available")
+        
+        # Setup character
+        self._setup_character_components(character)
+        
+        # Enhanced prompts with feedback integration
+        enhanced_user_prompts = self.default_user_prompts.copy()
+        
+        # Add few-shot examples to improve quality
+        if few_shot_examples:
+            logger.info(f"🎯 Using {len(few_shot_examples)} few-shot examples for guidance")
+            # Use few-shot examples to generate similar high-quality prompts
+            for example in few_shot_examples[-3:]:  # Use last 3 examples
+                try:
+                    variation_prompt = f"Generate a question similar in style and quality to: '{example['user']}'"
+                    variation = await self._paraphrase(variation_prompt)
+                    if variation and variation not in enhanced_user_prompts:
+                        enhanced_user_prompts.append(variation)
+                except Exception as e:
+                    logger.warning(f"Failed to generate variation from few-shot: {e}")
+        
+        # Create negative instruction from patterns
+        negative_instruction = ""
+        if negative_patterns:
+            logger.info(f"🚫 Avoiding {len(negative_patterns)} negative patterns")
+            pattern_examples = ". ".join(negative_patterns[:3])  # Use first 3 patterns
+            negative_instruction = f"\n\nIMPORTANT: Avoid generating responses that are similar to these problematic examples: {pattern_examples}. Make responses more engaging, character-appropriate, and natural."
+        
+        # Generate batch
+        batch = []
+        
+        for i in range(num_samples):
+            if progress_callback:
+                progress_callback(i / num_samples)
+            
+            try:
+                # Choose user prompt with enhanced pool
+                user_prompt = random.choice(enhanced_user_prompts)
+                
+                # Enhance with extra quality if enabled
+                if extra_quality:
+                    user_prompt = await self._paraphrase(user_prompt)
+                
+                # Generate temporal context and system prompt
+                temporal_context = self._choose_temporal_bucket()
+                relationship_context = random.choice(self.character_relationships) if self.character_relationships else None
+                
+                system_prompt = self._generate_temporal_system_prompt(
+                    character, 
+                    temporal_context, 
+                    relationship_context
+                )
+                
+                # Add negative instruction to system prompt
+                if negative_instruction:
+                    system_prompt += negative_instruction
+                
+                # Build messages
+                messages = [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ]
+                
+                # Add few-shot examples to the conversation context if available
+                if few_shot_examples:
+                    # Insert 1-2 examples before the current prompt
+                    example_messages = []
+                    for example in few_shot_examples[-2:]:  # Use last 2 examples
+                        example_messages.extend([
+                            {"role": "user", "content": example['user']},
+                            {"role": "assistant", "content": example['assistant']}
+                        ])
+                    
+                    # Insert examples between system and user
+                    messages = [messages[0]] + example_messages + [messages[1]]
+                
+                # Generate response
+                response = await self.client.chat_complete(
+                    messages=messages,
+                    max_tokens=max_tokens or 300,
+                    temperature=temperature,
+                    top_p=top_p,
+                    **sampling_kwargs
+                )
+                
+                if response and len(response.strip()) > 10:
+                    # Create sample with original structure (without few-shot examples)
+                    sample = {
+                        "messages": [
+                            {"role": "system", "content": system_prompt.replace(negative_instruction, "").strip()},
+                            {"role": "user", "content": user_prompt},
+                            {"role": "assistant", "content": response.strip()}
+                        ]
+                    }
+                    batch.append(sample)
+                
+            except Exception as e:
+                logger.error(f"Error generating interactive sample {i}: {e}")
+                continue
+        
+        if progress_callback:
+            progress_callback(1.0)
+        
+        logger.info(f"✅ Generated interactive batch: {len(batch)} samples")
+        return batch 
+
+    async def generate_fast_templated_dataset(self, character: Dict[str, Any], num_samples: int = 100,
+                                             temperature: float = 0.7, max_tokens: int = 300,
+                                             paraphrase_strength: float = 0.8, custom_system_prompt: Optional[str] = None,
+                                             enforce_distribution: bool = True, progress_callback: Optional[Callable] = None,
+                                             append_to_existing: bool = True, **sampling_kwargs) -> List[Dict[str, Any]]:
+        """
+        Fast Mode: Template-based generation with LLM paraphrasing.
+        
+        Process:
+        1. Use predefined templates for questions
+        2. LLM paraphrases templates to clean and vary them
+        3. Character responds directly to paraphrased questions
+        4. Maintains temporal and categorical distributions
+        """
+        logger.info(f"🚀 Starting fast templated generation for {num_samples} samples...")
+        
+        # Setup character components
+        self._setup_character_components(character)
+        
+        # Load existing dataset if appending
+        existing_dataset = []
+        if append_to_existing:
+            existing_dataset = self.load_dataset(character) or []
+            logger.info(f"📚 Loaded {len(existing_dataset)} existing samples")
+        
+        generated_samples = []
+        templates = self._get_template_questions(character)
+        
+        # Calculate distribution requirements
+        temporal_buckets = ["past", "present", "future"]
+        category_buckets = ["personal", "emotional", "casual", "worldbuilding", "nsfw"]
+        
+        if enforce_distribution:
+            samples_per_temporal = num_samples // len(temporal_buckets)
+            samples_per_category = num_samples // len(category_buckets)
+        else:
+            # Random distribution
+            import random
+            temporal_distribution = [random.randint(num_samples//4, num_samples//2) for _ in temporal_buckets]
+            category_distribution = [random.randint(num_samples//6, num_samples//3) for _ in category_buckets]
+        
+        progress_step = 1.0 / num_samples
+        current_progress = 0.0
+        
+        for i in range(num_samples):
+            try:
+                # Select temporal and category buckets
+                if enforce_distribution:
+                    temporal_bucket = temporal_buckets[i % len(temporal_buckets)]
+                    category_bucket = category_buckets[i % len(category_buckets)]
+                else:
+                    temporal_bucket = random.choice(temporal_buckets)
+                    category_bucket = random.choice(category_buckets)
+                
+                # Select and paraphrase template
+                template = random.choice(templates.get(category_bucket, templates.get("personal", [])))
+                
+                # Paraphrase template for variation
+                paraphrasing_prompt = f"""
+                Paraphrase this question to make it more natural and varied while keeping the same intent.
+                Original: {template}
+                Character context: {character.get('name', 'Unknown')} - {character.get('personality', '')[:100]}
+                
+                Paraphrased question:"""
+                
+                paraphrased_question = await self._generate_single_response(
+                    paraphrasing_prompt,
+                    max_tokens=100,
+                    temperature=paraphrase_strength,
+                    system_prompt="You are an expert at rephrasing questions naturally."
+                )
+                
+                # Generate system prompt for this temporal context
+                system_prompt = custom_system_prompt if custom_system_prompt else self._generate_temporal_system_prompt(
+                    character, temporal_bucket
+                )
+                
+                # Generate character response
+                response = await self._generate_single_response(
+                    paraphrased_question.strip(),
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    system_prompt=system_prompt
+                )
+                
+                # Create sample
+                sample = {
+                    "instruction": paraphrased_question.strip(),
+                    "input": "",
+                    "output": response.strip(),
+                    "system": system_prompt,
+                    "metadata": {
+                        "temporal_context": temporal_bucket,
+                        "category": category_bucket,
+                        "generation_method": "fast_templated",
+                        "template_used": template[:50] + "..." if len(template) > 50 else template,
+                        "paraphrase_strength": paraphrase_strength
+                    }
+                }
+                
+                generated_samples.append(sample)
+                current_progress += progress_step
+                
+                if progress_callback:
+                    progress_callback(current_progress)
+                
+                # Brief pause to prevent overwhelming the API
+                await asyncio.sleep(0.1)
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error generating sample {i+1}: {str(e)}")
+                continue
+        
+        # Combine with existing dataset
+        final_dataset = existing_dataset + generated_samples
+        
+        # Save dataset
+        metadata = {
+            "generation_method": "fast_templated",
+            "paraphrase_strength": paraphrase_strength,
+            "enforce_distribution": enforce_distribution,
+            "timestamp": time.time(),
+            "character_name": character.get("name", "Unknown"),
+            "total_samples": len(final_dataset),
+            "new_samples": len(generated_samples)
+        }
+        
+        self.save_dataset(character, final_dataset, metadata)
+        
+        logger.info(f"✅ Fast templated generation complete! Generated {len(generated_samples)} new samples")
+        return final_dataset
+
+    async def generate_slow_curated_dataset(self, character: Dict[str, Any], target_samples: int = 60,
+                                          generation_multiplier: float = 3.0, quality_threshold: float = 0.75,
+                                          max_regenerations: int = 2, distribution_strictness: float = 0.85,
+                                          custom_system_prompt: Optional[str] = None,
+                                          progress_callback: Optional[Callable] = None,
+                                          stage_callback: Optional[Callable] = None,
+                                          append_to_existing: bool = True, **sampling_kwargs) -> List[Dict[str, Any]]:
+        """
+        Slow Mode: AI-curated pipeline with rigorous quality control.
+        
+        Process:
+        1. LLM creates questions based on character analysis
+        2. Judge LLM filters poor quality questions  
+        3. Character generates responses to approved questions
+        4. Judge LLM evaluates response quality and regenerates if needed
+        5. Maintains strict temporal and categorical distributions
+        """
+        logger.info(f"🔬 Starting slow curated generation for {target_samples} samples...")
+        
+        # Setup character components and curation stats
+        self._setup_character_components(character)
+        self.curation_stats = {
+            "questions_generated": 0,
+            "questions_approved": 0,
+            "responses_regenerated": 0,
+            "final_avg_quality": 0.0
+        }
+        
+        # Load existing dataset if appending
+        existing_dataset = []
+        if append_to_existing:
+            existing_dataset = self.load_dataset(character) or []
+            logger.info(f"📚 Loaded {len(existing_dataset)} existing samples")
+        
+        # Stage 1: Generate diverse questions
+        if stage_callback:
+            stage_callback("🎯 Stage 1: Generating diverse questions...")
+        
+        num_questions_to_generate = int(target_samples * generation_multiplier)
+        generated_questions = await self._generate_curated_questions(
+            character, num_questions_to_generate, distribution_strictness
+        )
+        
+        self.curation_stats["questions_generated"] = len(generated_questions)
+        if progress_callback:
+            progress_callback(0.3)
+        
+        # Stage 2: Filter questions with judge LLM
+        if stage_callback:
+            stage_callback("⚖️ Stage 2: Judging question quality...")
+        
+        approved_questions = await self._judge_questions(
+            generated_questions, character, quality_threshold
+        )
+        
+        # Ensure we have enough questions
+        if len(approved_questions) < target_samples:
+            logger.warning(f"⚠️ Only {len(approved_questions)} questions approved, generating more...")
+            additional_questions = await self._generate_curated_questions(
+                character, target_samples - len(approved_questions) + 10, distribution_strictness
+            )
+            additional_approved = await self._judge_questions(additional_questions, character, quality_threshold)
+            approved_questions.extend(additional_approved)
+        
+        # Select final questions maintaining distribution
+        final_questions = self._select_distributed_questions(approved_questions, target_samples, distribution_strictness)
+        self.curation_stats["questions_approved"] = len(final_questions)
+        
+        if progress_callback:
+            progress_callback(0.6)
+        
+        # Stage 3: Generate and judge responses
+        if stage_callback:
+            stage_callback("🎭 Stage 3: Generating character responses...")
+        
+        generated_samples = []
+        progress_step = 0.4 / len(final_questions)  # Remaining 40% of progress
+        current_progress = 0.6
+        
+        for question_data in final_questions:
+            try:
+                # Generate response
+                system_prompt = custom_system_prompt if custom_system_prompt else self._generate_temporal_system_prompt(
+                    character, question_data["temporal_context"]
+                )
+                
+                response = await self._generate_single_response(
+                    question_data["question"],
+                    max_tokens=400,
+                    temperature=0.8,
+                    system_prompt=system_prompt
+                )
+                
+                # Judge response quality
+                response_quality = await self._judge_response_quality(
+                    question_data["question"], response, character, system_prompt
+                )
+                
+                # Regenerate if quality is too low
+                regeneration_count = 0
+                while response_quality < quality_threshold and regeneration_count < max_regenerations:
+                    logger.info(f"🔄 Regenerating response (attempt {regeneration_count + 1})")
+                    response = await self._generate_single_response(
+                        question_data["question"],
+                        max_tokens=400,
+                        temperature=0.9,  # Slightly higher temperature for variation
+                        system_prompt=system_prompt
+                    )
+                    response_quality = await self._judge_response_quality(
+                        question_data["question"], response, character, system_prompt
+                    )
+                    regeneration_count += 1
+                    self.curation_stats["responses_regenerated"] += 1
+                
+                # Create final sample
+                sample = {
+                    "instruction": question_data["question"],
+                    "input": "",
+                    "output": response.strip(),
+                    "system": system_prompt,
+                    "metadata": {
+                        "temporal_context": question_data["temporal_context"],
+                        "category": question_data["category"],
+                        "generation_method": "slow_curated",
+                        "question_quality": question_data.get("quality_score", 0.8),
+                        "response_quality": response_quality,
+                        "regeneration_count": regeneration_count,
+                        "distribution_strictness": distribution_strictness
+                    }
+                }
+                
+                generated_samples.append(sample)
+                current_progress += progress_step
+                
+                if progress_callback:
+                    progress_callback(current_progress)
+                
+                await asyncio.sleep(0.2)  # Slower pace for careful curation
+                
+            except Exception as e:
+                logger.warning(f"⚠️ Error processing question: {str(e)}")
+                continue
+        
+        # Calculate final statistics
+        if generated_samples:
+            avg_quality = sum(s["metadata"]["response_quality"] for s in generated_samples) / len(generated_samples)
+            self.curation_stats["final_avg_quality"] = avg_quality
+        
+        # Combine with existing dataset
+        final_dataset = existing_dataset + generated_samples
+        
+        # Save dataset
+        metadata = {
+            "generation_method": "slow_curated",
+            "generation_multiplier": generation_multiplier,
+            "quality_threshold": quality_threshold,
+            "max_regenerations": max_regenerations,
+            "distribution_strictness": distribution_strictness,
+            "curation_stats": self.curation_stats,
+            "timestamp": time.time(),
+            "character_name": character.get("name", "Unknown"),
+            "total_samples": len(final_dataset),
+            "new_samples": len(generated_samples)
+        }
+        
+        self.save_dataset(character, final_dataset, metadata)
+        
+        if stage_callback:
+            stage_callback("✅ AI-curated generation complete!")
+        
+        logger.info(f"✅ Slow curated generation complete! Generated {len(generated_samples)} high-quality samples")
+        return final_dataset
+
+    def _get_template_questions(self, character: Dict[str, Any]) -> Dict[str, List[str]]:
+        """Get template questions organized by category."""
+        templates = {
+            "personal": [
+                "What is your greatest fear?",
+                "What motivates you to get up every morning?",
+                "What is your biggest regret?",
+                "What makes you feel most alive?",
+                "What is your favorite memory?",
+                "What do you value most in a friendship?",
+                "What is your biggest weakness?",
+                "What are you most proud of?",
+                "What is your idea of perfect happiness?",
+                "What would you change about yourself if you could?"
+            ],
+            "emotional": [
+                "How do you handle stress?",
+                "What makes you angry?",
+                "When was the last time you cried?",
+                "What brings you comfort when you're sad?",
+                "How do you express love?",
+                "What makes you feel vulnerable?",
+                "How do you deal with disappointment?",
+                "What gives you hope?",
+                "How do you show affection?",
+                "What makes you feel confident?"
+            ],
+            "casual": [
+                "What do you like to do in your free time?",
+                "What is your favorite food?",
+                "What kind of music do you enjoy?",
+                "What is your ideal way to spend a weekend?",
+                "What is your favorite season and why?",
+                "Do you prefer morning or evening?",
+                "What is your favorite place to visit?",
+                "What hobbies do you have?",
+                "What do you like to do to relax?",
+                "What is your favorite type of weather?"
+            ],
+            "worldbuilding": [
+                "Tell me about your hometown.",
+                "What is your family like?",
+                "Describe your living situation.",
+                "What is your job or role?",
+                "What is the most interesting place you've been?",
+                "Who has influenced you the most?",
+                "What was your childhood like?",
+                "What are your future goals?",
+                "How do you fit into your community?",
+                "What traditions are important to you?"
+            ],
+            "nsfw": [
+                "What attracts you to someone?",
+                "How do you flirt?",
+                "What is your idea of romance?",
+                "What turns you on?",
+                "How do you like to be touched?",
+                "What is your biggest turn-off?",
+                "How do you express intimacy?",
+                "What makes you feel desired?",
+                "What is your favorite way to be seduced?",
+                "How do you show physical affection?"
+            ]
+        }
+        
+        return templates
+
+    async def _generate_curated_questions(self, character: Dict[str, Any], num_questions: int,
+                                        distribution_strictness: float) -> List[Dict[str, str]]:
+        """Generate questions using LLM with character analysis."""
+        questions = []
+        
+        # Analyze character for context
+        character_analysis = self._analyze_character_deeply(character)
+        
+        temporal_buckets = ["past", "present", "future"]
+        category_buckets = ["personal", "emotional", "casual", "worldbuilding", "nsfw"]
+        
+        questions_per_bucket = num_questions // (len(temporal_buckets) * len(category_buckets))
+        
+        for temporal in temporal_buckets:
+            for category in category_buckets:
+                for _ in range(questions_per_bucket):
+                    try:
+                        question_prompt = f"""
+                        Create a thoughtful, engaging question for this character that would help explore their personality and background.
+                        
+                        Character: {character.get('name', 'Unknown')}
+                        Personality: {character.get('personality', '')[:200]}
+                        Background: {character.get('scenario', '')[:200]}
+                        
+                        Context Requirements:
+                        - Temporal focus: {temporal} (questions about their {temporal})
+                        - Category: {category}
+                        - Should reveal character depth and authenticity
+                        - Avoid generic or cliche questions
+                        - Make it specific to this character's world and situation
+                        
+                        Generated question:"""
+                        
+                        question = await self._generate_single_response(
+                            question_prompt,
+                            max_tokens=150,
+                            temperature=0.8,
+                            system_prompt="You are an expert at creating insightful character questions."
+                        )
+                        
+                        questions.append({
+                            "question": question.strip(),
+                            "temporal_context": temporal,
+                            "category": category
+                        })
+                        
+                    except Exception as e:
+                        logger.warning(f"Error generating question: {str(e)}")
+                        continue
+        
+        return questions
+
+    async def _judge_questions(self, questions: List[Dict[str, str]], character: Dict[str, Any],
+                             quality_threshold: float) -> List[Dict[str, str]]:
+        """Use judge LLM to filter high-quality questions."""
+        approved_questions = []
+        
+        for question_data in questions:
+            try:
+                judge_prompt = f"""
+                Evaluate this question for a character dataset on a scale of 0.0 to 1.0.
+                
+                Character: {character.get('name', 'Unknown')}
+                Personality: {character.get('personality', '')[:150]}
+                
+                Question: {question_data['question']}
+                Category: {question_data['category']}
+                Temporal context: {question_data['temporal_context']}
+                
+                Evaluation criteria:
+                - Relevance to character (0.3)
+                - Depth and insight potential (0.3)
+                - Clarity and specificity (0.2) 
+                - Originality and interest (0.2)
+                
+                Respond with just a number between 0.0 and 1.0:"""
+                
+                score_response = await self._generate_single_response(
+                    judge_prompt,
+                    max_tokens=10,
+                    temperature=0.3,
+                    system_prompt="You are a precise question quality evaluator."
+                )
+                
+                try:
+                    quality_score = float(score_response.strip())
+                    if quality_score >= quality_threshold:
+                        question_data["quality_score"] = quality_score
+                        approved_questions.append(question_data)
+                except ValueError:
+                    # If we can't parse the score, skip this question
+                    continue
+                    
+            except Exception as e:
+                logger.warning(f"Error judging question: {str(e)}")
+                continue
+        
+        return approved_questions
+
+    async def _judge_response_quality(self, question: str, response: str, character: Dict[str, Any],
+                                    system_prompt: str) -> float:
+        """Judge the quality of a character response."""
+        try:
+            judge_prompt = f"""
+            Evaluate this character response on a scale of 0.0 to 1.0.
+            
+            Character: {character.get('name', 'Unknown')}
+            Personality: {character.get('personality', '')[:150]}
+            
+            Question: {question}
+            Response: {response}
+            
+            Evaluation criteria:
+            - Character consistency (0.4)
+            - Response depth and authenticity (0.3)
+            - Relevance to question (0.2)
+            - Natural flow and readability (0.1)
+            
+            Respond with just a number between 0.0 and 1.0:"""
+            
+            score_response = await self._generate_single_response(
+                judge_prompt,
+                max_tokens=10,
+                temperature=0.3,
+                system_prompt="You are a precise response quality evaluator."
+            )
+            
+            try:
+                return float(score_response.strip())
+            except ValueError:
+                return 0.5  # Default score if parsing fails
+                
+        except Exception as e:
+            logger.warning(f"Error judging response: {str(e)}")
+            return 0.5
+
+    def _select_distributed_questions(self, questions: List[Dict[str, str]], target_count: int,
+                                    strictness: float) -> List[Dict[str, str]]:
+        """Select questions while maintaining distribution balance."""
+        if len(questions) <= target_count:
+            return questions
+        
+        # Group by temporal and category
+        buckets = {}
+        for q in questions:
+            key = (q["temporal_context"], q["category"])
+            if key not in buckets:
+                buckets[key] = []
+            buckets[key].append(q)
+        
+        # Calculate target per bucket
+        num_buckets = len(buckets)
+        base_per_bucket = target_count // num_buckets
+        remainder = target_count % num_buckets
+        
+        selected = []
+        bucket_keys = list(buckets.keys())
+        
+        for i, key in enumerate(bucket_keys):
+            bucket_questions = buckets[key]
+            target_for_bucket = base_per_bucket + (1 if i < remainder else 0)
+            
+            # Sort by quality score if available
+            bucket_questions.sort(key=lambda x: x.get("quality_score", 0.5), reverse=True)
+            
+            # Select top questions from this bucket
+            selected.extend(bucket_questions[:target_for_bucket])
+        
+        return selected[:target_count]
+
+    def _analyze_character_deeply(self, character: Dict[str, Any]) -> Dict[str, Any]:
+        """Perform deep analysis of character for question generation."""
+        analysis = {
+            "core_traits": [],
+            "background_elements": [],
+            "relationships": [],
+            "interests": [],
+            "conflicts": []
+        }
+        
+        # Extract from description and personality
+        description = character.get("description", "")
+        personality = character.get("personality", "")
+        scenario = character.get("scenario", "")
+        
+        # Simple keyword extraction (could be enhanced with NLP)
+        text_to_analyze = f"{description} {personality} {scenario}".lower()
+        
+        # Look for personality indicators
+        personality_keywords = ["confident", "shy", "aggressive", "kind", "mysterious", "cheerful", "serious"]
+        for keyword in personality_keywords:
+            if keyword in text_to_analyze:
+                analysis["core_traits"].append(keyword)
+        
+        # Look for background elements
+        background_keywords = ["family", "school", "work", "home", "city", "country", "magic", "technology"]
+        for keyword in background_keywords:
+            if keyword in text_to_analyze:
+                analysis["background_elements"].append(keyword)
+        
+        return analysis 

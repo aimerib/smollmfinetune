@@ -501,12 +501,12 @@ def page_dataset_preview():
     # Check for existing dataset
     dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
     
-    # Enhanced generation mode tabs
-    generation_tab, standard_tab, enhanced_tab, premium_tab, quality_tab = st.tabs([
+    # Streamlined generation mode tabs
+    generation_tab, interactive_tab, fast_tab, slow_tab, quality_tab = st.tabs([
         "📊 Overview", 
-        "📝 Basic Generation",
-        "⭐ Enhanced Generation", 
-        "🌟 Premium Generation",
+        "🤝 Interactive Generation (Primary)",
+        "⚡ Fast Mode (Templated)",
+        "🔬 Slow Mode (AI-Curated)",
         "🎯 Factual Q&A Generation"
     ])
     
@@ -582,15 +582,32 @@ def page_dataset_preview():
         
         # Info about generation modes
         st.markdown("""
-        ### 🎯 Generation Methods
+        ### 🎯 Streamlined Generation Methods
         
-        **Standard Generation**: Fast, direct generation with basic quality filtering.
-        - Good for: Quick datasets, testing, small characters
-        - Speed: ~1-2 samples per second
+        🚀 **New simplified approach with 3 focused modes:**
+        """)
         
-        **Quality-First Generation**: Generate many samples, then use AI to select the best.
-        - Good for: Production models, complex characters, best quality
-        - Speed: Slower but much higher quality
+        st.success("""
+        **🤝 Interactive Generation (Primary)**: Collaborative batch-by-batch generation with real-time feedback
+        - ✨ Best for: Perfect quality control, learning what works for your character
+        - ⏱️ User-guided (as fast or slow as you want)
+        
+        **⚡ Fast Mode (Templated)**: Template-based questions + LLM paraphrasing + character responses
+        - ✨ Best for: Parameter tuning, quick experiments, baseline datasets
+        - ⏱️ Fast (5-15 minutes)
+        
+        **🔬 Slow Mode (AI-Curated)**: LLM creates questions → Judge filters → Character responds → Quality control
+        - ✨ Best for: Hands-off exploration, discovering optimal parameters  
+        - ⏱️ Thorough (20-60 minutes)
+        """)
+        
+        st.info("""
+        🎯 **All modes maintain temporal (past/present/future) and categorical (personal/emotional/casual/worldbuilding/nsfw) distributions**
+        
+        📈 **Recommended workflow:**
+        1. Start with **Interactive Mode** to understand your character and find the right parameters
+        2. Use **Fast Mode** for quick iteration and parameter testing
+        3. Use **Slow Mode** for hands-off generation once you know what works
         """)
         
         # ----------------------------
@@ -736,485 +753,688 @@ def page_dataset_preview():
                     else:
                         st.error("Failed to import dataset. Check file format.")
     
-    with standard_tab:
-        st.markdown("### 📝 Basic Dataset Generation")
+    with fast_tab:
+        st.markdown("### ⚡ Fast Mode (Templated Generation)")
         
         st.info("""
-        🎯 **Basic Mode**:
-        - Standard generation with minimal quality filtering
-        - Fast generation for testing and prototyping
-        - Good for: Quick experiments, proof of concepts
+        🎯 **Fast Mode - Template-Based**:
+        - Uses predefined templates + LLM paraphrasing for clean questions
+        - Character responds directly to paraphrased questions
+        - Maintains temporal and categorical distributions
+        - Good for: Parameter tuning, quick experiments, baseline datasets
         """)
         
-        # Basic generation settings
-        st.markdown("#### 🎛️ Basic Generation Settings")
+        # Fast mode settings
+        st.markdown("#### ⚙️ Fast Mode Configuration")
         
-        # Simple configuration for basic mode
-        with st.form("basic_generation"):
+        with st.form("fast_generation"):
             col_a, col_b = st.columns(2)
             
             with col_a:
-                basic_num_samples = st.slider(
+                fast_num_samples = st.slider(
                     "Number of samples",
-                    min_value=10,
-                    max_value=200,
-                    value=50,
-                    step=10,
-                    help="Number of samples to generate for basic testing"
-                )
-                
-                basic_temperature = st.slider(
-                    "Temperature",
-                    min_value=0.1,
-                    max_value=1.5,
-                    value=0.8,
-                    step=0.1,
-                    help="Controls randomness in generation"
-                )
-            
-            with col_b:
-                basic_max_tokens = st.slider(
-                    "Max tokens per response",
-                    min_value=50,
-                    max_value=500,
-                    value=200,
-                    step=50,
-                    help="Maximum length of each response"
-                )
-                
-                basic_use_custom_system = st.checkbox(
-                    "Apply custom system prompt", 
-                    value=False, 
-                    help="Replace temporal prompts with a custom prompt after generation"
-                )
-            
-            if basic_use_custom_system:
-                basic_system_prompt = st.text_area(
-                    "System Prompt for Training",
-                    placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
-                    height=100,
-                    help="Custom system prompt to use for training",
-                    key="basic_system_prompt"
-                )
-            else:
-                basic_system_prompt = None
-                st.info("Dataset will keep temporal context system prompts")
-            
-            # Generate button
-            basic_generate_button = st.form_submit_button(
-                "🚀 Generate Basic Dataset", 
-                use_container_width=True,
-                type="primary"
-            )
-        
-        if basic_generate_button:
-            # ✅ FIX: Set generation state to prevent UI interference
-            st.session_state._generating_dataset = True
-        
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            try:
-                # Run basic generation using the same pattern as enhanced mode
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    dataset = loop.run_until_complete(
-                        st.session_state.dataset_manager.generate_dataset(
-                            st.session_state.current_character,
-                            num_samples=basic_num_samples,
-                            max_tokens=basic_max_tokens,
-                            temperature=basic_temperature,
-                            top_p=0.9,
-                            progress_callback=lambda p: progress_bar.progress(p),
-                            append_to_existing=True,
-                            custom_system_prompt=basic_system_prompt if basic_use_custom_system else None,
-                            extra_quality=False,  # No extra quality for basic mode
-                            quality_level=QualityLevel.BASIC  # Use basic quality level
-                        )
-                    )
-                finally:
-                    loop.close()
-                
-                st.session_state.dataset_preview = dataset
-                # Update metadata if we generated with custom system prompt
-                if basic_use_custom_system:
-                    st.session_state.dataset_metadata = {
-                        'generation_method': 'basic',
-                        'system_prompt_config': {
-                            'type': 'custom',
-                            'prompt': basic_system_prompt
-                        }
-                    }
-                else:
-                    st.session_state.dataset_metadata = {
-                        'generation_method': 'basic',
-                        'system_prompt_config': {
-                            'type': 'temporal',
-                            'prompt': None
-                        }
-                    }
-                progress_bar.progress(1.0)
-                status_text.text("Basic dataset generation complete!")
-                st.success(f"✅ Generated {len(dataset)} samples successfully!")
-            
-                # ✅ FIX: Clear generation state before rerun to prevent loops
-                st.session_state._generating_dataset = False
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Error generating basic dataset: {str(e)}")
-                # ✅ FIX: Always clear generation state on error
-                st.session_state._generating_dataset = False
-    
-    with enhanced_tab:
-        st.markdown("### ⭐ Enhanced Dataset Generation")
-        
-        st.info("""
-        🎯 **Enhanced Mode**:
-        - vLLM-optimized batching for better performance
-        - Real-time quality filtering during generation
-        - Character-specific quality criteria
-        - Good for: Production datasets, balanced quality/speed
-        """)
-        
-        # Replace the basic parameter sliders with sampling configuration
-        st.markdown("#### 🎛️ Generation Settings")
-        
-        # Import and use sampling configuration
-        from utils.sampling_config import render_sampling_config_ui, SamplingConfig, get_model_preset
-
-        # Create default config
-        default_config = SamplingConfig(
-            temperature=0.8,
-            max_tokens=1000,
-            repetition_penalty=1.1,
-        )
-        
-        # Render sampling configuration UI
-        sampling_config = render_sampling_config_ui(
-            current_config=default_config,
-            key_prefix="standard_gen"
-        )
-        
-        # System prompt configuration
-        st.markdown("#### 📝 System Prompt Configuration for Training")
-        
-        with st.expander("ℹ️ How System Prompts Work", expanded=False):
-            st.markdown("""
-            **During Generation**: The dataset uses diverse temporal prompts (past/present/future relationships) to generate varied, contextual responses.
-            
-            **For Training**: You can optionally replace all these temporal prompts with a single custom prompt. This gives you:
-            - Temporal diversity during generation
-            - Consistent system prompt during training
-            - Perfect for scenario-specific or multi-character setups
-            """)
-        
-        use_custom_system = st.checkbox("Apply custom system prompt to dataset", value=False, help="Replace temporal prompts with a custom prompt after generation", key="standard_use_custom_system")
-        
-        if use_custom_system:
-            system_prompt = st.text_area(
-                "System Prompt for Training",
-                placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
-                height=100,
-                help="After generation with temporal prompts, this will replace all system prompts in the dataset for consistent training.",
-                key="standard_system_prompt"
-            )
-        else:
-            system_prompt = None
-            st.info("Dataset will keep temporal context system prompts (varies per sample)")
-        
-        # Generation form
-        with st.form("dataset_generation"):
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                # Allow generating much larger synthetic datasets (up to 20k samples)
-                num_samples = st.slider(
-                    "Total samples target",
-                    min_value=20,
-                    max_value=2000,
-                    value=80,
-                    step=20,
-                    help="Desired total size of the synthetic dataset. Research shows 20-100 samples is optimal for character LoRAs, with 200-500 for more complex characters. Larger datasets risk overfitting."
-                )
-                
-                # Extra quality checkbox
-                extra_quality = st.checkbox(
-                    "🌟 EXTRA QUALITY", 
-                    value=False, 
-                    help="Paraphrase all questions before generation for cleaner, more varied prompts. Takes longer but significantly improves dataset quality.",
-                    key="standard_extra_quality"
-                )
-            
-            with col_b:
-                # Show configuration summary
-                st.markdown("**Configuration Summary:**")
-                st.write(f"• Temperature: {sampling_config.temperature}")
-                st.write(f"• Max Tokens: {sampling_config.max_tokens}")
-                st.write(f"• System Prompt: {'Custom' if use_custom_system else 'Temporal'}")
-            if extra_quality:
-                    st.write("• Extra Quality: ✅ Enabled")
-            
-            # Submit button
-            generate_button = st.form_submit_button(
-                "🚀 Generate Dataset", 
-                use_container_width=True,
-                type="primary"
-            )
-        
-        if generate_button:
-            # ✅ FIX: Set generation state to prevent UI interference
-            st.session_state._generating_dataset = True
-        
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            # Progress callback (called by DatasetManager)
-            def update_progress(p: float):
-                """Update status text for current chunk progress."""
-                status_text.text(
-                    f"Generating samples... {p*100:.1f}%"
-                )
-            
-            try:
-                # Run generation
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                # ✅ FIX: Don't pass duplicate parameters - use sampling_config.to_dict() only
-                    dataset = loop.run_until_complete(
-                        st.session_state.dataset_manager.generate_dataset(
-                            st.session_state.current_character,
-                            num_samples=num_samples,
-                            progress_callback=lambda p: progress_bar.progress(p),
-                            append_to_existing=True,
-                            custom_system_prompt=system_prompt if use_custom_system else None,
-                        extra_quality=extra_quality,
-                        **sampling_config.to_dict()  # Pass all sampling parameters
-                        )
-                    )
-                finally:
-                    loop.close()
-                
-                st.session_state.dataset_preview = dataset
-                # Update metadata if we generated with custom system prompt
-                if use_custom_system:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'custom',
-                            'prompt': system_prompt
-                        }
-                    }
-                else:
-                    st.session_state.dataset_metadata = {
-                        'system_prompt_config': {
-                            'type': 'temporal',
-                            'prompt': None
-                        }
-                    }
-                progress_bar.progress(1.0)
-                status_text.text("Dataset generation complete!")
-                st.success(f"✅ Generated {len(dataset)} samples successfully!")
-            
-                # ✅ FIX: Clear generation state before rerun to prevent loops
-                st.session_state._generating_dataset = False
-                st.rerun()
-                
-            except Exception as e:
-                st.error(f"❌ Error generating dataset: {str(e)}")
-                # ✅ FIX: Always clear generation state on error
-                st.session_state._generating_dataset = False
-    
-    with premium_tab:
-        st.markdown("### 🌟 Premium Dataset Generation")
-        
-        st.info("""
-        🎯 **Premium Mode**:
-        - Multi-phase generation with progressive refinement
-        - Specialized character consistency judging
-        - Automatic quality improvement through iterative refinement
-        - Highest quality output with intelligent sample curation
-        - Good for: Production characters, best possible quality
-        """)
-        
-        # Premium generation settings
-        with st.form("premium_generation"):
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                premium_samples = st.slider(
-                    "Target high-quality samples",
                     min_value=20,
                     max_value=500,
                     value=100,
-                    step=10,
-                    help="Premium mode generates 3x this amount and curates the best samples"
+                    step=20,
+                    help="Total samples to generate using template approach"
                 )
                 
-                enable_refinement = st.checkbox(
-                    "🔄 Progressive Refinement", 
-                    value=True,
-                    help="Automatically improve lower-quality samples through iterative refinement"
+                fast_temperature = st.slider(
+                    "Temperature",
+                    min_value=0.3,
+                    max_value=1.2,
+                    value=0.7,
+                    step=0.1,
+                    help="Controls randomness in paraphrasing and responses"
                 )
                 
-                quality_threshold = st.slider(
-                    "Quality Threshold (0-1)",
-                    min_value=0.7,
-                    max_value=0.95,
+                fast_paraphrase_strength = st.slider(
+                    "Paraphrasing Strength",
+                    min_value=0.5,
+                    max_value=1.5,
                     value=0.8,
-                    step=0.05,
-                    help="Minimum quality score for sample acceptance"
+                    step=0.1,
+                    help="How much to vary the template questions (higher = more variation)"
                 )
             
             with col_b:
-                premium_extra_quality = st.checkbox(
-                    "🌟 MAXIMUM QUALITY", 
-                    value=True, 
-                    help="Enable all quality enhancement features for absolute best results"
+                fast_max_tokens = st.slider(
+                    "Max tokens per response",
+                    min_value=100,
+                    max_value=800,
+                    value=300,
+                    step=50,
+                    help="Maximum length of character responses"
                 )
                 
-                refinement_iterations = st.slider(
-                    "Max Refinement Iterations",
-                    min_value=1,
-                    max_value=5,
-                    value=2,
-                    help="Maximum attempts to improve each sample"
+                fast_use_custom_system = st.checkbox(
+                    "Apply custom system prompt", 
+                    value=False, 
+                    help="Override temporal prompts with custom system prompt"
                 )
                 
-                # vLLM optimization settings
-                vllm_optimization = st.checkbox(
-                    "🚀 vLLM Optimization",
+                fast_distribution_enforcement = st.checkbox(
+                    "Enforce Distribution Balance",
                     value=True,
-                    help="Use advanced batching for better performance"
+                    help="Ensure equal representation across temporal and categorical buckets"
                 )
             
-            # Premium system prompt configuration
-            st.markdown("#### 📝 System Prompt Configuration")
-            use_custom_system_premium = st.checkbox("Apply custom system prompt to dataset", value=False, key="premium_custom_system")
-            
-            if use_custom_system_premium:
-                system_prompt_premium = st.text_area(
-                    "System Prompt for Training",
-                    placeholder="You are a helpful assistant...\n\nLeave empty for no system prompt.",
+            if fast_use_custom_system:
+                fast_system_prompt = st.text_area(
+                    "Custom System Prompt",
+                    placeholder="You are a helpful assistant...",
                     height=100,
-                    key="premium_system_prompt"
+                    key="fast_system_prompt"
                 )
             else:
-                system_prompt_premium = None
-                st.info("Dataset will use temporal context system prompts")
+                fast_system_prompt = None
+                st.info("Using temporal distribution system prompts")
             
-            # Estimated processing time
-            estimated_total_samples = premium_samples * 3
-            estimated_time = estimated_total_samples / 8 / 60  # Rough estimate
-            
-            st.info(f"""
-            📊 **Premium Generation Plan**:
-            - Generate: ~{estimated_total_samples} diverse samples
-            - Curate: {premium_samples} highest quality samples
-            - Estimated time: ~{estimated_time:.1f} minutes
-            - Quality threshold: {quality_threshold:.0%}
-            """)
-            
-            # Submit button
-            premium_generate_button = st.form_submit_button(
-                "🌟 Generate Premium Dataset", 
+            # Generate button
+            fast_generate_button = st.form_submit_button(
+                "⚡ Generate Fast Dataset", 
                 use_container_width=True,
                 type="primary"
             )
         
-        if premium_generate_button:
-            # ✅ FIX: Set generation state to prevent UI interference
+        if fast_generate_button:
             st.session_state._generating_dataset = True
-        
+            
             progress_bar = st.progress(0)
             status_text = st.empty()
             
-            # Enhanced progress callback for premium mode
-            def update_premium_progress(p: float):
-                phase = "Processing..." if p < 0.6 else "Judging..." if p < 0.8 else "Refining..."
-                status_text.text(f"Premium generation - {phase} {p*100:.1f}%")
-                
             try:
-                # Run premium generation
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                try:                    
-                    # Create enhanced generation config
-                    generation_config = GenerationConfig(
-                        use_vllm_optimization=vllm_optimization,
-                        quality_threshold=quality_threshold,
-                        enable_progressive_refinement=enable_refinement,
-                        max_refinement_iterations=refinement_iterations,
-                        judge_batch_size=20,
-                        diversity_weight=0.3,
-                        enable_real_time_filtering=True
-                    )
-                    
-                    # Update dataset manager with new config
-                    st.session_state.dataset_manager.generation_config = generation_config
-                    
+                try:
                     dataset = loop.run_until_complete(
-                        st.session_state.dataset_manager.generate_dataset(
+                        st.session_state.dataset_manager.generate_fast_templated_dataset(
                             st.session_state.current_character,
-                            num_samples=premium_samples,
+                            num_samples=fast_num_samples,
+                            temperature=fast_temperature,
+                            max_tokens=fast_max_tokens,
+                            paraphrase_strength=fast_paraphrase_strength,
+                            custom_system_prompt=fast_system_prompt if fast_use_custom_system else None,
+                            enforce_distribution=fast_distribution_enforcement,
                             progress_callback=lambda p: progress_bar.progress(p),
-                            append_to_existing=True,
-                            custom_system_prompt=system_prompt_premium if use_custom_system_premium else None,
-                            extra_quality=premium_extra_quality,
-                            quality_level=QualityLevel.PREMIUM,  # Use premium quality
-                            temperature=0.8,
-                            top_p=0.9,
-                            max_tokens=400
+                            append_to_existing=True
                         )
                     )
                 finally:
                     loop.close()
                 
                 st.session_state.dataset_preview = dataset
-                # Update metadata
-                if use_custom_system_premium:
-                    st.session_state.dataset_metadata = {
-                        'generation_method': 'premium',
-                        'quality_threshold': quality_threshold,
-                        'system_prompt_config': {
-                            'type': 'custom',
-                            'prompt': system_prompt_premium
-                        }
+                st.session_state.dataset_metadata = {
+                    'generation_method': 'fast_templated',
+                    'paraphrase_strength': fast_paraphrase_strength,
+                    'distribution_enforced': fast_distribution_enforcement,
+                    'system_prompt_config': {
+                        'type': 'custom' if fast_use_custom_system else 'temporal',
+                        'prompt': fast_system_prompt if fast_use_custom_system else None
                     }
-                else:
-                    st.session_state.dataset_metadata = {
-                        'generation_method': 'premium',
-                        'quality_threshold': quality_threshold,
-                        'system_prompt_config': {
-                            'type': 'temporal',
-                            'prompt': None
-                        }
-                    }
-                    
-                progress_bar.progress(1.0)
-                status_text.text("Premium dataset generation complete!")
-                st.success(f"🌟 Generated {len(dataset)} premium quality samples!")
+                }
                 
-                # Show generation statistics if available
-                if hasattr(st.session_state.dataset_manager, 'generation_stats'):
-                    stats = st.session_state.dataset_manager.generation_stats
-                    st.info(f"""
-                    📊 **Premium Generation Statistics**:
-                    - Average quality score: {stats.get('avg_quality_score', 0):.2f}
-                    - Samples refined: {stats.get('refined_samples', 0)}
-                    - Filter efficiency: {(1 - stats.get('filtered_out', 0) / max(stats.get('total_generated', 1), 1)) * 100:.1f}%
-                    """)
-            
-                # ✅ FIX: Clear generation state before rerun to prevent loops
+                progress_bar.progress(1.0)
+                status_text.text("Fast templated generation complete!")
+                st.success(f"⚡ Generated {len(dataset)} samples using template approach!")
+                
                 st.session_state._generating_dataset = False
                 st.rerun()
                 
             except Exception as e:
-                st.error(f"❌ Error generating premium dataset: {str(e)}")
-                logger.exception("Premium generation error:")
-                # ✅ FIX: Always clear generation state on error
+                st.error(f"❌ Error in fast generation: {str(e)}")
                 st.session_state._generating_dataset = False
+    
+    with slow_tab:
+        st.markdown("### 🔬 Slow Mode (AI-Curated Generation)")
+        
+        st.info("""
+        🎯 **Slow Mode - AI-Curated Pipeline**:
+        - LLM creates custom questions based on character analysis
+        - Judge LLM filters out poor quality questions
+        - Character generates responses to approved questions
+        - Judge LLM evaluates response quality and regenerates if needed
+        - Maintains strict temporal and categorical distributions
+        - Good for: Parameter exploration, high-quality discovery, research
+        """)
+        
+        # Slow mode settings
+        st.markdown("#### 🔬 AI-Curated Configuration")
+        
+        with st.form("slow_generation"):
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                slow_num_samples = st.slider(
+                    "Target final samples",
+                    min_value=20,
+                    max_value=300,
+                    value=60,
+                    step=10,
+                    help="Final dataset size after all filtering and quality checks"
+                )
+                
+                slow_generation_multiplier = st.slider(
+                    "Generation Multiplier",
+                    min_value=2.0,
+                    max_value=5.0,
+                    value=3.0,
+                    step=0.5,
+                    help="Generate N×target questions for filtering (higher = more selective)"
+                )
+                
+                slow_quality_threshold = st.slider(
+                    "Quality Threshold",
+                    min_value=0.6,
+                    max_value=0.95,
+                    value=0.75,
+                    step=0.05,
+                    help="Minimum quality score for question and response acceptance"
+                )
+            
+            with col_b:
+                slow_max_regenerations = st.slider(
+                    "Max Regeneration Attempts",
+                    min_value=1,
+                    max_value=5,
+                    value=2,
+                    help="How many times to retry generating better responses"
+                )
+                
+                slow_distribution_strictness = st.slider(
+                    "Distribution Strictness",
+                    min_value=0.7,
+                    max_value=1.0,
+                    value=0.85,
+                    step=0.05,
+                    help="How strictly to enforce temporal/categorical balance (1.0 = perfect balance)"
+                )
+                
+                slow_use_custom_system = st.checkbox(
+                    "Apply custom system prompt", 
+                    value=False, 
+                    help="Override temporal prompts with custom system prompt"
+                )
+            
+            if slow_use_custom_system:
+                slow_system_prompt = st.text_area(
+                    "Custom System Prompt",
+                    placeholder="You are a helpful assistant...",
+                    height=100,
+                    key="slow_system_prompt"
+                )
+            else:
+                slow_system_prompt = None
+                st.info("Using adaptive temporal system prompts")
+            
+            # Estimated processing
+            estimated_questions = int(slow_num_samples * slow_generation_multiplier)
+            estimated_time = estimated_questions / 5 / 60  # Rough estimate for slow processing
+            
+            st.markdown(f"""
+            **📊 AI-Curated Generation Plan:**
+            - Generate: ~{estimated_questions} diverse questions
+            - Filter: Down to ~{slow_num_samples} high-quality questions
+            - Response generation: {slow_num_samples} character responses
+            - Quality evaluation: Judge each response (regenerate if needed)
+            - Estimated time: ~{estimated_time:.1f} minutes
+            """)
+            
+            # Generate button
+            slow_generate_button = st.form_submit_button(
+                "🔬 Generate AI-Curated Dataset", 
+                use_container_width=True,
+                type="primary"
+            )
+        
+        if slow_generate_button:
+            st.session_state._generating_dataset = True
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    dataset = loop.run_until_complete(
+                        st.session_state.dataset_manager.generate_slow_curated_dataset(
+                            st.session_state.current_character,
+                            target_samples=slow_num_samples,
+                            generation_multiplier=slow_generation_multiplier,
+                            quality_threshold=slow_quality_threshold,
+                            max_regenerations=slow_max_regenerations,
+                            distribution_strictness=slow_distribution_strictness,
+                            custom_system_prompt=slow_system_prompt if slow_use_custom_system else None,
+                            progress_callback=lambda p: progress_bar.progress(p),
+                            stage_callback=lambda stage: status_text.text(stage),
+                            append_to_existing=True
+                        )
+                    )
+                finally:
+                    loop.close()
+                
+                st.session_state.dataset_preview = dataset
+                st.session_state.dataset_metadata = {
+                    'generation_method': 'slow_curated',
+                    'generation_multiplier': slow_generation_multiplier,
+                    'quality_threshold': slow_quality_threshold,
+                    'max_regenerations': slow_max_regenerations,
+                    'distribution_strictness': slow_distribution_strictness,
+                    'system_prompt_config': {
+                        'type': 'custom' if slow_use_custom_system else 'temporal',
+                        'prompt': slow_system_prompt if slow_use_custom_system else None
+                    }
+                }
+                
+                progress_bar.progress(1.0)
+                status_text.text("AI-curated generation complete!")
+                st.success(f"🔬 Generated {len(dataset)} AI-curated samples with rigorous quality control!")
+                
+                # Show curation statistics if available
+                if hasattr(st.session_state.dataset_manager, 'curation_stats'):
+                    stats = st.session_state.dataset_manager.curation_stats
+                    st.info(f"""
+                    📊 **Curation Statistics**:
+                    - Questions generated: {stats.get('questions_generated', 0)}
+                    - Questions approved: {stats.get('questions_approved', 0)}
+                    - Responses regenerated: {stats.get('responses_regenerated', 0)}
+                    - Final quality score: {stats.get('final_avg_quality', 0):.2f}
+                    """)
+                
+                st.session_state._generating_dataset = False
+                st.rerun()
+                
+            except Exception as e:
+                st.error(f"❌ Error in slow mode generation: {str(e)}")
+                st.session_state._generating_dataset = False
+    
+    with interactive_tab:
+        st.markdown("### 🤝 Interactive Dataset Generation")
+        
+        st.info("""
+        🎯 **Interactive Mode**:
+        - Generate in small batches (20 samples at a time)
+        - Rate and provide feedback on each batch
+        - AI learns from your feedback to improve subsequent generations
+        - Perfect collaboration between human creativity and AI efficiency
+        """)
+        
+        # Interactive generation state management
+        interactive_key = f"interactive_state_{st.session_state.current_character.get('name', 'unknown')}"
+        if interactive_key not in st.session_state:
+            st.session_state[interactive_key] = {
+                'current_batch': [],
+                'approved_samples': [],
+                'rejected_samples': [],
+                'feedback_tags': {},
+                'generation_round': 0,
+                'target_total': 80,
+                'batch_size': 20,
+                'is_generating': False,
+                'few_shot_examples': [],
+                'negative_patterns': []
+            }
+        
+        interactive_state = st.session_state[interactive_key]
+        
+        # Progress overview
+        st.markdown("#### 📊 Interactive Generation Progress")
+        
+        current_total = len(interactive_state['approved_samples'])
+        target_total = interactive_state['target_total']
+        progress_pct = min(100, (current_total / target_total) * 100) if target_total > 0 else 0
+        
+        col_prog1, col_prog2, col_prog3, col_prog4 = st.columns(4)
+        
+        with col_prog1:
+            st.metric("Approved Samples", current_total)
+        with col_prog2:
+            st.metric("Target Total", target_total)
+        with col_prog3:
+            st.metric("Progress", f"{progress_pct:.1f}%")
+        with col_prog4:
+            st.metric("Generation Round", interactive_state['generation_round'])
+        
+        # Progress bar
+        st.progress(progress_pct / 100, text=f"Dataset Progress: {current_total}/{target_total} samples")
+        
+        # Configuration (only show if not started)
+        if interactive_state['generation_round'] == 0:
+            st.markdown("#### ⚙️ Interactive Generation Settings")
+            
+            col_cfg1, col_cfg2 = st.columns(2)
+            
+            with col_cfg1:
+                target_total = st.slider(
+                    "Target Dataset Size",
+                    min_value=20,
+                    max_value=500,
+                    value=interactive_state['target_total'],
+                    step=20,
+                    help="Total number of approved samples you want to end up with"
+                )
+                interactive_state['target_total'] = target_total
+                
+                batch_size = st.slider(
+                    "Batch Size",
+                    min_value=10,
+                    max_value=30,
+                    value=interactive_state['batch_size'],
+                    step=5,
+                    help="Number of samples to generate and review at once"
+                )
+                interactive_state['batch_size'] = batch_size
+            
+            with col_cfg2:
+                # Import sampling config
+                from utils.sampling_config import render_sampling_config_ui, SamplingConfig
+                
+                interactive_default_config = SamplingConfig(
+                    temperature=0.9,  # Higher for more creativity in interactive mode
+                    top_p=0.95,
+                    max_tokens=300,
+                    repetition_penalty=1.05,
+                )
+                
+                interactive_sampling_config = render_sampling_config_ui(
+                    current_config=interactive_default_config,
+                    key_prefix="interactive_gen",
+                    use_expander=False
+                )
+        
+        # Current batch review interface
+        if interactive_state['current_batch']:
+            st.markdown("---")
+            st.markdown("#### 📝 Review Current Batch")
+            st.info(f"Rate each sample below. Your feedback will improve the next generation batch.")
+            
+            # Batch review interface
+            for i, sample in enumerate(interactive_state['current_batch']):
+                sample_key = f"sample_{interactive_state['generation_round']}_{i}"
+                
+                st.markdown(f"##### Sample {i+1}")
+                
+                # Display the conversation
+                messages = sample['messages']
+                for msg in messages:
+                    if msg['role'] == 'system' and msg['content']:
+                        st.markdown(f"**🔧 System:** {msg['content'][:100]}...")
+                    elif msg['role'] == 'user':
+                        st.markdown(f"**👤 User:** {msg['content']}")
+                    elif msg['role'] == 'assistant':
+                        st.markdown(f"**🎭 Assistant:** {msg['content']}")
+                
+                # Rating interface
+                col_rate1, col_rate2, col_rate3, col_rate4 = st.columns([1, 1, 1, 2])
+                
+                with col_rate1:
+                    if st.button("👍 Good", key=f"approve_{sample_key}", use_container_width=True):
+                        interactive_state['approved_samples'].append(sample)
+                        interactive_state['few_shot_examples'].append({
+                            'user': messages[1]['content'],
+                            'assistant': messages[2]['content']
+                        })
+                        # Keep only best 10 few-shot examples
+                        if len(interactive_state['few_shot_examples']) > 10:
+                            interactive_state['few_shot_examples'] = interactive_state['few_shot_examples'][-10:]
+                        
+                        # Remove from current batch
+                        interactive_state['current_batch'] = [s for j, s in enumerate(interactive_state['current_batch']) if j != i]
+                        st.rerun()
+                
+                with col_rate2:
+                    if st.button("👎 Bad", key=f"reject_{sample_key}", use_container_width=True):
+                        interactive_state['rejected_samples'].append(sample)
+                        # Add to negative patterns
+                        response_text = messages[2]['content']
+                        interactive_state['negative_patterns'].append(response_text[:200])
+                        
+                        # Remove from current batch
+                        interactive_state['current_batch'] = [s for j, s in enumerate(interactive_state['current_batch']) if j != i]
+                        st.rerun()
+                
+                with col_rate3:
+                    # Quick feedback tags
+                    tag_options = ["🎭 Out of Character", "😴 Boring", "🤖 Too AI-like", "📝 Poor Quality", "🔄 Repetitive"]
+                    selected_tag = st.selectbox(
+                        "Flag issue",
+                        ["None"] + tag_options,
+                        key=f"tag_{sample_key}",
+                        label_visibility="collapsed"
+                    )
+                    
+                    if selected_tag != "None":
+                        if sample_key not in interactive_state['feedback_tags']:
+                            interactive_state['feedback_tags'][sample_key] = []
+                        if selected_tag not in interactive_state['feedback_tags'][sample_key]:
+                            interactive_state['feedback_tags'][sample_key].append(selected_tag)
+                
+                with col_rate4:
+                    # Custom feedback
+                    custom_feedback = st.text_input(
+                        "Custom feedback (optional)",
+                        key=f"feedback_{sample_key}",
+                        placeholder="What's wrong with this sample?",
+                        label_visibility="collapsed"
+                    )
+                    
+                    if custom_feedback:
+                        interactive_state['feedback_tags'][sample_key] = interactive_state['feedback_tags'].get(sample_key, []) + [f"Custom: {custom_feedback}"]
+                
+                st.markdown("---")
+            
+            # Batch actions
+            col_batch1, col_batch2, col_batch3 = st.columns(3)
+            
+            with col_batch1:
+                if st.button("✅ Approve All Remaining", use_container_width=True):
+                    for sample in interactive_state['current_batch']:
+                        interactive_state['approved_samples'].append(sample)
+                        messages = sample['messages']
+                        interactive_state['few_shot_examples'].append({
+                            'user': messages[1]['content'],
+                            'assistant': messages[2]['content']
+                        })
+                    interactive_state['current_batch'] = []
+                    st.rerun()
+            
+            with col_batch2:
+                if st.button("❌ Reject All Remaining", use_container_width=True):
+                    for sample in interactive_state['current_batch']:
+                        interactive_state['rejected_samples'].append(sample)
+                    interactive_state['current_batch'] = []
+                    st.rerun()
+            
+            with col_batch3:
+                if st.button("🔄 Regenerate Batch", use_container_width=True):
+                    interactive_state['current_batch'] = []
+                    interactive_state['is_generating'] = True
+                    st.rerun()
+        
+        # Generation controls
+        st.markdown("---")
+        st.markdown("#### 🎮 Generation Controls")
+        
+        col_ctrl1, col_ctrl2, col_ctrl3 = st.columns(3)
+        
+        # Check if we need more samples
+        remaining_needed = max(0, interactive_state['target_total'] - len(interactive_state['approved_samples']))
+        
+        with col_ctrl1:
+            # Generate next batch button
+            disabled = interactive_state['is_generating'] or (remaining_needed == 0)
+            button_text = "🚀 Start Interactive Generation" if interactive_state['generation_round'] == 0 else f"➡️ Generate Next Batch ({min(interactive_state['batch_size'], remaining_needed)} samples)"
+            
+            if st.button(button_text, disabled=disabled or bool(interactive_state['current_batch']), use_container_width=True):
+                interactive_state['is_generating'] = True
+                st.rerun()
+        
+        with col_ctrl2:
+            # Auto-complete button (only show if we have some approved samples)
+            if len(interactive_state['approved_samples']) >= 20:
+                remaining = interactive_state['target_total'] - len(interactive_state['approved_samples'])
+                if remaining > 0 and st.button(f"🤖 Auto-Complete ({remaining} samples)", use_container_width=True):
+                    st.session_state[f"{interactive_key}_auto_complete"] = True
+                    st.rerun()
+        
+        with col_ctrl3:
+            # Finish early button
+            if len(interactive_state['approved_samples']) > 0:
+                if st.button("🏁 Finish with Current Samples", use_container_width=True):
+                    # Save the approved samples as the dataset
+                    st.session_state.dataset_preview = interactive_state['approved_samples']
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'interactive',
+                        'interactive_rounds': interactive_state['generation_round'],
+                        'system_prompt_config': {'type': 'temporal'}
+                    }
+                    st.success(f"✅ Interactive generation complete! Saved {len(interactive_state['approved_samples'])} samples.")
+                    # Reset interactive state
+                    del st.session_state[interactive_key]
+                    st.rerun()
+        
+        # Handle generation
+        if interactive_state['is_generating'] and not interactive_state['current_batch']:
+            # ✅ FIX: Set generation state to prevent UI interference
+            st.session_state._generating_dataset = True
+            
+            with st.spinner(f"Generating batch {interactive_state['generation_round'] + 1}..."):
+                try:
+                    samples_to_generate = min(interactive_state['batch_size'], remaining_needed)
+                    
+                    # Prepare generation parameters with feedback
+                    generation_params = {
+                        'num_samples': samples_to_generate,
+                        'progress_callback': lambda p: None,  # No progress bar for small batches
+                        'append_to_existing': False,  # Generate fresh batch
+                        'extra_quality': True,  # Always use quality for interactive
+                        'few_shot_examples': interactive_state['few_shot_examples'][-5:],  # Use recent good examples
+                        'negative_patterns': interactive_state['negative_patterns'][-10:],  # Use recent bad patterns
+                        **interactive_sampling_config.to_dict()
+                    }
+                    
+                    # Generate the batch
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        batch = loop.run_until_complete(
+                            st.session_state.dataset_manager.generate_interactive_batch(
+                                st.session_state.current_character,
+                                **generation_params
+                            )
+                        )
+                    finally:
+                        loop.close()
+                    
+                    # Update state
+                    interactive_state['current_batch'] = batch
+                    interactive_state['generation_round'] += 1
+                    interactive_state['is_generating'] = False
+                    
+                    # ✅ FIX: Clear generation state
+                    st.session_state._generating_dataset = False
+                    
+                    st.success(f"✅ Generated batch {interactive_state['generation_round']} with {len(batch)} samples!")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error generating batch: {str(e)}")
+                    interactive_state['is_generating'] = False
+                    # ✅ FIX: Always clear generation state on error
+                    st.session_state._generating_dataset = False
+        
+        # Handle auto-completion
+        auto_complete_key = f"{interactive_key}_auto_complete"
+        if st.session_state.get(auto_complete_key, False):
+            remaining = interactive_state['target_total'] - len(interactive_state['approved_samples'])
+            
+            with st.spinner(f"Auto-completing remaining {remaining} samples using writer-judge loop..."):
+                try:
+                    # Use the enhanced generation with all accumulated feedback
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        remaining_samples = loop.run_until_complete(
+                            st.session_state.dataset_manager.generate_dataset(
+                                st.session_state.current_character,
+                                num_samples=remaining,
+                                progress_callback=lambda p: None,
+                                append_to_existing=False,
+                                extra_quality=True,
+                                few_shot_examples=interactive_state['few_shot_examples'],
+                                negative_patterns=interactive_state['negative_patterns'],
+                                **interactive_sampling_config.to_dict()
+                            )
+                        )
+                    finally:
+                        loop.close()
+                    
+                    # Combine with approved samples
+                    final_dataset = interactive_state['approved_samples'] + remaining_samples
+                    
+                    # Save the complete dataset
+                    st.session_state.dataset_preview = final_dataset
+                    st.session_state.dataset_metadata = {
+                        'generation_method': 'interactive_auto_complete',
+                        'interactive_rounds': interactive_state['generation_round'],
+                        'human_approved_samples': len(interactive_state['approved_samples']),
+                        'auto_generated_samples': len(remaining_samples),
+                        'system_prompt_config': {'type': 'temporal'}
+                    }
+                    
+                    st.success(f"🎉 Interactive generation complete! Final dataset: {len(final_dataset)} samples ({len(interactive_state['approved_samples'])} human-approved + {len(remaining_samples)} auto-generated)")
+                    
+                    # Reset state
+                    del st.session_state[interactive_key]
+                    del st.session_state[auto_complete_key]
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error in auto-completion: {str(e)}")
+                    del st.session_state[auto_complete_key]
+        
+        # Show feedback summary
+        if interactive_state['generation_round'] > 0:
+            with st.expander("📊 Feedback Summary", expanded=False):
+                col_sum1, col_sum2 = st.columns(2)
+                
+                with col_sum1:
+                    st.markdown("**Positive Examples (Few-shot):**")
+                    if interactive_state['few_shot_examples']:
+                        for i, example in enumerate(interactive_state['few_shot_examples'][-3:], 1):
+                            st.markdown(f"*{i}.* {example['user'][:50]}... → {example['assistant'][:50]}...")
+                    else:
+                        st.info("No positive examples yet")
+                
+                with col_sum2:
+                    st.markdown("**Negative Patterns to Avoid:**")
+                    if interactive_state['negative_patterns']:
+                        for i, pattern in enumerate(interactive_state['negative_patterns'][-3:], 1):
+                            st.markdown(f"*{i}.* {pattern[:100]}...")
+                    else:
+                        st.info("No negative patterns identified yet")
+                
+                # Tag summary
+                if interactive_state['feedback_tags']:
+                    st.markdown("**Common Issues Flagged:**")
+                    all_tags = []
+                    for tags_list in interactive_state['feedback_tags'].values():
+                        all_tags.extend(tags_list)
+                    
+                    from collections import Counter
+                    tag_counts = Counter(all_tags)
+                    for tag, count in tag_counts.most_common(5):
+                        st.write(f"• {tag}: {count} times")
+        
+        # Reset generation button
+        if interactive_state['generation_round'] > 0:
+            st.markdown("---")
+            if st.button("🔄 Reset Interactive Generation", use_container_width=True):
+                if st.checkbox("I understand this will lose all progress"):
+                    del st.session_state[interactive_key]
+                    st.rerun()
     
     with quality_tab:
         st.markdown("### 🎯 Factual Q&A Dataset Generation")
