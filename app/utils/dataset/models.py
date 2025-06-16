@@ -54,9 +54,9 @@ class GenerationConfig:
 
 class QualityLevel(Enum):
     """Quality levels for generation"""
-    BASIC = "basic"
-    ENHANCED = "enhanced" 
-    PREMIUM = "premium"
+    ITERATIVE = "iterative"
+    FAST = "fast"
+    COMPREHENSIVE = "comprehensive" 
 
 
 class QAPair(BaseModel):

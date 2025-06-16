@@ -1101,6 +1101,7 @@ def page_dataset_preview():
         st.progress(progress_pct / 100, text=f"Dataset Progress: {current_total}/{target_total} samples")
         
         # Configuration (only show if not started)
+        interactive_sampling_config = None
         if interactive_state['generation_round'] == 0:
             st.markdown("#### ⚙️ Interactive Generation Settings")
             
