@@ -2926,16 +2926,16 @@ def page_dataset_explorer_v2():
 
     # --- TOP-LEVEL OVERVIEW & ACTIONS ---
     st.markdown("### 🗄️ Dataset Overview")
-    total_samples = sum(len(v) for v in buckets.values())
+    # total_samples = sum(len(v) for v in buckets.values())
     
     overview_cols = st.columns(4)
-    overview_cols[0].metric("Total Active Samples", sum(len(v) for k, v in buckets.items() if k != 'quarantined'))
+    overview_cols[0].metric("Total Active Samples", sum(len(v) for k, v in buckets.items() if k != 'quarantined' and v is not None))
     overview_cols[1].metric("Quarantined Samples", len(buckets.get('quarantined', [])))
     overview_cols[2].metric("Total Buckets", len(buckets))
 
     with overview_cols[3]:
         # Consolidate all non-quarantined data for export
-        active_data = [sample for b_name, b_list in buckets.items() if b_name != 'quarantined' for sample in b_list]
+        active_data = [sample for b_name, b_list in buckets.items() if b_name != 'quarantined' and b_list is not None for sample in b_list]
         if active_data:
             json_data = json.dumps(active_data, indent=2)
             st.download_button(
@@ -2977,7 +2977,11 @@ def page_dataset_explorer_v2():
             st.session_state.selected_bucket = bucket_names[0]
 
         def format_bucket_name(b_name):
-            return f"{b_name.replace('_', ' ').title()} ({len(buckets.get(b_name, []))})"
+            if buckets.get(b_name) is not None:
+                bucket_length = len(buckets.get(b_name, []))
+            else:
+                bucket_length = 0
+            return f"{b_name.replace('_', ' ').title()} ({bucket_length})"
 
         selected_bucket = st.radio(
             "Select a bucket:",
@@ -3125,7 +3129,7 @@ def page_dataset_explorer_v2():
     # The "active" dataset for training is everything NOT in 'quarantined'.
     st.session_state.dataset_preview = [
         sample for bucket_name, bucket_list in buckets.items() 
-        if bucket_name != 'quarantined' 
+        if bucket_name != 'quarantined' and bucket_list is not None
         for sample in bucket_list
     ]
 
