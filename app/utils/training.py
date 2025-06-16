@@ -1,6 +1,5 @@
 import threading
 import queue
-import time
 import torch
 import logging
 from pathlib import Path
@@ -14,10 +13,12 @@ from datasets import Dataset
 import shutil
 import zipfile
 import datetime
+import time
 import random
 import json
 from .metrics import CharacterConsistencyMetrics, TrainingQualityTracker
 from .monitoring import AdvancedMonitor
+
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -59,7 +60,7 @@ class TrainingCallback(TrainerCallback):
             }
             
             # Add evaluation metrics if available
-            if 'eval_loss' in logs:
+            if 'eval_loss' in logs and logs['eval_loss'] is not None:
                 log_data['eval_loss'] = logs['eval_loss']
             
             self.status_queue.put(log_data)
@@ -87,7 +88,7 @@ class TrainingCallback(TrainerCallback):
                     'elapsed_time': elapsed_time,
                     'epoch': state.epoch
                 }
-                if 'eval_loss' in logs:
+                if 'eval_loss' in logs and logs['eval_loss'] is not None:
                     metrics['eval_loss'] = logs['eval_loss']
                 
                 self.monitor.log_metrics(state.global_step, metrics)
@@ -150,15 +151,19 @@ class TrainingCallback(TrainerCallback):
                     # Add to status queue
                     avg_consistency = sum(score['overall_consistency'] for score in consistency_scores) / len(consistency_scores)
                     
+                    # ✅ Store both for UI and checkpoint saving
                     self.last_consistency_metrics = {
-                        'avg_consistency': avg_consistency,
+                        'character_consistency': avg_consistency,  # Key that UI expects
+                        'avg_consistency': avg_consistency,        # Backup key
+                        'consistency_last_eval_step': state.global_step,
                         'evaluated_samples': evaluated_samples_for_ui,
                     }
 
                     self.status_queue.put({
                         'type': 'consistency_evaluation',
                         'step': state.global_step,
-                        'avg_consistency': avg_consistency,
+                        'character_consistency': avg_consistency,  # Key that UI expects
+                        'avg_consistency': avg_consistency,         # Backup key
                         'consistency_scores': consistency_scores,
                         'evaluated_samples': evaluated_samples_for_ui
                     })
@@ -172,6 +177,22 @@ class TrainingCallback(TrainerCallback):
             'type': 'train_begin',
             'total_steps': state.max_steps
         })
+        
+        # ✅ Store training start time for elapsed time calculations
+        self._training_start_time = time.time()
+        
+        # ✅ Store all metadata attributes from args for checkpoint saving
+        self._base_model_name = getattr(args, 'base_model_name', 'unknown')
+        self._training_method = getattr(args, 'training_method', 'lora')
+        self._use_dora = getattr(args, 'use_dora', False)
+        self._use_rslora = getattr(args, 'use_rslora', False)
+        self._lora_r = getattr(args, 'lora_r', 0)
+        self._lora_alpha = getattr(args, 'lora_alpha', 0)
+        self._lora_dropout = getattr(args, 'lora_dropout', 0.1)
+        self._target_modules = getattr(args, 'target_modules', [])
+        self._dataset_size = getattr(args, 'dataset_size', 0)
+        
+        logger.info(f"🏁 Training metadata stored: method={self._training_method}, r={self._lora_r}, base={self._base_model_name}")
         
         if self.monitor:
             self.monitor.log_training_config(
@@ -213,16 +234,60 @@ class TrainingCallback(TrainerCallback):
 
         # Save latest metrics to checkpoint directory
         metrics_to_save = {
-            'step': state.global_step,
-            'epoch': state.epoch,
+            'current_step': state.global_step,
+            'current_epoch': state.epoch,
+            'elapsed_time': time.time() - getattr(self, '_training_start_time', time.time()),
+            'timestamp': time.time()
         }
         metrics_to_save.update(self.last_log_metrics)
         metrics_to_save.update(self.last_consistency_metrics)
 
         if checkpoint_dir:
-            summary_path = Path(checkpoint_dir) / "training_summary.json"
+            checkpoint_path = Path(checkpoint_dir)
+            
+            # Save training summary (for metrics)
+            summary_path = checkpoint_path / "training_summary.json"
             with summary_path.open('w') as f:
                 json.dump(metrics_to_save, f, indent=4)
+            
+            # ✅ NEW: Save complete training metadata (for comparison charts)
+            try:
+                # Wait a moment to ensure checkpoint is fully written
+                import time as time_module
+                time_module.sleep(0.5)
+                
+                metadata_path = checkpoint_path / "training_metadata.json"
+                
+                # Create comprehensive metadata from stored attributes
+                checkpoint_metadata = {
+                    "step": state.global_step,
+                    "epoch": state.epoch,
+                    "timestamp": time_module.time(),
+                    "character_name": self.character.get('name', 'unknown') if self.character else 'unknown',
+                    "base_model": getattr(self, '_base_model_name', 'unknown'),
+                    "training_method": getattr(self, '_training_method', 'lora'),
+                    "use_dora": getattr(self, '_use_dora', False),
+                    "use_rslora": getattr(self, '_use_rslora', False),
+                    "lora_r": getattr(self, '_lora_r', 0),
+                    "lora_alpha": getattr(self, '_lora_alpha', 0),
+                    "lora_dropout": getattr(self, '_lora_dropout', 0.1),
+                    "target_modules": getattr(self, '_target_modules', []),
+                    "dataset_size": getattr(self, '_dataset_size', 0),
+                    "total_steps": state.max_steps if hasattr(state, 'max_steps') else 0
+                }
+                
+                # Remove None values to keep JSON clean
+                checkpoint_metadata = {k: v for k, v in checkpoint_metadata.items() if v is not None}
+                
+                with open(metadata_path, 'w') as f:
+                    json.dump(checkpoint_metadata, f, indent=2)
+                
+                logger.info(f"✅ Checkpoint metadata saved to {metadata_path}")
+                
+            except Exception as e:
+                logger.error(f"Failed to save checkpoint metadata: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
 
 
 class TrainingManager:
@@ -252,6 +317,7 @@ class TrainingManager:
         
         # Enhanced metrics and monitoring
         self.loss_history = []
+        self.eval_loss_history = []  # ✅ NEW: Track validation loss history
         self.current_metrics = {}
         self.quality_tracker = None
         self.monitor = None
@@ -664,8 +730,8 @@ class TrainingManager:
             if self.device == "mps" and config.get('fp16', False):
                 print("⚠️  FP16 disabled on MPS (Apple Silicon) for stability")
             
-            # Configure logging frequency
-            log_freq = self.advanced_config.get('configurable_logging_freq', 10)
+            # Configure logging frequency - check both config sources
+            log_freq = config.get('logging_steps', self.advanced_config.get('logging_steps', 10))
             
             save_steps_val = config.get('save_steps', 50)
 
@@ -740,6 +806,24 @@ class TrainingManager:
                 include_inputs_for_metrics=False,
             )
             
+            # ✅ Add metadata attributes to training_args for callback access
+            finetune_method = config.get('finetune_method', 'lora').lower()
+            use_rslora = config.get('use_rslora', False) or finetune_method == 'rslora'
+            use_dora = config.get('use_dora', False) or finetune_method == 'dora'
+            
+            training_args.base_model_name = self.base_model
+            training_args.training_method = finetune_method
+            training_args.use_dora = use_dora
+            training_args.use_rslora = use_rslora
+            training_args.lora_r = config.get('lora_r', 16)
+            training_args.lora_alpha = config.get('lora_alpha', config.get('lora_r', 16))
+            training_args.lora_dropout = config.get('lora_dropout', 0.1)
+            training_args.target_modules = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+            training_args.dataset_size = len(selected_dataset)
+            training_args.character_name = character_name
+            
+            logger.info(f"🏷️ Training args enhanced with metadata: {finetune_method}, r={training_args.lora_r}, base={self.base_model}")
+            
             print(f"✅ Using max_steps={total_steps} for precise control (instead of epochs)")
             
             print(f"⚙️ Training args configured for {self.device}")
@@ -793,8 +877,8 @@ class TrainingManager:
             print("🚀 Starting training loop...")
             
             # Add a small delay to ensure everything is set up properly
-            import time
-            time.sleep(1)
+            import time as time_module
+            time_module.sleep(1)
             
             # Manually trigger the start callback
             self.status_queue.put({
@@ -913,6 +997,7 @@ class TrainingManager:
         
         # Clear previous state
         self.loss_history.clear()
+        self.eval_loss_history.clear()  # ✅ NEW: Clear validation loss history
         self.current_metrics.clear()
         
         # Cache context for potential resume later
@@ -993,13 +1078,19 @@ class TrainingManager:
     
     def get_metrics(self) -> Dict[str, Any]:
         """Get current training metrics"""
-        # Process any new status updates
-        while not self.status_queue.empty():
+        # Process any new status updates (critical for status changes)
+        updates_processed = 0
+        while not self.status_queue.empty() and updates_processed < 50:  # Prevent infinite loop
             try:
                 status = self.status_queue.get_nowait()
                 self._process_status_update(status)
+                updates_processed += 1
             except queue.Empty:
                 break
+        
+        # Debug log if many updates were processed
+        if updates_processed > 10:
+            logger.debug(f"Processed {updates_processed} status updates in get_metrics()")
         
         return self.current_metrics.copy()
     
@@ -1018,8 +1109,10 @@ class TrainingManager:
             })
             
             # Add validation loss if available
-            if 'eval_loss' in status:
+            if 'eval_loss' in status and status['eval_loss'] is not None:
                 self.current_metrics['eval_loss'] = status['eval_loss']
+                # ✅ NEW: Track validation loss history for charting
+                self.eval_loss_history.append(status['eval_loss'])
             
             # Add training warnings if present
             if 'training_warnings' in status:
@@ -1037,6 +1130,10 @@ class TrainingManager:
                 self.current_metrics['loss_delta'] = loss_delta
             
             self.current_metrics['loss_history'] = self.loss_history.copy()
+            
+            # ✅ NEW: Include validation loss history in metrics for charting
+            if hasattr(self, 'eval_loss_history') and self.eval_loss_history:
+                self.current_metrics['eval_loss_history'] = self.eval_loss_history.copy()
         
         elif status_type == 'training_health':
             # Update training health status
@@ -1313,4 +1410,68 @@ class TrainingManager:
             json.dump(metadata, f, indent=4)
         
         logger.info(f"✅ Metadata added to {metadata_path}")
+        return True
+    
+    def add_metadata_to_checkpoint(self, character_name: str, checkpoint_name: str, 
+                                 base_model: str, training_method: str = "dora") -> bool:
+        """Add metadata to a specific checkpoint that doesn't have training_metadata.json"""
+        adapter_dir = self._adapter_dir(character_name)
+        checkpoint_path = adapter_dir / checkpoint_name
+        
+        if not checkpoint_path.exists():
+            logger.error(f"Checkpoint path not found: {checkpoint_path}")
+            return False
+        
+        metadata_path = checkpoint_path / "training_metadata.json"
+        if metadata_path.exists():
+            logger.info(f"Metadata already exists at {metadata_path}")
+            return True
+        
+        # Read adapter config if available
+        adapter_config_path = checkpoint_path / "adapter_config.json"
+        if adapter_config_path.exists():
+            with adapter_config_path.open('r') as f:
+                adapter_config = json.load(f)
+            
+            r_val = adapter_config.get('r', 16)
+            alpha_val = adapter_config.get('lora_alpha', r_val)
+            dropout_val = adapter_config.get('lora_dropout', 0.1)
+            target_modules = adapter_config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+            use_dora = adapter_config.get('use_dora', training_method.lower() == 'dora')
+            use_rslora = adapter_config.get('use_rslora', training_method.lower() == 'rslora')
+        else:
+            # Default values
+            r_val = 16
+            alpha_val = 16
+            dropout_val = 0.1
+            target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+            use_dora = training_method.lower() == 'dora'
+            use_rslora = training_method.lower() == 'rslora'
+        
+        # Extract step number from checkpoint name
+        import re
+        step_match = re.search(r'checkpoint-(\d+)', checkpoint_name)
+        checkpoint_step = int(step_match.group(1)) if step_match else 0
+        
+        metadata = {
+            'base_model': base_model,
+            'training_method': training_method.lower(),
+            'use_rslora': use_rslora,
+            'use_dora': use_dora,
+            'lora_r': r_val,
+            'lora_alpha': alpha_val,
+            'lora_dropout': dropout_val,
+            'target_modules': target_modules,
+            'character_name': character_name,
+            'training_date': 'unknown',
+            'total_steps': checkpoint_step,
+            'dataset_size': 'unknown',
+            'checkpoint_step': checkpoint_step,
+            'metadata_added_manually': True
+        }
+        
+        with metadata_path.open('w') as f:
+            json.dump(metadata, f, indent=4)
+        
+        logger.info(f"✅ Metadata added to checkpoint: {metadata_path}")
         return True 

@@ -117,6 +117,11 @@ class InferenceManager:
 
     def get_model_metrics(self, model_identifier: str) -> Dict[str, Any]:
         """Load training metrics from the training_summary.json file."""
+        # Handle raw HuggingFace model IDs (base models) - they don't have training metrics
+        if not model_identifier.startswith(("Base:", "LoRA:", "Checkpoint:")) and "/" in model_identifier:
+            logger.debug(f"Base model {model_identifier} has no training metrics")
+            return {}
+        
         model_path = self._get_model_path(model_identifier)
         if not model_path:
             return {}
@@ -133,6 +138,11 @@ class InferenceManager:
     
     def get_model_metadata(self, model_identifier: str) -> Dict[str, Any]:
         """Load training metadata including base model information."""
+        # Handle raw HuggingFace model IDs (base models) - they don't have training metadata
+        if not model_identifier.startswith(("Base:", "LoRA:", "Checkpoint:")) and "/" in model_identifier:
+            logger.debug(f"Base model {model_identifier} has no training metadata")
+            return {}
+        
         model_path = self._get_model_path(model_identifier)
         if not model_path:
             return {}
@@ -287,17 +297,158 @@ class InferenceManager:
         
         return messages
     
+    def _generate_with_model(self, model, tokenizer, prompt: str, max_tokens: int,
+                           temperature: float, top_p: float, repetition_penalty: float,
+                           do_sample: bool, system_prompt: Optional[str], seed: Optional[int] = None) -> str:
+        """Helper method to generate response with a loaded model and tokenizer"""
+        import torch
+        import random
+        import numpy as np
+        
+        # Set seeds for reproducible generation if provided
+        if seed is not None:
+            torch.manual_seed(seed)
+            if torch.cuda.is_available():
+                torch.cuda.manual_seed(seed)
+                torch.cuda.manual_seed_all(seed)
+                # Ensure deterministic behavior
+                torch.backends.cudnn.deterministic = True
+                torch.backends.cudnn.benchmark = False
+            random.seed(seed)
+            np.random.seed(seed)
+            logger.debug(f"Set random seed to {seed} for reproducible generation")
+        
+        messages = self._format_chat_prompt(prompt, system_prompt)
+        
+        # Try to use the model's chat template
+        if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template:
+            logger.debug("Using tokenizer's chat template")
+            
+            # For empty system prompt, we want to avoid any default system message
+            if system_prompt == "":
+                formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+            else:
+                formatted_prompt = tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=True
+                )
+        else:
+            # Fallback formatting for models without chat template
+            logger.debug("Using fallback prompt formatting")
+            if system_prompt and system_prompt.strip():
+                formatted_prompt = f"System: {system_prompt}\nUser: {prompt}\nAssistant:"
+            else:
+                formatted_prompt = f"User: {prompt}\nAssistant:"
+        
+        logger.debug(f"Formatted prompt: {formatted_prompt[:200]}...")
+        
+        # Tokenize input
+        inputs = tokenizer(formatted_prompt, return_tensors="pt")
+        
+        # Ensure inputs are on the same device as model
+        inputs = {k: v.to(model.device) for k, v in inputs.items()}
+        
+        logger.debug(f"Input tokens: {inputs['input_ids'].shape}")
+        logger.debug(f"Model device: {next(model.parameters()).device}")
+        logger.debug(f"Input device: {inputs['input_ids'].device}")
+        
+        # Generate response
+        with torch.no_grad():
+            # Set seed again right before generation for extra determinism
+            if seed is not None:
+                torch.manual_seed(seed)
+                if torch.cuda.is_available():
+                    torch.cuda.manual_seed(seed)
+            
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                repetition_penalty=repetition_penalty,
+                do_sample=do_sample,
+                pad_token_id=tokenizer.pad_token_id,
+                eos_token_id=tokenizer.eos_token_id,
+                # SmolLM2 specific optimizations
+                use_cache=True,
+                output_attentions=False,
+                output_hidden_states=False,
+                # Prevent empty responses
+                min_new_tokens=1,
+                # Better stopping criteria
+                early_stopping=False,
+            )
+        
+        logger.debug(f"Generated tokens: {outputs.shape}")
+        
+        # Decode response (only the new tokens)
+        input_length = inputs['input_ids'].shape[-1]
+        generated_tokens = outputs[0][input_length:]
+        
+        logger.debug(f"New tokens generated: {len(generated_tokens)}")
+        
+        if len(generated_tokens) == 0:
+            logger.warning("No new tokens generated!")
+            return "No response generated. Try adjusting generation parameters."
+        
+        response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        
+        logger.debug(f"Raw decoded response: {response[:100]}...")
+        
+        # Clean up response
+        response = response.strip()
+        
+        # Remove any remaining special tokens or artifacts
+        if response.startswith(("User:", "Assistant:", "System:")):
+            response = response.split(":", 1)[1].strip()
+        
+        logger.info(f"Final response length: {len(response)} characters")
+        
+        if not response:
+            logger.warning("Empty response after processing!")
+            return "Empty response generated. Check model and generation parameters."
+        
+        logger.info("Response generation completed successfully")
+        return response
+    
     def generate_response(self, model_path: str, prompt: str, max_tokens: int = 150,
                          temperature: float = 0.8, top_p: float = 0.9,
                          repetition_penalty: float = 1.1, do_sample: bool = True,
-                         system_prompt: Optional[str] = None) -> str:
+                         system_prompt: Optional[str] = None, seed: Optional[int] = None) -> str:
         """Generate a response using the specified model"""
         try:
             logger.info(f"Generating response with model: {model_path}")
             logger.debug(f"Raw prompt: {prompt[:100]}...")
             logger.debug(f"Generation params: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}")
+            if seed is not None:
+                logger.info(f"Using seed {seed} for reproducible generation")
             
-            model, tokenizer = self.load_model(model_path)
+            # Handle raw HuggingFace model IDs (base models from comparison)
+            if not model_path.startswith(("Base:", "LoRA:", "Checkpoint:")) and "/" in model_path:
+                # This is a raw HuggingFace model ID, treat it as a base model
+                logger.info(f"Detected raw HuggingFace model ID: {model_path}, treating as base model")
+                original_base_model = self.base_model
+                
+                try:
+                    # Temporarily switch to the requested base model
+                    self.base_model = model_path
+                    model, tokenizer = self._load_base_model()
+                    
+                    # Generate the response with this model
+                    response = self._generate_with_model(model, tokenizer, prompt, max_tokens, 
+                                                       temperature, top_p, repetition_penalty, 
+                                                       do_sample, system_prompt, seed)
+                    return response
+                    
+                except Exception as e:
+                    raise RuntimeError(f"Failed to load/generate with base model {model_path}: {e}") from e
+                finally:
+                    # Always restore the original base model after generation
+                    self.base_model = original_base_model
+            else:
+                # Use the existing load_model logic for prefixed paths
+                model, tokenizer = self.load_model(model_path)
             
             # Format prompt properly for chat models (no character context injection)
             logger.info(f"Formatting prompt for model: {model_path}")
@@ -306,106 +457,10 @@ class InferenceManager:
             else:
                 logger.info("Using default tokenizer system prompt")
             
-            messages = self._format_chat_prompt(prompt, system_prompt)
-            
-            # Try to use the model's chat template
-            if hasattr(tokenizer, 'apply_chat_template') and tokenizer.chat_template:
-                logger.debug("Using tokenizer's chat template")
-                
-                # For empty system prompt, we want to avoid any default system message
-                if system_prompt == "":
-                    formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-                    # logger.debug("Attempting to bypass default system prompt")
-                    # # Some tokenizers might still inject default system prompt
-                    # # Try to apply template and check result
-                    # formatted_prompt = tokenizer.apply_chat_template(
-                    #     messages, 
-                    #     tokenize=False, 
-                    #     add_generation_prompt=True
-                    # )
-                    
-                    # # Check if default system prompt was injected anyway
-                    # if "helpful AI assistant named SmolLM" in formatted_prompt:
-                    #     logger.warning("Default system prompt detected in output, using fallback formatting")
-                    #     formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
-                else:
-                    formatted_prompt = tokenizer.apply_chat_template(
-                        messages, 
-                        tokenize=False, 
-                        add_generation_prompt=True
-                    )
-            else:
-                # Fallback formatting for models without chat template
-                logger.debug("Using fallback prompt formatting")
-                if system_prompt and system_prompt.strip():
-                    formatted_prompt = f"System: {system_prompt}\nUser: {prompt}\nAssistant:"
-                else:
-                    formatted_prompt = f"User: {prompt}\nAssistant:"
-            
-            logger.debug(f"Formatted prompt: {formatted_prompt[:200]}...")
-            
-            # Tokenize input
-            inputs = tokenizer(formatted_prompt, return_tensors="pt")
-            
-            # Ensure inputs are on the same device as model
-            inputs = {k: v.to(model.device) for k, v in inputs.items()}
-            
-            logger.debug(f"Input tokens: {inputs['input_ids'].shape}")
-            logger.debug(f"Model device: {next(model.parameters()).device}")
-            logger.debug(f"Input device: {inputs['input_ids'].device}")
-            
-            # Generate response
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    repetition_penalty=repetition_penalty,
-                    do_sample=do_sample,
-                    pad_token_id=tokenizer.pad_token_id,
-                    eos_token_id=tokenizer.eos_token_id,
-                    # SmolLM2 specific optimizations
-                    use_cache=True,
-                    output_attentions=False,
-                    output_hidden_states=False,
-                    # Prevent empty responses
-                    min_new_tokens=1,
-                    # Better stopping criteria
-                    early_stopping=False,
-                )
-            
-            logger.debug(f"Generated tokens: {outputs.shape}")
-            
-            # Decode response (only the new tokens)
-            input_length = inputs['input_ids'].shape[-1]
-            generated_tokens = outputs[0][input_length:]
-            
-            logger.debug(f"New tokens generated: {len(generated_tokens)}")
-            
-            if len(generated_tokens) == 0:
-                logger.warning("No new tokens generated!")
-                return "No response generated. Try adjusting generation parameters."
-            
-            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-            
-            logger.debug(f"Raw decoded response: {response[:100]}...")
-            
-            # Clean up response
-            response = response.strip()
-            
-            # Remove any remaining special tokens or artifacts
-            if response.startswith(("User:", "Assistant:", "System:")):
-                response = response.split(":", 1)[1].strip()
-            
-            logger.info(f"Final response length: {len(response)} characters")
-            
-            if not response:
-                logger.warning("Empty response after processing!")
-                return "Empty response generated. Check model and generation parameters."
-            
-            logger.info("Response generation completed successfully")
-            return response
+            # Use the helper method for generation
+            return self._generate_with_model(model, tokenizer, prompt, max_tokens, 
+                                           temperature, top_p, repetition_penalty, 
+                                           do_sample, system_prompt, seed)
             
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"

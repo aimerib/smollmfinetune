@@ -4,11 +4,13 @@ import os
 
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
 
+import numpy as np
 import streamlit as st
 from streamlit_option_menu import option_menu
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
+import numpy as np
 import json
 import time
 import torch
@@ -319,7 +321,12 @@ def render_sidebar():
             }
         )
         
-        # Training status
+        # Training status (ensure it's always up to date)
+        if hasattr(st.session_state, 'training_manager'):
+            current_manager_status = st.session_state.training_manager.get_training_status()
+            if current_manager_status != st.session_state.training_status:
+                st.session_state.training_status = current_manager_status
+        
         status_colors = {
             'idle': '#94a3b8',
             'training': '#f59e0b',
@@ -1385,11 +1392,12 @@ def page_training_config():
     """Enhanced training configuration page with advanced features"""
     st.markdown('<h2 class="gradient-text">⚙️ Training Configuration</h2>', unsafe_allow_html=True)
     
+    finetune_method = st.session_state.get('finetune_method', 'lora')
     # Check if a profile needs to be applied
     if 'profile_to_apply' in st.session_state and st.session_state.profile_to_apply:
         profile = st.session_state.profile_to_apply
         
-        # Store profile values in a dedicated session state key
+        # Store profile values in a persistent session state key (don't delete immediately)
         st.session_state.training_form_defaults = {
             **profile.get("advanced_training_config", {}),
             **profile.get("hyperparameters", {}),
@@ -1402,8 +1410,7 @@ def page_training_config():
 
     # Get defaults from session state, or set to empty dict if not present
     defaults = st.session_state.get('training_form_defaults', {})
-    if 'training_form_defaults' in st.session_state:
-        del st.session_state['training_form_defaults'] # One-time use
+    # Note: Don't delete training_form_defaults here - keep it for next page load
 
     # If training is already running or paused, encourage user to switch to Dashboard
     if st.session_state.get('training_status') in ['training', 'paused']:
@@ -1454,40 +1461,32 @@ def page_training_config():
                 help="Log training to Wandb for advanced experiment tracking"
             )
         
-        st.markdown("### Logging Configuration")
-        logging_freq = st.slider(
-            "Logging Frequency (steps)",
-            min_value=1,
-            max_value=50,
-            value=defaults.get("configurable_logging_freq", 10),
-            help="How often to log training metrics"
-        )
+        # st.markdown("### Logging Configuration")
+        # Note: Main logging frequency is set in Advanced Settings below
         
-        early_stopping_patience = st.slider(
-            "Early Stopping Patience",
-            min_value=1,
-            max_value=10,
-            value=defaults.get("early_stopping_patience", 3),
-            help="Number of evaluation steps without improvement before stopping"
-        ) if enable_validation else 3
+        # early_stopping_patience = st.slider(
+        #     "Early Stopping Patience",
+        #     min_value=1,
+        #     max_value=10,
+        #     value=defaults.get("early_stopping_patience", 3),
+        #     help="Number of evaluation steps without improvement before stopping"
+        # ) if enable_validation else 3
         
-        # Force GPU option
-        force_gpu = st.checkbox(
-            "Force GPU Usage",
-            value=defaults.get("force_gpu", False),
-            help="Override device selection to use GPU (if available)"
-        )
+        # # Force GPU option - not supported yet
+        # force_gpu = st.checkbox(
+        #     "Force GPU Usage",
+        #     value=defaults.get("force_gpu", False),
+        #     help="Override device selection to use GPU (if available)"
+        # )
         
         # Store advanced config in session state
         st.session_state.advanced_training_config = {
             'enable_validation': enable_validation,
-            'early_stopping_patience': early_stopping_patience,
             'adaptive_lora': adaptive_lora,
             'enhanced_quality_filtering': enhanced_filtering,
             'enable_tensorboard': enable_tensorboard,
             'enable_wandb': enable_wandb,
-            'configurable_logging_freq': logging_freq,
-            'force_gpu': force_gpu
+            'force_gpu': False # Force GPU usage is not supported yet
         }
     
     col1, col2 = st.columns([2, 1])
@@ -1564,6 +1563,18 @@ def page_training_config():
             st.success(f"✅ Base model: {selected_base_model}")
         
         st.markdown("### Hyperparameter Configuration")
+        
+        # Select fine-tuning method outside the form to allow UI updates
+        finetune_method = st.radio(
+            "Fine-tuning Method",
+            ("LoRA", "RSLoRA", "DoRA"),
+            horizontal=True,
+            index=["lora", "rslora", "dora"].index(defaults.get("finetune_method", "lora")),
+            help="Choose between LoRA, RSLoRA, and DoRA. RSLoRA uses rank-stabilized scaling. DoRA offers more precise training."
+        ).lower()
+        
+        # Store the selected method in session state
+        st.session_state.finetune_method = finetune_method
         
         with st.form("training_config"):
             # Basic settings
@@ -1659,13 +1670,8 @@ def page_training_config():
             # LoRA settings optimized for character training
             st.markdown("#### PEFT Configuration (Character-Optimized)")
             
-            finetune_method = st.radio(
-                "Fine-tuning Method",
-                ("LoRA", "RSLoRA", "DoRA"),
-                horizontal=True,
-                index=["lora", "rslora", "dora"].index(defaults.get("finetune_method", "lora")),
-                help="Choose between LoRA, RSLoRA, and DoRA. RSLoRA uses rank-stabilized scaling. DoRA offers more precise training."
-            ).lower()
+            # Store the selected method in the form
+            st.text(f"Selected method: {finetune_method.upper()}")
             
             default_r = defaults.get("lora_r", 16)  # Optimal for character LoRA per research
             # LoRA Rank with explanation
@@ -1722,7 +1728,6 @@ def page_training_config():
                 st.info("💡 DoRA works best with low dropout (0.0-0.05) and is optimized for eval mode")
             else:
                 ephemeral_gpu_offload = False
-            
             # --------------------------------------------------------------
             # Resume-from-checkpoint selection
             # --------------------------------------------------------------
@@ -1764,8 +1769,15 @@ def page_training_config():
                 
                 fp16 = st.checkbox("Enable FP16", value=defaults.get("fp16", True), help="Enables mixed precision training for better performance")
                 save_steps = st.slider("Save Every N Steps", 1, 200, defaults.get("save_steps", 50), step=1)
-                logging_steps = st.slider("Log Every N Steps", 1, 100, defaults.get("logging_steps", 5), step=1)
+                logging_steps = st.slider("Log Every N Steps", 1, 100, defaults.get("logging_steps", 5), step=1, help="Controls how often training metrics are logged and displayed")
                 eval_steps = st.slider("Evaluation Steps", 1, 100, defaults.get("eval_steps", 10), step=1)
+                early_stopping_patience = st.slider(
+                    "Early Stopping Patience",
+                    min_value=1,
+                    max_value=10,
+                    value=defaults.get("early_stopping_patience", 3),
+                    help="Number of evaluation steps without improvement before stopping"
+                ) if enable_validation else 3
                 max_steps_override = st.number_input(
                     "Override Total Training Steps (0 = auto)",
                     min_value=0,
@@ -1775,68 +1787,33 @@ def page_training_config():
                     help="Manually set the total number of optimisation steps if you need finer control. Leave at 0 to use the computed value."
                 )
             
-            start_training = st.form_submit_button("🚀 Start Training", use_container_width=True)
+            # Form buttons
+            col_form1, col_form2 = st.columns(2)
+            with col_form1:
+                start_training = st.form_submit_button("🚀 Start Training", use_container_width=True)
+            with col_form2:
+                save_profile = st.form_submit_button("💾 Save Profile", use_container_width=True, help="Save current settings as a profile")
     
     with col2:
         st.markdown("### Training Recommendations")
         
-        # Profile I/O: Create a dedicated expander for this
-        # with st.expander("💾 Save, Load, and Apply Training Profiles", expanded=True):
+        # Profile I/O section
+        st.markdown("#### Profile Management")
+        st.info("💡 Use the '💾 Save Profile' button in the training form below to save current settings.")
+        
+        # Profile controls
         profile_cols = st.columns(2)
         with profile_cols[0]:
-            if st.button("💾 Save Current Profile", use_container_width=True, help="Save the current settings as a profile"):
-                try:
-                    # Use a more robust way to get the character name
-                    char_name = st.session_state.current_character.get("name", "untitled")
-                    
-                    config_to_save = {
-                        "character_name": char_name,
-                        "base_model": selected_base_model,
-                        "dataset_file": st.session_state.dataset_metadata.get('path'),
-                        "advanced_training_config": st.session_state.get('advanced_training_config', {}),
-                        "hyperparameters": {
-                            'epochs': epochs,
-                            'learning_rate': learning_rate,
-                            'batch_size': batch_size,
-                            'gradient_accumulation_steps': gradient_accumulation,
-                            'warmup_steps': warmup_steps,
-                            'max_grad_norm': max_grad_norm,
-                            'max_samples': max_samples,
-                            'finetune_method': finetune_method,
-                            'lora_r': lora_r,
-                            'lora_alpha': lora_alpha,
-                            'lora_dropout': lora_dropout,
-                            'target_modules': target_modules,
-                            'include_system_prompts': include_system_prompts,
-                            'fp16': fp16,
-                            'save_steps': save_steps,
-                            'logging_steps': logging_steps,
-                            'eval_steps': eval_steps,
-                            'max_steps_override': int(max_steps_override) if max_steps_override else 0,
-                        }
-                    }
-                    
-                    # Create profiles directory if it doesn't exist
-                    profiles_dir = Path("profiles")
-                    profiles_dir.mkdir(exist_ok=True)
-                    
-                    # Save the profile
-                    save_path = profiles_dir / f"{char_name}_profile.json"
-                    with open(save_path, 'w') as f:
-                        json.dump(config_to_save, f, indent=4)
-                    
-                    st.toast(f"✅ Profile saved: {save_path.name}", icon="💾")
-                    
-                except Exception as e:
-                    st.error(f"❌ Error saving profile: {e}")
-
-        with profile_cols[1]:
             uploaded_profile = st.file_uploader(
                 "Load Profile", 
                 type=['json'], 
-                label_visibility="collapsed",
                 help="Upload a saved training profile"
             )
+        with profile_cols[1]:
+            if st.button("🔄 Reset to Defaults", use_container_width=True, help="Clear any applied profile and reset to default values"):
+                if 'training_form_defaults' in st.session_state:
+                    del st.session_state['training_form_defaults']
+                st.success("✅ Reset to default values!")
 
         if uploaded_profile:
             try:
@@ -1854,11 +1831,7 @@ def page_training_config():
         # Button to apply the loaded profile
         if 'loaded_profile' in st.session_state and st.session_state.loaded_profile:
             if st.button("✨ Apply Profile", use_container_width=True):
-                # In a real app, you would now update all the widgets.
-                # Streamlit makes this tricky without re-running the script.
-                # The "correct" way is to store defaults in session state
-                # and use them to set widget values.
-                # We will add this logic in the next step.
+                # Store profile to be applied on next render
                 st.session_state.profile_to_apply = st.session_state.loaded_profile
                 del st.session_state['loaded_profile'] # Clear after flagging
                 st.rerun() # Rerun to apply the settings
@@ -1934,6 +1907,54 @@ def page_training_config():
             </div>
         """, unsafe_allow_html=True)
     
+    # Handle profile saving
+    if 'save_profile' in locals() and save_profile:
+        try:
+            char_name = st.session_state.current_character.get("name", "untitled")
+            
+            config_to_save = {
+                "character_name": char_name,
+                "base_model": selected_base_model,
+                "dataset_file": st.session_state.dataset_metadata.get('path'),
+                "advanced_training_config": st.session_state.get('advanced_training_config', {}),
+                "hyperparameters": {
+                    'epochs': epochs,
+                    'learning_rate': learning_rate,
+                    'batch_size': batch_size,
+                    'gradient_accumulation_steps': gradient_accumulation,
+                    'warmup_steps': warmup_steps,
+                    'max_grad_norm': max_grad_norm,
+                    'max_samples': max_samples,
+                    'finetune_method': finetune_method,
+                    'lora_r': lora_r,
+                    'lora_alpha': lora_alpha,
+                    'lora_dropout': lora_dropout,
+                    'target_modules': target_modules,
+                    'include_system_prompts': include_system_prompts,
+                    'fp16': fp16,
+                    'save_steps': save_steps,
+                    'early_stopping_patience': early_stopping_patience,
+                    'logging_steps': logging_steps,
+                    'eval_steps': eval_steps,
+                    'max_steps_override': int(max_steps_override) if max_steps_override else 0,
+                    'ephemeral_gpu_offload': ephemeral_gpu_offload,
+                }
+            }
+            
+            # Create profiles directory if it doesn't exist
+            profiles_dir = Path("profiles")
+            profiles_dir.mkdir(exist_ok=True)
+            
+            # Save the profile
+            save_path = profiles_dir / f"{char_name}_profile.json"
+            with open(save_path, 'w') as f:
+                json.dump(config_to_save, f, indent=4)
+            
+            st.success(f"✅ Profile saved: {save_path.name}")
+            
+        except Exception as e:
+            st.error(f"❌ Error saving profile: {e}")
+    
     if start_training:
         # Enhanced training config with advanced features
         config = {
@@ -1984,6 +2005,44 @@ def page_training_config():
             
             # Show configuration summary
             st.success("✅ Training configuration complete!")
+            
+            # ✅ NEW: Display actual configuration values being used
+            with st.expander("🔍 **Actual Training Configuration Used**", expanded=True):
+                st.info("💡 **Tip:** This shows the exact values the training process will use, which may differ from UI defaults due to fallbacks or advanced settings.")
+                
+                config_col1, config_col2, config_col3 = st.columns(3)
+                
+                with config_col1:
+                    st.markdown("##### 📊 **Core Training**")
+                    # Show the actual logging frequency that will be used
+                    actual_log_freq = config.get('logging_steps', advanced_config.get('logging_steps', 10))
+                    st.write(f"**Log Every N Steps:** `{actual_log_freq}`")
+                    st.write(f"**Learning Rate:** `{config.get('learning_rate', 2e-4)}`")
+                    st.write(f"**Batch Size:** `{config.get('batch_size', 2)}`")
+                    st.write(f"**Gradient Accumulation:** `{config.get('gradient_accumulation_steps', 2)}`")
+                    st.write(f"**Max Steps Override:** `{config.get('max_steps_override', 'None (use calculated)')}`")
+                    
+                with config_col2:
+                    st.markdown("##### ⚙️ **Method & Parameters**")
+                    st.write(f"**Method:** `{config.get('finetune_method', 'lora').upper()}`")
+                    st.write(f"**LoRA Rank (r):** `{config.get('lora_r', 16)}`")
+                    st.write(f"**LoRA Alpha:** `{config.get('lora_alpha', config.get('lora_r', 16))}`")
+                    st.write(f"**LoRA Dropout:** `{config.get('lora_dropout', 0.1)}`")
+                    st.write(f"**Use RSLoRA:** `{config.get('use_rslora', False)}`")
+                    st.write(f"**Use DoRA:** `{config.get('use_dora', False)}`")
+                    
+                with config_col3:
+                    st.markdown("##### 🎯 **Advanced Settings**")
+                    st.write(f"**Save Every N Steps:** `{config.get('save_steps', 50)}`")
+                    st.write(f"**Max Samples:** `{config.get('max_samples', 'All')}`")
+                    st.write(f"**Include System Prompts:** `{config.get('include_system_prompts', False)}`")
+                    st.write(f"**FP16:** `{config.get('fp16', False)}`")
+                    
+                # Show any discrepancies as warnings
+                ui_log_steps = config.get('logging_steps')
+                advanced_log_steps = advanced_config.get('logging_steps', 10)
+                if ui_log_steps and ui_log_steps != actual_log_freq:
+                    st.warning(f"⚠️ **Logging Frequency Discrepancy:** UI shows `{ui_log_steps}` but training will use `{actual_log_freq}` (from advanced config)")
             
             # Display what features are enabled
             enabled_features = []
@@ -2086,18 +2145,45 @@ def page_training_dashboard():
                         st.markdown("**[Open TensorBoard Dashboard ↗](http://localhost:6006)**")
                         st.caption("TensorBoard is running in the background.")
 
+    # Show active training configuration
+    with st.expander("🔍 **Active Training Configuration**", expanded=False):
+        active_config = st.session_state.get('active_training_config', {})
+        if active_config:
+            config_display_col1, config_display_col2 = st.columns(2)
+            
+            with config_display_col1:
+                st.write(f"**Log Every N Steps:** `{active_config.get('logging_steps', 10)}`")
+                st.write(f"**Learning Rate:** `{active_config.get('learning_rate', 2e-4)}`")
+                st.write(f"**Method:** `{active_config.get('finetune_method', 'lora').upper()}`")
+                st.write(f"**LoRA Rank:** `{active_config.get('lora_r', 16)}`")
+                
+            with config_display_col2:
+                st.write(f"**Batch Size:** `{active_config.get('batch_size', 2)}`")
+                st.write(f"**Save Steps:** `{active_config.get('save_steps', 50)}`")
+                st.write(f"**Max Samples:** `{active_config.get('max_samples', 'All')}`")
+                st.write(f"**FP16:** `{active_config.get('fp16', False)}`")
+        else:
+            st.info("No active training configuration found.")
+
     # Enhanced real-time metrics
     metrics_placeholder = st.empty()
     health_placeholder = st.empty()
     chart_placeholder = st.empty()
     
-    # Update training status from manager
-    current_status = st.session_state.training_manager.get_training_status()
-    if current_status != st.session_state.training_status:
-        st.session_state.training_status = current_status
-    
-    # Get enhanced training metrics
+    # Always get metrics first (this processes status queue)
     metrics = st.session_state.training_manager.get_metrics()
+    
+    # Then check for status changes (critical for completion detection)
+    current_status = st.session_state.training_manager.get_training_status()
+    status_changed = current_status != st.session_state.training_status
+    if status_changed:
+        st.session_state.training_status = current_status
+        
+        # Force immediate refresh when status changes (especially for completion)
+        if current_status in ['complete', 'error']:
+            st.success(f"🎉 Training {current_status}!") if current_status == 'complete' else st.error(f"❌ Training {current_status}")
+            time.sleep(1)  # Brief pause to show the message
+            st.rerun()
     
     if metrics:
         # Display training health alerts
@@ -2242,15 +2328,24 @@ def page_training_dashboard():
                 )
                 
                 # Add validation loss if available
-                if 'eval_loss' in metrics and hasattr(st.session_state.training_manager, 'eval_loss_history'):
-                    eval_history = getattr(st.session_state.training_manager, 'eval_loss_history', [])
-                    if eval_history:
-                        eval_steps = list(range(0, len(eval_history) * (len(steps) // len(eval_history)), len(steps) // len(eval_history)))[:len(eval_history)]
+                if 'eval_loss' in metrics:
+                    # Try to get eval history from metrics first, then from training manager
+                    eval_history = metrics.get('eval_loss_history', [])
+                    if not eval_history and hasattr(st.session_state.training_manager, 'eval_loss_history'):
+                        eval_history = getattr(st.session_state.training_manager, 'eval_loss_history', [])
+                    if eval_history and len(eval_history) > 0:
+                        # ✅ IMPROVED: Better step alignment for validation loss
+                        # Validation happens less frequently, so we need to space out the points
+                        active_config = st.session_state.get('active_training_config', {})
+                        eval_freq = active_config.get('eval_steps', 25)
+                        eval_steps = [i * eval_freq for i in range(len(eval_history))]
+                        
                         fig.add_scatter(
                             x=eval_steps, y=eval_history,
                             mode='lines+markers',
                             name='Validation Loss',
-                            line=dict(color='orange', dash='dash')
+                            line=dict(color='orange', width=3),
+                            marker=dict(size=8, color='orange')
                         )
                 
                 # Style the chart
@@ -2321,9 +2416,13 @@ def page_training_dashboard():
                         else:
                             st.info("📈 **Moderate consistency:** Training is progressing normally")
     
-    # Auto-refresh for real-time updates
-    if st.session_state.training_status == 'training':
+    # Auto-refresh for real-time updates and status change detection
+    if st.session_state.training_status in ['training', 'dataset_generation']:
         time.sleep(2)
+        st.rerun()
+    elif not status_changed and st.session_state.training_status in ['training', 'paused']:
+        # Extra safety check - ensure we catch status changes even if metrics processing is delayed
+        time.sleep(1)
         st.rerun()
 
 # Model testing and inference page
@@ -2821,25 +2920,43 @@ def page_model_comparison():
     char_name = st.session_state.current_character.get("name", "Unknown")
     st.markdown(f"### Comparing models for: **{char_name}**")
 
-    # Get available models
+            # Get available models
     available_models = st.session_state.inference_manager.get_available_models()
     
-    # Filter for models related to the current character, plus the base model
-    character_models = [m for m in available_models if char_name.lower().replace(' ', '_') in m.lower() or "Base:" in m]
+    # Filter for models related to the current character
+    character_models = [m for m in available_models if char_name.lower().replace(' ', '_') in m.lower()]
+    
+    # Auto-detect base models needed for comparison
+    base_models_needed = set()
+    for model in character_models:
+        if not model.startswith("Base:"):
+            metadata = st.session_state.inference_manager.get_model_metadata(model)
+            if metadata and 'base_model' in metadata:
+                base_models_needed.add(metadata['base_model'])
+    
+    # Add detected base models to available options
+    for base_model in base_models_needed:
+        base_option = f"Base: {base_model}"
+        if base_option not in character_models:
+            character_models.append(base_option)
+    
+    # Fallback: add current base model if no models detected
+    if not character_models:
+        character_models.append(f"Base: {st.session_state.inference_manager.base_model}")
     
     if len(character_models) < 2:
-        st.info("ℹ️ You need at least two trained models/checkpoints for this character to compare them. The base model is always available for comparison.")
-        # Also add base if not present, in case no models are trained yet
-        if not any("Base:" in m for m in character_models):
-             character_models.append(f"Base: {st.session_state.inference_manager.base_model}")
-        if len(character_models) < 2:
-             return
+        st.info("ℹ️ You need at least two trained models/checkpoints for this character to compare them. Train more models or checkpoints to enable comparison.")
+        return
+    
+    # Show detected base models info
+    if base_models_needed:
+        st.info(f"🔍 **Auto-detected base models**: {', '.join(sorted(base_models_needed))}")
     
     selected_models = st.multiselect(
         "Select models to compare (2 or more)",
-        options=character_models,
-        default=character_models[:2] if len(character_models) >= 2 else character_models,
-        help="Choose checkpoints or final LoRA models to test side-by-side."
+        options=list(base_models_needed) + character_models,
+        default=list(base_models_needed) + character_models[:2] if len(character_models) >= 2 else list(base_models_needed) + character_models,
+        help="🎯 **Best practice**: Include base model for sanity check, then select checkpoints from the same training run to see progression."
     )
 
     if len(selected_models) < 2:
@@ -2867,6 +2984,32 @@ def page_model_comparison():
             current_config=default_test_config,
             key_prefix="model_comparison_gen"
         )
+        
+        st.markdown("#### 🎲 Reproducibility Settings")
+        col_seed1, col_seed2 = st.columns([2, 1])
+        with col_seed1:
+            use_custom_seed = st.checkbox(
+                "Use custom seed for reproducible comparison",
+                value=False,
+                help="Set a specific seed to get identical results across multiple comparison runs"
+            )
+        with col_seed2:
+            if use_custom_seed:
+                custom_seed = st.number_input(
+                    "Seed value",
+                    min_value=0,
+                    max_value=2**32-1,
+                    value=42,
+                    step=1,
+                    help="Same seed = identical randomness for fair comparison"
+                )
+            else:
+                custom_seed = None
+        
+        if not use_custom_seed:
+            st.info("🎲 **Auto-seed**: A random seed will be generated and used consistently across all models for fair comparison")
+        else:
+            st.info(f"🔒 **Fixed seed {custom_seed}**: All models will use this seed for identical randomness")
     
     if st.button("🚀 Compare Responses", use_container_width=True, type="primary"):
         if not prompt.strip():
@@ -2884,13 +3027,32 @@ def page_model_comparison():
                 model_identifiers=selected_models,
                 prompt=prompt,
                 max_tokens=max_tokens,
-                generation_config=sp_config
+                generation_config=sp_config,
+                seed=custom_seed
             )
-            metrics_data = st.session_state.comparison_manager.get_comparison_metrics(selected_models)
+            
+            # Enhanced metrics with personality engine judge evaluation
+            with st.spinner("Evaluating character consistency with AI judge..."):
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    base_metrics, training_summary, variable_metrics = loop.run_until_complete(
+                        st.session_state.comparison_manager.get_enhanced_comparison_metrics(
+                            selected_models,
+                            st.session_state.current_character,
+                            prompt,
+                            comparison_results,
+                            st.session_state.dataset_manager
+                        )
+                    )
+                finally:
+                    loop.close()
             
             st.session_state.comparison_data = {
                 "responses": comparison_results,
-                "metrics": metrics_data
+                "base_metrics": base_metrics,
+                "training_summary": training_summary,
+                "variable_metrics": variable_metrics
             }
         st.success("✅ Comparison complete!")
 
@@ -2898,9 +3060,12 @@ def page_model_comparison():
     if 'comparison_data' in st.session_state:
         st.markdown("---")
         st.markdown("### 📊 Comparison Results")
+        st.info("🎯 **Fair Comparison**: All models used the same random seed, so differences in responses are due to model differences, not randomness.")
 
         responses = st.session_state.comparison_data['responses']
-        metrics = st.session_state.comparison_data['metrics']
+        base_metrics = st.session_state.comparison_data['base_metrics']
+        training_summary = st.session_state.comparison_data['training_summary']
+        variable_metrics = st.session_state.comparison_data['variable_metrics']
 
         # Side-by-side responses
         st.markdown("#### Side-by-Side Responses")
@@ -2914,9 +3079,10 @@ def page_model_comparison():
                     </div>
                 """, unsafe_allow_html=True)
                 
-                # Promotion button
-                if "Base:" not in model_id:
-                    if st.button(f"🏆 Promote {model_id.split('/')[-1]}", key=f"promote_{i}", use_container_width=True):
+                # Promotion button - ONLY for checkpoints
+                if model_id.startswith("Checkpoint:"):
+                    checkpoint_name = model_id.split(': ')[1].split('/')[-1] if '/' in model_id else model_id.split(': ')[1]
+                    if st.button(f"🏆 Promote {checkpoint_name}", key=f"promote_{i}", use_container_width=True):
                         checkpoint_id = model_id.split(': ')[1]
                         success = st.session_state.comparison_manager.promote_checkpoint(
                             character_name=char_name,
@@ -2924,9 +3090,13 @@ def page_model_comparison():
                             reason=f"Promoted after comparing with prompt: '{prompt[:50]}...'"
                         )
                         if success:
-                            st.success(f"✅ Promoted {checkpoint_id} as the best version!")
+                            st.success(f"✅ Promoted {checkpoint_name} as the best version!")
                         else:
                             st.error("❌ Failed to promote checkpoint.")
+                elif model_id.startswith("LoRA:"):
+                    st.info("Final LoRA model (already complete)")
+                elif model_id.startswith("Base:"):
+                    st.info("Base model (no promotion needed)")
         
         # Display promoted checkpoint info
         promoted_checkpoint = st.session_state.comparison_manager.get_promoted_checkpoint(char_name)
@@ -2934,68 +3104,380 @@ def page_model_comparison():
             st.success(f"🏆 **Promoted Model:** `{promoted_checkpoint}` is currently selected as the best version for this character.")
 
 
-        # Radar Chart for Metrics
-        st.markdown("#### Quantitative Metrics Comparison")
-        
-        # Check if we have any metrics data to plot
-        if any(metrics.values()):
-            fig = go.Figure()
-
-            # Define metrics to plot and their properties
-            metric_info = {
-                'eval_loss': {'name': 'Eval Loss (1/x)', 'invert': True},
-                'avg_consistency': {'name': 'Avg Consistency', 'invert': False},
-                'loss': {'name': 'Train Loss (1/x)', 'invert': True},
-            }
-            metric_labels = list(metric_info.keys())
+        # Training Run Summary - Show shared configuration
+        if training_summary:
+            st.markdown("#### 📋 Training Run Summary")
+            st.info("**Shared Configuration** (identical across all checkpoints from this training run)")
             
-            # Find max value for normalization after inversion
-            max_inverted_loss = 1
-            all_values = []
-            for model_id in selected_models:
-                model_metrics = metrics.get(model_id, {})
-                for label in metric_labels:
-                    val = model_metrics.get(label)
-                    if val is not None and metric_info[label]['invert'] and val > 0:
-                        all_values.append(1 / val)
-                    elif val is not None and not metric_info[label]['invert']:
-                        all_values.append(val)
+            summary_col1, summary_col2, summary_col3 = st.columns(3)
             
-            max_radial_value = max(all_values) if all_values else 1
-
-            for model_id in selected_models:
-                model_metrics = metrics.get(model_id, {})
-                values = []
-                for label in metric_labels:
-                    val = model_metrics.get(label)
-                    if val is None:
-                        values.append(0)
-                    elif metric_info[label]['invert']:
-                        values.append(1 / val if val > 0 else 0)
-                    else:
-                        values.append(val)
+            with summary_col1:
+                st.markdown("**Model Configuration:**")
+                st.write(f"• Base Model: `{training_summary.get('base_model', 'Unknown')}`")
+                st.write(f"• Method: **{training_summary.get('training_method', 'Unknown')}**")
+                if training_summary.get('use_dora'):
+                    st.write("• DoRA: ✅ Enabled")
+                if training_summary.get('use_rslora'):
+                    st.write("• RSLoRA: ✅ Enabled")
                 
-                fig.add_trace(go.Scatterpolar(
-                    r=values,
-                    theta=[info['name'] for info in metric_info.values()],
-                    fill='toself',
-                    name=model_id
-                ))
+            with summary_col2:
+                st.markdown("**LoRA Parameters:**")
+                st.write(f"• Rank (r): `{training_summary.get('lora_rank', 0)}`")
+                st.write(f"• Alpha: `{training_summary.get('lora_alpha', 0)}`")
+                st.write(f"• Dropout: `{training_summary.get('lora_dropout', 0.1):.2f}`")
+                
+            with summary_col3:
+                st.markdown("**Dataset & Training:**")
+                st.write(f"• Dataset Size: **{training_summary.get('dataset_size', 0)} samples**")
+                st.write(f"• Configured Total Steps: `{training_summary.get('total_configured_steps', 0)}`")
+                st.write(f"• Character: **{training_summary.get('character_name', 'Unknown')}**")
+            
+            st.markdown("---")
 
-            fig.update_layout(
+        # Variable Metrics Analysis - Show metrics that actually differ
+        st.markdown("#### 📊 Checkpoint Progression Analysis")
+        st.info("**Variable Metrics** (showing how performance changes throughout training)")
+        
+        # Create tabs for different types of analysis
+        analysis_tab1, analysis_tab2, analysis_tab3 = st.tabs(["📈 Training Progress", "🎯 Character Consistency", "📋 Detailed Comparison"])
+        
+        with analysis_tab1:
+            st.markdown("##### Training Loss & Learning Progress")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Training progress line chart
+                fig_progress = go.Figure()
+                
+                # Extract progression data - organize by training progression
+                progression_data = []
+                checkpoint_data = []
+                final_data = []
+                
+                for model_id in selected_models:
+                    metrics = variable_metrics.get(model_id, {})
+                    if not metrics.get('is_base_model', False):
+                        data_point = {
+                            'model': model_id.split(': ')[-1] if ': ' in model_id else model_id,
+                            'full_model_id': model_id,
+                            'steps': metrics.get('actual_steps_completed', 0),
+                            'loss': metrics.get('training_loss', 0),
+                            'validation_loss': metrics.get('validation_loss', 0),
+                            'is_final': metrics.get('is_final_model', False),
+                            'is_checkpoint': metrics.get('is_checkpoint', False)
+                        }
+                        
+                        if data_point['is_final']:
+                            final_data.append(data_point)
+                        elif data_point['is_checkpoint']:
+                            checkpoint_data.append(data_point)
+                        
+                        progression_data.append(data_point)
+                
+                # Sort by steps for proper line progression
+                progression_data.sort(key=lambda x: x['steps'])
+                checkpoint_data.sort(key=lambda x: x['steps'])
+                
+                # Helpful info for users
+                base_count = len([m for m in selected_models if m.startswith("Base:")])
+                if len(checkpoint_data) == 0:
+                    st.info("💡 **No checkpoints found.** To see training progression, you need multiple checkpoints from the same training run. Base model provides the starting baseline.")
+                elif len(checkpoint_data) == 1:
+                    st.info(f"📊 Found {base_count} base model(s), 1 checkpoint and {len(final_data)} final model. For progression analysis, multiple checkpoints work best.")
+                else:
+                    st.success(f"📊 Found {base_count} base model(s), {len(checkpoint_data)} checkpoints and {len(final_data)} final model(s) - perfect for progression analysis!")
+                
+                if progression_data:
+                    # Add base model as starting point if selected
+                    base_models_in_selection = [m for m in selected_models if m.startswith("Base:")]
+                    
+                    # Show training progression through checkpoints
+                    if checkpoint_data:
+                        checkpoint_steps = [d['steps'] for d in checkpoint_data if d['loss'] and d['loss'] > 0]
+                        checkpoint_losses = [d['loss'] for d in checkpoint_data if d['loss'] and d['loss'] > 0]
+                        checkpoint_names = [d['model'] for d in checkpoint_data if d['loss'] and d['loss'] > 0]
+                        
+                        # If we have a base model selected, add it as the starting point (step 0)
+                        if base_models_in_selection and checkpoint_steps:
+                            # Add base model as step 0 with a reasonable starting loss estimate
+                            estimated_start_loss = max(checkpoint_losses) * 1.2 if checkpoint_losses else 2.0
+                            checkpoint_steps = [0] + checkpoint_steps
+                            checkpoint_losses = [estimated_start_loss] + checkpoint_losses
+                            base_name = base_models_in_selection[0].replace('Base: ', '').split('/')[-1]
+                            checkpoint_names = [f"{base_name} (base)"] + checkpoint_names
+                        
+                        if checkpoint_steps and checkpoint_losses:
+                            fig_progress.add_trace(go.Scatter(
+                                x=checkpoint_steps, y=checkpoint_losses,
+                                mode='lines+markers',
+                                name='Training Progression',
+                                line=dict(color='#6366f1', width=3),
+                                marker=dict(size=8),
+                                text=checkpoint_names,
+                                hovertemplate='<b>%{text}</b><br>Step: %{x}<br>Loss: %{y:.4f}<extra></extra>'
+                            ))
+                    
+                    # Add validation loss if available
+                    val_checkpoint_data = [d for d in checkpoint_data if d['validation_loss'] and d['validation_loss'] > 0]
+                    if val_checkpoint_data:
+                        val_steps = [d['steps'] for d in val_checkpoint_data]
+                        val_losses = [d['validation_loss'] for d in val_checkpoint_data]
+                        val_names = [d['model'] for d in val_checkpoint_data]
+                        
+                        fig_progress.add_trace(go.Scatter(
+                            x=val_steps, y=val_losses,
+                            mode='lines+markers',
+                            name='Validation Loss',
+                            line=dict(color='#ef4444', width=3),
+                            marker=dict(size=8, color='orange'),
+                            text=val_names,
+                            hovertemplate='<b>%{text}</b><br>Step: %{x}<br>Val Loss: %{y:.4f}<extra></extra>'
+                        ))
+                    
+                    # Mark final model
+                    if final_data:
+                        final_model = final_data[0]
+                        if final_model['loss'] and final_model['loss'] > 0:
+                            fig_progress.add_trace(go.Scatter(
+                                x=[final_model['steps']], y=[final_model['loss']],
+                                mode='markers',
+                                name='Final LoRA Model',
+                                marker=dict(size=15, color='#10b981', symbol='star'),
+                                text=[final_model['model']],
+                                hovertemplate='<b>%{text}</b><br>Step: %{x}<br>Loss: %{y:.4f}<extra></extra>'
+                            ))
+                    
+                    # If no checkpoints, show explanation
+                    if not checkpoint_data and not final_data:
+                        st.info("💡 **No checkpoint progression data available.** This typically means you're comparing base models or single models without training checkpoints.")
+                
+                fig_progress.update_layout(
+                    title="Training Progression: Base Model → Checkpoints → Final LoRA",
+                    xaxis_title="Training Steps (0 = Base Model)",
+                    yaxis_title="Loss",
+                    template="plotly_dark",
+                    height=400
+                )
+                
+                st.plotly_chart(fig_progress, use_container_width=True)
+            
+            with col2:
+                # Model Performance Summary Chart
+                fig_performance = go.Figure()
+                
+                # Create a comprehensive performance chart including base models
+                all_model_data = []
+                
+                # Add base models to the analysis
+                for model_id in selected_models:
+                    metrics = variable_metrics.get(model_id, {})
+                    if metrics.get('is_base_model', False):
+                        all_model_data.append({
+                            'model': model_id.split(': ')[-1] if ': ' in model_id else model_id.replace('Base: ', ''),
+                            'full_model_id': model_id,
+                            'steps': 0,  # Base model is step 0
+                            'loss': 0,   # Base models don't have training loss
+                            'validation_loss': 0,
+                            'is_final': False,
+                            'is_checkpoint': False,
+                            'is_base_model': True
+                        })
+                
+                # Add trained models
+                all_model_data.extend(checkpoint_data + final_data)
+                
+                if all_model_data:
+                    # Performance comparison chart - Training Loss vs Character Consistency
+                    model_names = []
+                    training_losses = []
+                    consistency_scores = []
+                    model_types = []
+                    
+                    for d in all_model_data:
+                        model_id = d['full_model_id']
+                        metrics = variable_metrics.get(model_id, {})
+                        
+                        # For base models, we don't have training loss, so we'll use consistency only
+                        if d.get('is_base_model', False):
+                            consistency = metrics.get('character_consistency', 0)
+                            if consistency > 0:  # Only include if we have consistency data
+                                model_names.append(d['model'])
+                                training_losses.append(0)  # Base model has no training loss
+                                consistency_scores.append(consistency)
+                                model_types.append('base')
+                        elif d['loss'] and d['loss'] > 0:
+                            model_names.append(d['model'])
+                            training_losses.append(d['loss'])
+                            consistency_scores.append(metrics.get('character_consistency', 0))
+                            if d['is_checkpoint']:
+                                model_types.append('checkpoint')
+                            else:
+                                model_types.append('final')
+                    
+                    if model_names and len(model_names) > 0:
+                        # Color code by model type: Base=Gray, Checkpoint=Red, Final=Green
+                        color_map = {'base': '#94a3b8', 'checkpoint': '#ef4444', 'final': '#10b981'}
+                        colors = [color_map[t] for t in model_types]
+                        
+                        fig_performance.add_trace(go.Scatter(
+                            x=training_losses,
+                            y=consistency_scores,
+                            mode='markers+text',
+                            text=model_names,
+                            textposition='top center',
+                            marker=dict(
+                                size=12,
+                                color=colors,
+                                line=dict(width=2, color='white')
+                            ),
+                            hovertemplate='<b>%{text}</b><br>Training Loss: %{x:.4f}<br>Consistency: %{y:.3f}<extra></extra>',
+                            name='Models'
+                        ))
+                        
+                        fig_performance.update_layout(
+                            title="Model Performance: Loss vs Consistency",
+                            xaxis_title="Training Loss (lower is better, base model at 0)",
+                            yaxis_title="Character Consistency (higher is better)",
+                            template="plotly_dark",
+                            height=400,
+                            showlegend=False
+                        )
+                        
+                        # Add legend/annotations to explain the colors and chart
+                        fig_performance.add_annotation(
+                            text="🔵 Gray: Base Model (sanity check)<br/>🔴 Red: Checkpoints<br/>🟢 Green: Final LoRA<br/><br/>🎯 Good models: high consistency<br/>Base model shows pre-training behavior",
+                            xref="paper", yref="paper",
+                            x=0.02, y=0.98,
+                            xanchor="left", yanchor="top",
+                            bgcolor="rgba(0,0,0,0.7)",
+                            bordercolor="white",
+                            borderwidth=1,
+                            font=dict(size=9)
+                        )
+                else:
+                    # Show empty state
+                    st.info("💡 **Performance comparison requires trained models.** Train some checkpoints or LoRA models to see this analysis.")
+                
+                if checkpoint_data or final_data:
+                    st.plotly_chart(fig_performance, use_container_width=True)
+                
+        with analysis_tab2:
+            st.markdown("##### Character Consistency Evolution")
+            
+            # Character consistency radar chart
+            fig_consistency = go.Figure()
+            
+            consistency_metrics = {
+                'Overall Consistency': 'character_consistency',
+                'Personality': 'personality_consistency', 
+                'Speech Style': 'speech_style',
+                'Emotional Auth.': 'emotional_authenticity',
+                'Scenario Fit': 'scenario_appropriateness'
+            }
+            
+            colors = ['#6366f1', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6']
+            for i, model_id in enumerate(selected_models):
+                if not variable_metrics.get(model_id, {}).get('is_base_model', False):
+                    metrics = variable_metrics.get(model_id, {})
+                    values = []
+                    for metric_name, metric_key in consistency_metrics.items():
+                        values.append(metrics.get(metric_key, 0))
+                    
+                    # Only add if we have non-zero values
+                    if any(v > 0 for v in values):
+                        fig_consistency.add_trace(go.Scatterpolar(
+                            r=values + [values[0]],  # Close the polygon
+                            theta=list(consistency_metrics.keys()) + [list(consistency_metrics.keys())[0]],
+                            fill='toself',
+                            name=model_id.split(': ')[-1] if ': ' in model_id else model_id,
+                            line_color=colors[i % len(colors)]
+                        ))
+            
+            fig_consistency.update_layout(
                 polar=dict(
                     radialaxis=dict(
                         visible=True,
-                        range=[0, max_radial_value * 1.1] # Add padding
+                        range=[0, 1],
+                        tickmode='linear',
+                        tick0=0,
+                        dtick=0.2
                     )),
                 showlegend=True,
+                title="Character Consistency by Aspect",
                 template="plotly_dark",
-                title="Model Metrics Radar Chart (Higher is Better)"
+                height=500
             )
+            
+            st.plotly_chart(fig_consistency, use_container_width=True)
+            
+        with analysis_tab3:
+            # Detailed metrics table focusing on variable metrics
+            st.markdown("##### Checkpoint Comparison Table")
+            st.info("💡 **Focus on differences:** This table shows metrics that vary between checkpoints")
+            
+            metrics_df = []
+            for model_id in selected_models:
+                metrics = variable_metrics.get(model_id, {})
+                
+                # Create model name
+                model_name = model_id.split(': ')[-1] if ': ' in model_id else model_id
+                if metrics.get('is_base_model'):
+                    model_type = "BASE"
+                elif metrics.get('is_final_model'):
+                    model_type = "FINAL"
+                elif metrics.get('is_checkpoint'):
+                    model_type = "CHECKPOINT"
+                else:
+                    model_type = "UNKNOWN"
+                
+                # Format values, showing only meaningful differences
+                row = {
+                    'Model': model_name,
+                    'Type': model_type,
+                    'Steps Completed': f"{int(metrics.get('actual_steps_completed', 0))}" if metrics.get('actual_steps_completed', 0) > 0 else '—',
+                    'Training Loss': f"{metrics.get('training_loss', 0):.4f}" if metrics.get('training_loss', 0) > 0 else '—',
+                    'Validation Loss': f"{metrics.get('validation_loss', 0):.4f}" if metrics.get('validation_loss', 0) > 0 else '—',
+                    'Character Consistency': f"{metrics.get('character_consistency', 0):.3f}" if metrics.get('character_consistency', 0) > 0 else '—',
+                    'Training Time (min)': f"{metrics.get('training_time_elapsed', 0):.1f}" if metrics.get('training_time_elapsed', 0) > 0 else '—',
+                    'Learning Rate': f"{metrics.get('learning_rate_at_checkpoint', 0):.2e}" if metrics.get('learning_rate_at_checkpoint', 0) > 0 else '—'
+                }
+                metrics_df.append(row)
+            
+            import pandas as pd
+            df = pd.DataFrame(metrics_df)
+            st.dataframe(df, use_container_width=True)
+            
+            # Key insights
+            trained_models = [m for m in variable_metrics.keys() if not variable_metrics[m].get('is_base_model', False)]
+            if len(trained_models) > 1:
+                st.markdown("**📈 Key Insights:**")
+                
+                # Find best performing checkpoint
+                best_consistency = max(variable_metrics[m].get('character_consistency', 0) for m in trained_models)
+                best_model = [m for m in trained_models if variable_metrics[m].get('character_consistency', 0) == best_consistency][0]
+                
+                lowest_loss = min(variable_metrics[m].get('training_loss', float('inf')) for m in trained_models if variable_metrics[m].get('training_loss', 0) > 0)
+                best_loss_model = [m for m in trained_models if variable_metrics[m].get('training_loss', float('inf')) == lowest_loss][0]
+                
+                if best_consistency > 0:
+                    st.success(f"🏆 **Best Character Consistency:** `{best_model.split(': ')[-1] if ': ' in best_model else best_model}` ({best_consistency:.3f})")
+                
+                if lowest_loss < float('inf'):
+                    st.success(f"📉 **Lowest Training Loss:** `{best_loss_model.split(': ')[-1] if ': ' in best_loss_model else best_loss_model}` ({lowest_loss:.4f})")
+                
+                # Check for overfitting
+                final_models = [m for m in trained_models if variable_metrics[m].get('is_final_model', False)]
+                if final_models:
+                    final_model = final_models[0]
+                    final_loss = variable_metrics[final_model].get('training_loss', 0)
+                    final_val_loss = variable_metrics[final_model].get('validation_loss', 0)
+                    
+                    if final_loss > 0 and final_val_loss > 0 and final_val_loss > final_loss * 1.2:
+                        st.warning("⚠️ **Potential Overfitting Detected:** Validation loss is significantly higher than training loss in final model")
+                    elif final_loss > 0 and final_val_loss > 0 and abs(final_val_loss - final_loss) < 0.01:
+                        st.success("✅ **Good Generalization:** Training and validation losses are well-aligned")
 
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("No quantitative metrics found to generate a radar chart. Make sure `training_summary.json` exists for the selected models.")
 
 def page_model_management():
     """Model management page for merging, managing trained models"""
@@ -3031,7 +3513,6 @@ def page_model_management():
                     metadata = st.session_state.inference_manager.get_model_metadata(selected_model)
                     if metadata:
                         base_model = metadata.get('base_model', 'Unknown')
-                        method = metadata.get('training_method', 'lora')
                         use_dora = metadata.get('use_dora', False)
                         use_rslora = metadata.get('use_rslora', False)
                         
@@ -3172,6 +3653,56 @@ def page_model_management():
                             st.error("❌ Failed to add metadata.")
         else:
             st.info("No models found that need fixing.")
+        
+        st.markdown("---")
+        
+        # ✅ NEW: Fix checkpoint metadata section
+        st.markdown("#### Fix Missing Checkpoint Metadata")
+        st.info("💡 Add missing training_metadata.json files to checkpoints for better comparison charts.")
+        
+        # Get all checkpoints without metadata
+        checkpoints_without_metadata = []
+        for model in available_models:
+            if "Checkpoint:" in model and not model.startswith("Base:"):
+                metadata = st.session_state.inference_manager.get_model_metadata(model)
+                if not metadata:
+                    checkpoints_without_metadata.append(model)
+        
+        if checkpoints_without_metadata:
+            st.warning(f"Found {len(checkpoints_without_metadata)} checkpoints missing metadata")
+            
+            # Get base model from final model
+            final_cricket_metadata = st.session_state.inference_manager.get_model_metadata("LoRA: cricket")
+            if final_cricket_metadata:
+                detected_base_model = final_cricket_metadata.get('base_model', 'HuggingFaceTB/SmolLM2-360M-Instruct')
+                detected_method = final_cricket_metadata.get('training_method', 'dora')
+                
+                st.info(f"🔍 **Auto-detected from final model**: {detected_method.upper()} on `{detected_base_model}`")
+                
+                if st.button("🔧 Fix All Checkpoint Metadata", use_container_width=True):
+                    success_count = 0
+                    for checkpoint_model in checkpoints_without_metadata:
+                        # Extract character name and checkpoint path
+                        parts = checkpoint_model.split(": ")[1].split("/")
+                        char_name = parts[0]
+                        checkpoint_name = parts[1]
+                        
+                        # Add metadata to this specific checkpoint
+                        success = st.session_state.training_manager.add_metadata_to_checkpoint(
+                            char_name, checkpoint_name, detected_base_model, detected_method
+                        )
+                        if success:
+                            success_count += 1
+                    
+                    if success_count > 0:
+                        st.success(f"✅ Added metadata to {success_count} checkpoints!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to add metadata to checkpoints.")
+            else:
+                st.warning("⚠️ Could not auto-detect settings from final model. Please add manually.")
+        else:
+            st.success("✅ All checkpoints have metadata!")
         
         st.markdown("---")
         
