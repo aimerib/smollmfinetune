@@ -20,6 +20,7 @@ class ComparisonManager:
         self,
         model_identifiers: List[str],
         prompt: str,
+        max_tokens: int,
         generation_config: Dict[str, Any]
     ) -> Dict[str, Any]:
         """Generate responses from multiple models for the same prompt."""
@@ -29,6 +30,8 @@ class ComparisonManager:
                 response = self.inference_manager.generate_response(
                     model_path=model_id,
                     prompt=prompt,
+                    max_tokens=max_tokens,
+                    system_prompt="",
                     **generation_config
                 )
                 responses[model_id] = response

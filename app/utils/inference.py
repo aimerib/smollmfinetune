@@ -131,6 +131,27 @@ class InferenceManager:
                     return {}
         return {}
     
+    def get_model_metadata(self, model_identifier: str) -> Dict[str, Any]:
+        """Load training metadata including base model information."""
+        model_path = self._get_model_path(model_identifier)
+        if not model_path:
+            return {}
+
+        metadata_path = model_path / "training_metadata.json"
+        if metadata_path.exists():
+            with metadata_path.open('r') as f:
+                try:
+                    return json.load(f)
+                except json.JSONDecodeError:
+                    logger.warning(f"Could not decode JSON from {metadata_path}")
+                    return {}
+        return {}
+    
+    def get_required_base_model(self, model_identifier: str) -> Optional[str]:
+        """Get the base model required for this adapter."""
+        metadata = self.get_model_metadata(model_identifier)
+        return metadata.get('base_model')
+    
     def load_model(self, model_path: str) -> tuple:
         """Load a specific model (base, LoRA, or checkpoint)"""
         if model_path in self.loaded_models:
@@ -155,8 +176,61 @@ class InferenceManager:
         
         logger.info(f"Loading model: {model_path}")
         
-        # Load base model and tokenizer
-        base_model, tokenizer = self._load_base_model()
+        # For LoRA/DoRA models, check if we need a specific base model
+        if model_path.startswith("LoRA:") or model_path.startswith("Checkpoint:"):
+            required_base_model = self.get_required_base_model(model_path)
+            if required_base_model and required_base_model != self.base_model:
+                logger.info(f"Adapter requires base model: {required_base_model}, current: {self.base_model}")
+                logger.info(f"Switching to required base model: {required_base_model}")
+                
+                # Temporarily switch to the required base model
+                original_base_model = self.base_model
+                self.base_model = required_base_model
+                
+                try:
+                    base_model, tokenizer = self._load_base_model()
+                except Exception as e:
+                    # Restore original base model on failure
+                    self.base_model = original_base_model
+                    raise RuntimeError(f"Failed to load required base model {required_base_model}: {e}") from e
+            elif not required_base_model:
+                # No metadata found - this is an old model
+                # Try to detect the correct base model based on adapter dimensions
+                logger.warning(f"No metadata found for {model_path}. Attempting to detect correct base model.")
+                
+                # First try with current base model
+                try:
+                    base_model, tokenizer = self._load_base_model()
+                    # Try loading the adapter to see if dimensions match
+                    adapter_path = self._get_model_path(model_path)
+                    if adapter_path:
+                        from transformers import AutoConfig
+                        config_path = adapter_path / "adapter_config.json"
+                        if config_path.exists():
+                            with open(config_path, 'r') as f:
+                                adapter_config = json.load(f)
+                            
+                            # Check if this looks like a mismatch based on common patterns
+                            if 'modules' in adapter_config:
+                                # Look for dimension hints in the config
+                                pass  # Current base model should work
+                except Exception:
+                    # If current base model fails, try 360M (common for DoRA models)
+                    logger.info("Current base model failed, trying SmolLM2-360M for compatibility")
+                    original_base_model = self.base_model
+                    self.base_model = "HuggingFaceTB/SmolLM2-360M-Instruct"
+                    
+                    try:
+                        base_model, tokenizer = self._load_base_model()
+                    except Exception as e:
+                        # Restore original and fail
+                        self.base_model = original_base_model
+                        raise RuntimeError(f"Failed to load adapter with both 135M and 360M base models. Please retrain the model or check compatibility: {e}") from e
+            else:
+                base_model, tokenizer = self._load_base_model()
+        else:
+            # Load base model and tokenizer
+            base_model, tokenizer = self._load_base_model()
         
         if model_path.startswith("Base:"):
             # Use base model as-is
@@ -168,9 +242,25 @@ class InferenceManager:
             if not adapter_path:
                 raise FileNotFoundError(f"Model not found: {model_path}")
             
-            # Load LoRA adapter
-            logger.info(f"Loading LoRA adapter from: {adapter_path}")
-            model = PeftModel.from_pretrained(base_model, str(adapter_path))
+            # Load LoRA adapter with DoRA optimization if needed
+            logger.info(f"Loading LoRA/DoRA adapter from: {adapter_path}")
+            
+            # Check if DoRA optimization should be enabled
+            metadata = self.get_model_metadata(model_path)
+            ephemeral_gpu_offload = (metadata.get('use_dora', False) and 
+                                   self.device == "cuda")
+            
+            if ephemeral_gpu_offload:
+                logger.info("Enabling DoRA ephemeral GPU offload for inference optimization")
+                model = PeftModel.from_pretrained(base_model, str(adapter_path), 
+                                                ephemeral_gpu_offload=True)
+            else:
+                model = PeftModel.from_pretrained(base_model, str(adapter_path))
+                
+            # Set model to eval mode for DoRA optimization
+            if metadata.get('use_dora', False):
+                model.eval()
+                logger.info("DoRA model set to eval mode for optimal performance")
         else:
             raise ValueError(f"Invalid model path format: {model_path}")
         
@@ -224,19 +314,20 @@ class InferenceManager:
                 
                 # For empty system prompt, we want to avoid any default system message
                 if system_prompt == "":
-                    logger.debug("Attempting to bypass default system prompt")
-                    # Some tokenizers might still inject default system prompt
-                    # Try to apply template and check result
-                    formatted_prompt = tokenizer.apply_chat_template(
-                        messages, 
-                        tokenize=False, 
-                        add_generation_prompt=True
-                    )
+                    formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+                    # logger.debug("Attempting to bypass default system prompt")
+                    # # Some tokenizers might still inject default system prompt
+                    # # Try to apply template and check result
+                    # formatted_prompt = tokenizer.apply_chat_template(
+                    #     messages, 
+                    #     tokenize=False, 
+                    #     add_generation_prompt=True
+                    # )
                     
-                    # Check if default system prompt was injected anyway
-                    if "helpful AI assistant named SmolLM" in formatted_prompt:
-                        logger.warning("Default system prompt detected in output, using fallback formatting")
-                        formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
+                    # # Check if default system prompt was injected anyway
+                    # if "helpful AI assistant named SmolLM" in formatted_prompt:
+                    #     logger.warning("Default system prompt detected in output, using fallback formatting")
+                    #     formatted_prompt = f"<|im_start|>user\n{prompt}<|im_end|>\n<|im_start|>assistant\n"
                 else:
                     formatted_prompt = tokenizer.apply_chat_template(
                         messages, 
@@ -267,17 +358,21 @@ class InferenceManager:
             with torch.no_grad():
                 outputs = model.generate(
                     **inputs,
-                    # max_tokens=max_tokens,
+                    max_new_tokens=max_tokens,
                     temperature=temperature,
                     top_p=top_p,
                     repetition_penalty=repetition_penalty,
                     do_sample=do_sample,
-                    pad_token_id=tokenizer.eos_token_id,
+                    pad_token_id=tokenizer.pad_token_id,
                     eos_token_id=tokenizer.eos_token_id,
-                    # Add some safety parameters
+                    # SmolLM2 specific optimizations
                     use_cache=True,
                     output_attentions=False,
                     output_hidden_states=False,
+                    # Prevent empty responses
+                    min_new_tokens=1,
+                    # Better stopping criteria
+                    early_stopping=False,
                 )
             
             logger.debug(f"Generated tokens: {outputs.shape}")

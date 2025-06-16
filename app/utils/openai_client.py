@@ -7,7 +7,7 @@ import os
 import asyncio
 import logging
 import traceback
-from typing import List, Dict, Optional, Union, Any
+from typing import List, Dict, Optional, Union, Any, Callable
 import aiohttp
 import json
 
@@ -167,6 +167,27 @@ class OpenAIClient:
             
         return self._session
     
+    def _is_localhost_endpoint(self) -> bool:
+        """Check if the endpoint is localhost (LMStudio, etc.)"""
+        if not self.base_url:
+            return False
+        
+        import urllib.parse
+        parsed = urllib.parse.urlparse(self.base_url)
+        hostname = parsed.hostname
+        
+        if not hostname:
+            return False
+        
+        localhost_indicators = [
+            'localhost',
+            '127.0.0.1',
+            '::1',
+            '0.0.0.0'
+        ]
+        
+        return hostname.lower() in localhost_indicators
+
     async def _cleanup_session(self):
         """Clean up the current session properly"""
         if self._session and not self._session.closed:
@@ -410,6 +431,7 @@ class OpenAIClient:
                             return_full_response: bool = False,
                             max_concurrent: int = 5,
                             use_true_batching: bool = True,
+                            progress_callback: Optional[Callable] = None,
                             **kwargs) -> List[Union[str, CompletionResponse]]:
         """
         Generate multiple completions with optimized batching
@@ -440,12 +462,17 @@ class OpenAIClient:
         else:
             # Fall back to concurrent individual requests
             return await self._concurrent_generate(
-                prompts, model, max_tokens, temperature, top_p, stop, return_full_response, max_concurrent, **kwargs
+                prompts, model, max_tokens, temperature, top_p, stop, return_full_response, max_concurrent, progress_callback, **kwargs
             )
     
     def _can_use_true_batching(self, prompts: List[Union[str, List[Dict[str, str]]]]) -> bool:
         """Check if we can use true batching (all prompts are identical)"""
         if len(prompts) <= 1:
+            return False
+        
+        # Disable true batching for localhost/LMStudio which doesn't support it properly
+        if self._is_localhost_endpoint():
+            logger.info("🏠 Localhost detected - disabling true batching for LMStudio compatibility")
             return False
         
         # Check if all prompts are identical
@@ -533,26 +560,48 @@ class OpenAIClient:
                                   stop: Optional[List[str]],
                                   return_full_response: bool,
                                   max_concurrent: int,
+                                  progress_callback: Optional[Callable] = None,
                                   **kwargs) -> List[Union[str, CompletionResponse]]:
         """Generate using concurrent individual requests (fallback method)"""
+        
+        # For localhost (LMStudio), use sequential processing to avoid overwhelming it
+        if self._is_localhost_endpoint():
+            logger.info(f"🏠 Using SEQUENTIAL mode for localhost: {len(prompts)} individual API calls")
+            return await self._sequential_generate(
+                prompts, model, max_tokens, temperature, top_p, stop, 
+                return_full_response, progress_callback, **kwargs
+            )
+        
         logger.info(f"🔄 Using CONCURRENT mode: {len(prompts)} individual API calls (max {max_concurrent} concurrent)")
         
         semaphore = asyncio.Semaphore(max_concurrent)
+        completed = 0
         
-        async def generate_single(prompt):
+        async def generate_single(prompt_idx, prompt):
+            nonlocal completed
             async with semaphore:
-                return await self.generate(
-                    prompt=prompt,
-                    model=model,
-                    max_tokens=max_tokens,
-                    temperature=temperature,
-                    top_p=top_p,
-                    stop=stop,
-                    return_full_response=return_full_response,
-                    **kwargs
-                )
+                try:
+                    result = await self.generate(
+                        prompt=prompt,
+                        model=model,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                        top_p=top_p,
+                        stop=stop,
+                        return_full_response=return_full_response,
+                        **kwargs
+                    )
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed / len(prompts))
+                    return result
+                except Exception as e:
+                    completed += 1
+                    if progress_callback:
+                        progress_callback(completed / len(prompts))
+                    raise e
         
-        tasks = [generate_single(prompt) for prompt in prompts]
+        tasks = [generate_single(i, prompt) for i, prompt in enumerate(prompts)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
         # Handle exceptions
@@ -565,6 +614,54 @@ class OpenAIClient:
                 processed_results.append(result)
         
         return processed_results
+
+    async def _sequential_generate(self,
+                                  prompts: List[Union[str, List[Dict[str, str]]]],
+                                  model: Optional[str],
+                                  max_tokens: int,
+                                  temperature: float,
+                                  top_p: float,
+                                  stop: Optional[List[str]],
+                                  return_full_response: bool,
+                                  progress_callback: Optional[Callable] = None,
+                                  **kwargs) -> List[Union[str, CompletionResponse]]:
+        """Generate using sequential individual requests (for LMStudio compatibility)"""
+        
+        results = []
+        total = len(prompts)
+        
+        for i, prompt in enumerate(prompts):
+            try:
+                result = await self.generate(
+                    prompt=prompt,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    stop=stop,
+                    return_full_response=return_full_response,
+                    **kwargs
+                )
+                results.append(result)
+                
+                # Update progress
+                progress = (i + 1) / total
+                if progress_callback:
+                    progress_callback(progress)
+                    
+                logger.debug(f"📈 Sequential progress: {i+1}/{total} ({progress:.1%})")
+                
+            except Exception as e:
+                logger.error(f"Sequential generation failed for prompt {i}: {e}")
+                error_result = "Error: Generation failed" if not return_full_response else CompletionResponse("Error: Generation failed", {})
+                results.append(error_result)
+                
+                # Still update progress even on error
+                progress = (i + 1) / total
+                if progress_callback:
+                    progress_callback(progress)
+        
+        return results
 
 
 # Global client instance

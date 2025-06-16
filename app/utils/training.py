@@ -478,8 +478,19 @@ class TrainingManager:
         dropout_val = config.get('lora_dropout', 0.1)
         target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
         finetune_method = config.get('finetune_method', 'lora').lower()
+        use_rslora = config.get('use_rslora', False)
+        use_dora = config.get('use_dora', False)
         
-        logger.info(f"PEFT Configuration (Method: {finetune_method.upper()}): r={r_val}, α={alpha_val}, dropout={dropout_val}")
+        # Determine method based on config
+        if finetune_method == 'dora' or use_dora:
+            use_dora = True
+            use_rslora = False  # DoRA and RSLoRA are mutually exclusive
+            logger.info(f"DoRA Configuration: r={r_val}, α={alpha_val}, dropout={dropout_val}")
+        elif use_rslora:
+            use_dora = False
+            logger.info(f"RSLoRA Configuration: r={r_val}, α={alpha_val}/√{r_val}, dropout={dropout_val}")
+        else:
+            logger.info(f"Standard LoRA Configuration: r={r_val}, α={alpha_val}, dropout={dropout_val}")
 
         common_peft_params = {
             'r': r_val,
@@ -490,8 +501,17 @@ class TrainingManager:
             'task_type': "CAUSAL_LM",
         }
         
-        if finetune_method == 'dora':
+        # Add method-specific parameters
+        if use_dora:
             common_peft_params['use_dora'] = True
+            # Add DoRA-specific optimizations for better performance
+            ephemeral_gpu_offload = config.get('ephemeral_gpu_offload', False)
+            if ephemeral_gpu_offload and self.device == "cuda":
+                from peft import LoraRuntimeConfig
+                common_peft_params['runtime_config'] = LoraRuntimeConfig(ephemeral_gpu_offload=True)
+                logger.info("DoRA ephemeral GPU offload enabled for performance")
+        elif use_rslora:
+            common_peft_params['use_rslora'] = True
         
         peft_config = LoraConfig(**common_peft_params)
         
@@ -801,6 +821,36 @@ class TrainingManager:
             print("💾 Saving final model...")
             self.trainer.save_model()
             
+            # Save base model and training metadata for inference compatibility
+            # Extract values from config for metadata
+            finetune_method = config.get('finetune_method', 'lora').lower()
+            use_rslora = config.get('use_rslora', False)
+            use_dora = config.get('use_dora', False)
+            r_val = config.get('lora_r', 16)
+            alpha_val = config.get('lora_alpha', r_val)
+            dropout_val = config.get('lora_dropout', 0.1)
+            target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+            
+            metadata = {
+                'base_model': self.base_model,
+                'training_method': finetune_method,
+                'use_rslora': use_rslora,
+                'use_dora': use_dora,
+                'lora_r': r_val,
+                'lora_alpha': alpha_val,
+                'lora_dropout': dropout_val,
+                'target_modules': target_modules_val,
+                'character_name': character_name,
+                'training_date': datetime.datetime.utcnow().isoformat(),
+                'total_steps': total_steps,
+                'dataset_size': len(selected_dataset)
+            }
+            
+            metadata_path = output_dir / "training_metadata.json"
+            with metadata_path.open('w') as f:
+                json.dump(metadata, f, indent=4)
+            print(f"✅ Training metadata saved to {metadata_path}")
+            
             # Log final metrics
             if self.monitor:
                 try:
@@ -810,6 +860,7 @@ class TrainingManager:
             
             # Also save final metrics to adapter directory
             final_metrics_to_save = self.current_metrics.copy()
+            final_metrics_to_save.update(metadata)  # Include metadata in summary
             summary_path = output_dir / "training_summary.json"
             with summary_path.open('w') as f:
                 json.dump(final_metrics_to_save, f, indent=4)
@@ -1110,4 +1161,156 @@ class TrainingManager:
             logger.warning(f"No checkpoints found for {character_name}")
             return None
         zip_name = f"{character_name}_{checkpoint_dir.name}_{datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-        return self._zip_dir(checkpoint_dir, zip_name) 
+        return self._zip_dir(checkpoint_dir, zip_name)
+    
+    def merge_and_export_model(self, character_name: str, checkpoint_path: Optional[str] = None) -> Path:
+        """Merge LoRA/DoRA weights into base model and export as a complete model"""
+        from peft import PeftModel
+        
+        adapter_dir = self._adapter_dir(character_name)
+        if checkpoint_path:
+            merge_path = Path(checkpoint_path)
+        else:
+            merge_path = adapter_dir
+        
+        if not merge_path.exists():
+            raise FileNotFoundError(f"Adapter path not found: {merge_path}")
+        
+        # Load training metadata to get the correct base model
+        metadata_path = merge_path / "training_metadata.json"
+        if metadata_path.exists():
+            with metadata_path.open('r') as f:
+                metadata = json.load(f)
+            base_model_name = metadata.get('base_model', self.base_model)
+        else:
+            base_model_name = self.base_model
+            logger.warning(f"No metadata found, using default base model: {base_model_name}")
+        
+        print(f"🔄 Loading base model: {base_model_name}")
+        
+        # Load base model
+        if self.device == "cuda":
+            device_map = "auto"
+            torch_dtype = torch.float16
+        else:
+            device_map = None
+            torch_dtype = torch.float32
+        
+        base_model = AutoModelForCausalLM.from_pretrained(
+            base_model_name,
+            device_map=device_map,
+            torch_dtype=torch_dtype,
+            trust_remote_code=True
+        )
+        
+        if self.device != "cuda":
+            base_model = base_model.to(self.device)
+        
+        # Load PEFT model
+        print(f"🔄 Loading PEFT adapter from: {merge_path}")
+        peft_model = PeftModel.from_pretrained(base_model, str(merge_path))
+        
+        # Merge weights
+        print("🔄 Merging LoRA/DoRA weights...")
+        merged_model = peft_model.merge_and_unload()
+        
+        # Load tokenizer
+        tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)
+        if tokenizer.pad_token is None:
+            tokenizer.pad_token = tokenizer.eos_token
+        
+        # Create export directory
+        timestamp = datetime.datetime.utcnow().strftime('%Y%m%d_%H%M%S')
+        export_dir = self.exports_dir / f"{character_name}_merged_{timestamp}"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save merged model and tokenizer
+        print(f"💾 Saving merged model to: {export_dir}")
+        merged_model.save_pretrained(export_dir, safe_serialization=True)
+        tokenizer.save_pretrained(export_dir)
+        
+        # Save merge metadata
+        merge_metadata = {
+            'base_model': base_model_name,
+            'adapter_path': str(merge_path),
+            'character_name': character_name,
+            'merge_date': datetime.datetime.utcnow().isoformat(),
+            'merged_model_path': str(export_dir)
+        }
+        
+        if metadata_path.exists():
+            merge_metadata['training_metadata'] = metadata
+        
+        merge_metadata_path = export_dir / "merge_metadata.json"
+        with merge_metadata_path.open('w') as f:
+            json.dump(merge_metadata, f, indent=4)
+        
+        # Zip the merged model
+        zip_path = self._zip_dir(export_dir, f"{character_name}_merged_{timestamp}")
+        
+        # Clean up the unzipped directory to save space
+        shutil.rmtree(export_dir)
+        
+        print(f"✅ Model merged and exported to: {zip_path}")
+        return zip_path
+
+    def add_metadata_to_existing_model(self, character_name: str, base_model: str, 
+                                      training_method: str = "dora", checkpoint_path: Optional[str] = None) -> bool:
+        """Add metadata to an existing model that doesn't have training_metadata.json"""
+        adapter_dir = self._adapter_dir(character_name)
+        if checkpoint_path:
+            target_path = Path(checkpoint_path)
+        else:
+            target_path = adapter_dir
+        
+        if not target_path.exists():
+            logger.error(f"Adapter path not found: {target_path}")
+            return False
+        
+        metadata_path = target_path / "training_metadata.json"
+        if metadata_path.exists():
+            logger.info(f"Metadata already exists at {metadata_path}")
+            return True
+        
+        # Create metadata based on adapter_config.json if available
+        adapter_config_path = target_path / "adapter_config.json"
+        if adapter_config_path.exists():
+            with adapter_config_path.open('r') as f:
+                adapter_config = json.load(f)
+            
+            r_val = adapter_config.get('r', 16)
+            alpha_val = adapter_config.get('lora_alpha', r_val)
+            dropout_val = adapter_config.get('lora_dropout', 0.1)
+            target_modules = adapter_config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+            use_dora = adapter_config.get('use_dora', training_method.lower() == 'dora')
+            use_rslora = adapter_config.get('use_rslora', training_method.lower() == 'rslora')
+        else:
+            # Default values
+            r_val = 16
+            alpha_val = 16
+            dropout_val = 0.1
+            target_modules = ["q_proj", "k_proj", "v_proj", "o_proj"]
+            use_dora = training_method.lower() == 'dora'
+            use_rslora = training_method.lower() == 'rslora'
+        
+        metadata = {
+            'base_model': base_model,
+            'training_method': training_method.lower(),
+            'use_rslora': use_rslora,
+            'use_dora': use_dora,
+            'lora_r': r_val,
+            'lora_alpha': alpha_val,
+            'lora_dropout': dropout_val,
+            'target_modules': target_modules,
+            'character_name': character_name,
+            'training_date': 'unknown',
+            'total_steps': 'unknown',
+            'dataset_size': 'unknown',
+            'metadata_added_manually': True
+        }
+        
+        with metadata_path.open('w') as f:
+            json.dump(metadata, f, indent=4)
+        
+        logger.info(f"✅ Metadata added to {metadata_path}")
+        return True 

@@ -59,10 +59,9 @@ run_server() {
 
   aphrodite run PocketDoc/Dans-PersonalityEngine-V1.3.0-24b \
       -q fp8 \
-      --kv-cache-dtype fp8 \
       --launch-kobold-api \
       --host 0.0.0.0 \
-      --max-model-len 16000 \
+      --max-model-len 48000 \
       --single-user-mode
 }
 

@@ -100,47 +100,22 @@ def init_session_state():
         st.session_state.generated_questions = None
 
 def render_healthy_run_example():
-    """Renders an SVG example of a healthy training run loss curve."""
-    svg_html = """
-    <svg width="250" height="150" viewBox="0 0 300 150" xmlns="http://www.w3.org/2000/svg">
-        <style>
-            .bg { fill: rgba(30, 41, 59, 0.5); }
-            .axis-line { stroke: #475569; stroke-width: 1.5; }
-            .axis-text { fill: #94a3b8; font-family: 'Inter', sans-serif; font-size: 12px; }
-            .loss-curve { stroke: #10b981; stroke-width: 2.5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
-            .grid-line { stroke: #334155; stroke-width: 1; stroke-dasharray: 2,3; }
-            .title-text { fill: #f1f5f9; font-family: 'Inter', sans-serif; font-size: 14px; font-weight: 500; text-anchor: middle; }
-        </style>
-        <rect width="300" height="150" class="bg" rx="12"/>
-        
-        <!-- Title -->
-        <text x="150" y="22" class="title-text">💡 Example: Healthy Loss Curve</text>
-
-        <!-- Axes -->
-        <line x1="40" y1="35" x2="40" y2="125" class="axis-line"/> <!-- Y-axis -->
-        <text x="35" y="40" class="axis-text" text-anchor="end">High</text>
-        <text x="35" y="125" class="axis-text" text-anchor="end">Low</text>
-        <text x="15" y="85" class="axis-text" transform="rotate(-90 15,85)">Loss</text>
-
-        <line x1="40" y1="125" x2="280" y2="125" class="axis-line"/> <!-- X-axis -->
-        <text x="160" y="142" class="axis-text" text-anchor="middle">Training Steps</text>
-        
-        <!-- Grid Lines -->
-        <line x1="40" y1="35" x2="280" y2="35" class="grid-line" />
-        <line x1="40" y1="80" x2="280" y2="80" class="grid-line" />
-
-        <!-- Healthy Loss Curve Path -->
-        <path d="M 45,50 C 90,55 120,100 270,115" class="loss-curve" />
-    </svg>
-    """
-    st.markdown(f"""
-        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%;">
-            <p style="text-align: center; font-size: 0.9rem; color: #cbd5e1; margin-bottom: 0.5rem;">
-                A healthy run shows loss decreasing and stabilizing.
-            </p>
-            {svg_html}
+    """Renders a simple text example of a healthy training run loss curve."""
+    st.markdown("""
+        <div style="text-align: center; padding: 1rem; background: rgba(30, 41, 59, 0.5); border-radius: 12px; margin: 1rem 0;">
+            <h4 style="color: #f1f5f9; margin-bottom: 1rem;">💡 Healthy Loss Curve Example</h4>
         </div>
     """, unsafe_allow_html=True)
+    st.code("""
+Loss
+│
+│ \\
+│  \\
+│   \\___
+│       \\____
+└─────────────────► Steps
+A healthy run shows loss decreasing and stabilizing.
+    """)
 
 
 # Page config
@@ -326,8 +301,8 @@ def render_sidebar():
         # Navigation menu
         selected = option_menu(
             menu_title=None,
-            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison"],
-            icons=["upload", "search", "table", "gear", "graph-up", "flask", "shuffle"],
+            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison", "🔧 Model Management"],
+            icons=["upload", "search", "table", "gear", "graph-up", "flask", "shuffle", "tools"],
             menu_icon="cast",
             default_index=0,
             styles={
@@ -1686,10 +1661,10 @@ def page_training_config():
             
             finetune_method = st.radio(
                 "Fine-tuning Method",
-                ("LoRA", "DoRA"),
+                ("LoRA", "RSLoRA", "DoRA"),
                 horizontal=True,
-                index=["lora", "dora"].index(defaults.get("finetune_method", "lora")),
-                help="Choose between LoRA and DoRA for fine-tuning. DoRA can offer more precise training."
+                index=["lora", "rslora", "dora"].index(defaults.get("finetune_method", "lora")),
+                help="Choose between LoRA, RSLoRA, and DoRA. RSLoRA uses rank-stabilized scaling. DoRA offers more precise training."
             ).lower()
             
             default_r = defaults.get("lora_r", 16)  # Optimal for character LoRA per research
@@ -1735,6 +1710,18 @@ def page_training_config():
                 default=defaults.get("target_modules", ["q_proj", "k_proj", "v_proj", "o_proj"]),  # Focus on attention layers
                 help="Attention layers (q,k,v,o) are most important for character behavior"
             )
+            
+            # Method-specific options
+            if finetune_method == "dora":
+                st.markdown("#### DoRA Settings")
+                ephemeral_gpu_offload = st.checkbox(
+                    "Enable Ephemeral GPU Offload",
+                    value=defaults.get("ephemeral_gpu_offload", False),
+                    help="Speed up DoRA training with temporary VRAM overhead (CUDA only)"
+                )
+                st.info("💡 DoRA works best with low dropout (0.0-0.05) and is optimized for eval mode")
+            else:
+                ephemeral_gpu_offload = False
             
             # --------------------------------------------------------------
             # Resume-from-checkpoint selection
@@ -1969,6 +1956,10 @@ def page_training_config():
             'include_system_prompts': include_system_prompts,
             'max_samples': max_samples,
             'finetune_method': finetune_method,
+            # Method-specific parameters
+            'use_rslora': finetune_method == 'rslora',
+            'use_dora': finetune_method == 'dora',
+            'ephemeral_gpu_offload': ephemeral_gpu_offload if finetune_method == 'dora' else False,
             # Enhanced scheduling options
             'lr_scheduler_type': 'cosine',
             'warmup_ratio': 0.05
@@ -2305,24 +2296,16 @@ def page_training_dashboard():
                     
                     with col_chart1:
                         # Gauge-style visualization
-                        gauge_color = "green" if consistency_score > 0.7 else "orange" if consistency_score > 0.4 else "red"
+                        consistency_score = float(consistency_score) if consistency_score is not None else 0.0
+                        gauge_color = "#10b981" if consistency_score > 0.7 else "#f59e0b" if consistency_score > 0.4 else "#ef4444"
                         st.metric(
                             "Current Consistency Score",
                             f"{consistency_score:.2f}",
                             help="1.0 = Perfect character consistency, 0.0 = Poor consistency"
                         )
                         
-                        # Progress bar visualization
-                        progress_bar_html = f"""
-                        <div style="background-color: #f0f0f0; border-radius: 10px; padding: 3px;">
-                            <div style="background-color: {gauge_color}; width: {consistency_score*100:.0f}%; 
-                                        height: 20px; border-radius: 7px; text-align: center; color: white; 
-                                        font-weight: bold; line-height: 20px;">
-                                {consistency_score:.2f}
-                            </div>
-                        </div>
-                        """
-                        st.markdown(progress_bar_html, unsafe_allow_html=True)
+                        # Progress bar using Streamlit's native progress bar
+                        st.progress(consistency_score, text=f"Consistency: {consistency_score:.2f}")
                     
                     with col_chart2:
                         # Show consistency evaluation details if available
@@ -2368,6 +2351,27 @@ def page_model_testing():
             return
         
         selected_model = st.selectbox("Select Trained Model", available_models, key="test_model_select")
+        
+        # Show model compatibility info
+        if not selected_model.startswith("Base:"):
+            metadata = st.session_state.inference_manager.get_model_metadata(selected_model)
+            if metadata:
+                required_base_model = metadata.get('base_model')
+                training_method = metadata.get('training_method', 'lora')
+                use_dora = metadata.get('use_dora', False)
+                use_rslora = metadata.get('use_rslora', False)
+                
+                # Display model info
+                method_display = "DoRA" if use_dora else "RSLoRA" if use_rslora else "LoRA"
+                
+                st.info(f"🔍 **Model Info**: {method_display} trained on `{required_base_model}`")
+                
+                # Check compatibility
+                current_base = st.session_state.inference_manager.base_model
+                if required_base_model != current_base:
+                    st.warning(f"⚠️ Model trained on `{required_base_model}` but current inference base is `{current_base}`. Will auto-switch for compatibility.")
+            else:
+                st.warning("⚠️ No metadata available for this model. It may be from an older training run.")
         
         # Check if we have dataset metadata with system prompt info
         dataset_metadata = st.session_state.get('dataset_metadata', {})
@@ -2757,9 +2761,13 @@ def page_dataset_explorer_v2():
                     selection_state[item_key] = is_selected
 
                 with row_cols[1]:
-                    st.markdown(f"<div class='data-cell'>{sample['messages'][1]['content']}</div>", unsafe_allow_html=True)
+                    # Escape HTML and use text_area for safer display
+                    user_content = sample['messages'][1]['content'][:200] + ("..." if len(sample['messages'][1]['content']) > 200 else "")
+                    st.text_area(" ", value=user_content, height=100, disabled=True, label_visibility="collapsed", key=f"user_{item_key}")
                 with row_cols[2]:
-                    st.markdown(f"<div class='data-cell'>{sample['messages'][2]['content']}</div>", unsafe_allow_html=True)
+                    # Escape HTML and use text_area for safer display  
+                    assistant_content = sample['messages'][2]['content'][:200] + ("..." if len(sample['messages'][2]['content']) > 200 else "")
+                    st.text_area(" ", value=assistant_content, height=100, disabled=True, label_visibility="collapsed", key=f"asst_{item_key}")
                 
                 with row_cols[3]:
                     if st.button("✏️", key=f"edit_{item_key}", help="Edit sample"):
@@ -2841,7 +2849,7 @@ def page_model_comparison():
     # Test prompt
     prompt = st.text_area(
         "Enter a test prompt",
-        "Who are you and what are your core beliefs?",
+        "Who are you and what do you want?",
         height=100,
         key="comparison_prompt"
     )
@@ -2850,10 +2858,10 @@ def page_model_comparison():
     with st.expander("⚙️ Generation Settings"):
         from utils.sampling_config import render_sampling_config_ui, SamplingConfig
         default_test_config = SamplingConfig(
-            temperature=0.7,
-            top_p=0.9,
+            temperature=0.9,
+            top_p=0.95,
             max_tokens=200,
-            repetition_penalty=1.1,
+            repetition_penalty=1.0,
         )
         test_sampling_config = render_sampling_config_ui(
             current_config=default_test_config,
@@ -2869,12 +2877,13 @@ def page_model_comparison():
         with st.spinner("Generating responses and fetching metrics..."):
             sp_config = test_sampling_config.to_dict()
             if 'min_tokens' in sp_config:
-                sp_config.pop('min_tokens')
+                min_tokens = sp_config.pop('min_tokens')
             if 'max_tokens' in sp_config:
-                sp_config.pop('max_tokens')
+                max_tokens = sp_config.pop('max_tokens')
             comparison_results = st.session_state.comparison_manager.compare_models_side_by_side(
                 model_identifiers=selected_models,
                 prompt=prompt,
+                max_tokens=max_tokens,
                 generation_config=sp_config
             )
             metrics_data = st.session_state.comparison_manager.get_comparison_metrics(selected_models)
@@ -2988,6 +2997,237 @@ def page_model_comparison():
         else:
             st.info("No quantitative metrics found to generate a radar chart. Make sure `training_summary.json` exists for the selected models.")
 
+def page_model_management():
+    """Model management page for merging, managing trained models"""
+    st.markdown('<h2 class="gradient-text">🔧 Model Management</h2>', unsafe_allow_html=True)
+    
+    if not st.session_state.current_character:
+        st.warning("⚠️ Please upload a character card first.")
+        return
+    
+    # Get available models and character info
+    available_models = st.session_state.inference_manager.get_available_models()
+    character_name = st.session_state.current_character.get('name', 'Unknown')
+    
+    tab1, tab2, tab3 = st.tabs(["🔀 Model Merging", "📊 Model Overview", "🗃️ Model Assets"])
+    
+    with tab1:
+        st.markdown("### Merge LoRA/DoRA with Base Model")
+        st.info("💡 Merging creates a complete model that doesn't require PEFT adapters. This is recommended for DoRA models and final deployment.")
+        
+        # Filter to only show LoRA/DoRA models for the current character
+        lora_models = [m for m in available_models if not m.startswith("Base:")]
+        
+        if not lora_models:
+            st.info("ℹ️ No LoRA/DoRA models available for merging. Train a model first.")
+        else:
+            col1, col2 = st.columns([2, 1])
+            
+            with col1:
+                selected_model = st.selectbox("Select Model to Merge", lora_models)
+                
+                # Show model metadata
+                if selected_model:
+                    metadata = st.session_state.inference_manager.get_model_metadata(selected_model)
+                    if metadata:
+                        base_model = metadata.get('base_model', 'Unknown')
+                        method = metadata.get('training_method', 'lora')
+                        use_dora = metadata.get('use_dora', False)
+                        use_rslora = metadata.get('use_rslora', False)
+                        
+                        method_display = "DoRA" if use_dora else "RSLoRA" if use_rslora else "LoRA"
+                        
+                        st.markdown(f"""
+                        **Model Information:**
+                        - **Method**: {method_display}
+                        - **Base Model**: `{base_model}`
+                        - **Training Date**: {metadata.get('training_date', 'Unknown')}
+                        - **Dataset Size**: {metadata.get('dataset_size', 'Unknown')} samples
+                        """)
+                        
+                        if use_dora:
+                            st.info("💡 DoRA models benefit significantly from merging for optimal inference performance.")
+                    else:
+                        st.warning("⚠️ No metadata available for this model.")
+                
+                include_checkpoints = st.checkbox("Include checkpoint selection", help="Also show intermediate checkpoints for merging")
+                
+                if include_checkpoints:
+                    checkpoints = st.session_state.training_manager.get_available_checkpoints(character_name)
+                    if checkpoints:
+                        checkpoint_option = st.selectbox("Or select checkpoint to merge", ["None (use final model)"] + checkpoints)
+                        checkpoint_path = None if checkpoint_option == "None (use final model)" else checkpoint_option
+                    else:
+                        checkpoint_path = None
+                        st.info("No checkpoints available")
+                else:
+                    checkpoint_path = None
+            
+            with col2:
+                st.markdown("### Merge Benefits")
+                st.markdown("""
+                - **Faster Inference**: No PEFT overhead
+                - **Easier Deployment**: Single model file
+                - **DoRA Optimization**: Better performance for DoRA
+                - **Portability**: Compatible with any transformers setup
+                """)
+            
+            if st.button("🔀 Merge Model", use_container_width=True):
+                with st.spinner("Merging model... This may take several minutes."):
+                    try:
+                        merged_path = st.session_state.training_manager.merge_and_export_model(
+                            character_name, checkpoint_path
+                        )
+                        st.success(f"✅ Model merged successfully! Exported to: {merged_path}")
+                        
+                        # Show file size
+                        file_size_mb = merged_path.stat().st_size / (1024 * 1024)
+                        st.info(f"📦 Export size: {file_size_mb:.1f} MB")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Merge failed: {str(e)}")
+    
+    with tab2:
+        st.markdown("### Model Overview")
+        
+        if not lora_models:
+            st.info("ℹ️ No trained models available.")
+        else:
+            for model in lora_models:
+                with st.expander(f"📊 {model}", expanded=False):
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        # Model metadata
+                        metadata = st.session_state.inference_manager.get_model_metadata(model)
+                        if metadata:
+                            st.markdown("**Training Information:**")
+                            st.write(f"- Base Model: `{metadata.get('base_model', 'Unknown')}`")
+                            st.write(f"- Method: {metadata.get('training_method', 'Unknown').upper()}")
+                            st.write(f"- Rank (r): {metadata.get('lora_r', 'Unknown')}")
+                            st.write(f"- Alpha: {metadata.get('lora_alpha', 'Unknown')}")
+                            st.write(f"- Dropout: {metadata.get('lora_dropout', 'Unknown')}")
+                            st.write(f"- Total Steps: {metadata.get('total_steps', 'Unknown')}")
+                            st.write(f"- Dataset Size: {metadata.get('dataset_size', 'Unknown')} samples")
+                    
+                    with col2:
+                        # Training metrics
+                        metrics = st.session_state.inference_manager.get_model_metrics(model)
+                        if metrics:
+                            st.markdown("**Training Metrics:**")
+                            final_loss = metrics.get('current_loss', metrics.get('loss'))
+                            if final_loss:
+                                st.write(f"- Final Loss: {final_loss:.4f}")
+                            
+                            if 'character_consistency' in metrics:
+                                consistency = metrics['character_consistency']
+                                st.write(f"- Character Consistency: {consistency:.2f}")
+                            
+                            training_time = metrics.get('elapsed_time')
+                            if training_time:
+                                minutes = int(training_time // 60)
+                                seconds = int(training_time % 60)
+                                st.write(f"- Training Time: {minutes}m {seconds}s")
+    
+    with tab3:
+        st.markdown("### Model Asset Management")
+        
+        # Fix legacy models section
+        st.markdown("#### Fix Legacy Models")
+        st.info("💡 If you have models trained before the metadata system, add compatibility info here.")
+        
+        legacy_models = [m for m in available_models if not m.startswith("Base:")]
+        if legacy_models:
+            col_a, col_b = st.columns([2, 1])
+            with col_a:
+                legacy_model = st.selectbox("Select legacy model to fix", legacy_models, key="legacy_model_fix")
+                
+                # Check if it already has metadata
+                if legacy_model:
+                    metadata = st.session_state.inference_manager.get_model_metadata(legacy_model)
+                    if metadata:
+                        st.success("✅ This model already has metadata!")
+                    else:
+                        st.warning("⚠️ This model needs metadata to work properly.")
+                        
+                        base_model_options = [
+                            "HuggingFaceTB/SmolLM2-135M-Instruct",
+                            "HuggingFaceTB/SmolLM2-360M-Instruct", 
+                            "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+                        ]
+                        
+                        base_model_fix = st.selectbox("Which base model was this trained on?", base_model_options, index=1)
+                        method_fix = st.selectbox("Training method", ["lora", "dora", "rslora"])
+            
+            with col_b:
+                if st.button("🔧 Add Metadata", use_container_width=True):
+                    if legacy_model and base_model_fix:
+                        success = st.session_state.training_manager.add_metadata_to_existing_model(
+                            character_name, base_model_fix, method_fix
+                        )
+                        if success:
+                            st.success("✅ Metadata added! Model should work now.")
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to add metadata.")
+        else:
+            st.info("No models found that need fixing.")
+        
+        st.markdown("---")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🗑️ Clear All Training Assets", use_container_width=True):
+                if st.session_state.training_manager.clear_training_assets(character_name):
+                    st.success("Training assets cleared!")
+                    st.rerun()
+                else:
+                    st.info("No training assets to remove.")
+        
+        with col2:
+            if st.button("⬇️ Export LoRA", use_container_width=True):
+                try:
+                    zip_path = st.session_state.training_manager.export_lora(character_name)
+                    st.success(f"LoRA exported to {zip_path}")
+                except Exception as e:
+                    st.error(str(e))
+        
+        with col3:
+            if st.button("⬇️ Export Latest Checkpoint", use_container_width=True):
+                zip_path = st.session_state.training_manager.export_latest_checkpoint(character_name)
+                if zip_path:
+                    st.success(f"Checkpoint exported to {zip_path}")
+                else:
+                    st.info("No checkpoints found to export.")
+        
+        # Show disk usage
+        st.markdown("### Disk Usage")
+        
+        adapter_dir = Path("training_output/adapters")
+        exports_dir = Path("training_output/exports")
+        
+        def get_dir_size(path):
+            if not path.exists():
+                return 0
+            total = 0
+            for file in path.rglob('*'):
+                if file.is_file():
+                    total += file.stat().st_size
+            return total / (1024 * 1024)  # MB
+        
+        adapters_size = get_dir_size(adapter_dir)
+        exports_size = get_dir_size(exports_dir)
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Training Assets", f"{adapters_size:.1f} MB")
+        with col2:
+            st.metric("Exports", f"{exports_size:.1f} MB")
+        with col3:
+            st.metric("Total", f"{adapters_size + exports_size:.1f} MB")
+
+
 # Main app function
 def main():
     """Main app function"""
@@ -3027,6 +3267,8 @@ def main():
         page_model_testing()
     elif selected_page == "⚔️ Model Comparison":
         page_model_comparison()
+    elif selected_page == "🔧 Model Management":
+        page_model_management()
     
     # Footer
     st.markdown("""

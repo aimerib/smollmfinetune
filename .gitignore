@@ -66,3 +66,6 @@ character_cards/
 
 # Jupyter notebooks (if any)
 .ipynb_checkpoints/ 
+wandb/
+profiles/
+datasets/
