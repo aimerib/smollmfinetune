@@ -1203,146 +1203,181 @@ Provide {num_variations} variations, one per line:"""
         negative_patterns: Optional[List[str]] = None,
         **sampling_kwargs,
     ) -> List[Dict[str, Any]]:
-        """
-        Generate a small batch of samples for interactive curation.
-        Uses accumulated feedback to improve generation quality.
-        """
+        """Optimized version that only generates what's needed"""
+        
         if not await self.test_client():
             raise RuntimeError("LLM client not available")
 
         try:
             # Setup character
             self._setup_character_components(character)
-
-            # Enhanced prompts with feedback integration
-            default_user_prompts = self.default_user_prompts.copy()
+            
+            # Get templates once
             templates = self._get_template_questions(character)
-            templates_prompts = [question for questions in templates.values() for question in questions]
-
-            all_prompts = default_user_prompts + templates_prompts
-            enhanced_user_prompts = []
-            for prompt in all_prompts:
-                curated_questions = await self._generate_curated_questions(
-                    character=character,
-                    num_questions=3,
-                    root_question=prompt,
-                )
-                if curated_questions:
-                    enhanced_user_prompts.append(curated_question["question"] for curated_question in curated_questions)
-
-            # Add few-shot examples to improve quality
-            if few_shot_examples:
-                logger.info(
-                    f"🎯 Using {len(few_shot_examples)} few-shot examples for guidance"
-                )
-                # Use few-shot examples to generate similar high-quality prompts
-                for example in few_shot_examples[-3:]:  # Use last 3 examples
-                    try:
-                        variation_prompt = f"Generate a question similar in style and quality to: '{example['user']}'"
-                        variation = await self._paraphrase(variation_prompt)
-                        if variation and variation not in enhanced_user_prompts:
-                            enhanced_user_prompts.append(variation)
-                    except Exception as e:
-                        logger.warning(f"Failed to generate variation from few-shot: {e}")
-
-            # Create negative instruction from patterns
-            negative_instruction = ""
-            if negative_patterns:
-                logger.info(f"🚫 Avoiding {len(negative_patterns)} negative patterns")
-                pattern_examples = ". ".join(negative_patterns[:3])  # Use first 3 patterns
-                negative_instruction = f"\n\nIMPORTANT: Avoid generating responses that are similar to these problematic examples: {pattern_examples}. Make responses more engaging, character-appropriate, and natural."
-
-            # Generate batch
+            
+            # Plan distribution upfront
+            temporal_buckets = ["past", "present", "future"]
+            category_buckets = list(templates.keys())
+            
+            # Calculate samples per combination
+            samples_per_temporal = max(1, num_samples // len(temporal_buckets))
+            remaining = num_samples
+            distribution = []
+            
+            # Build distribution plan
+            for temporal in temporal_buckets:
+                temporal_samples = min(samples_per_temporal, remaining)
+                samples_per_category = max(1, temporal_samples // len(category_buckets))
+                
+                for category in category_buckets:
+                    if remaining > 0:
+                        count = min(samples_per_category, remaining)
+                        distribution.append({
+                            'temporal': temporal,
+                            'category': category,
+                            'count': count
+                        })
+                        remaining -= count
+            
+            # Add remaining samples to random buckets
+            while remaining > 0:
+                idx = random.randint(0, len(distribution) - 1)
+                distribution[idx]['count'] += 1
+                remaining -= 1
+            
+            # Now generate ONLY what we need
             batch = []
-
-            for i in range(num_samples):
-                if progress_callback:
-                    progress_callback(i / num_samples)
-
-                try:
-                    # Choose user prompt with enhanced pool
-                    user_prompt = random.choice(enhanced_user_prompts)
-
-                    # Enhance with extra quality if enabled
-                    if extra_quality:
-                        user_prompt = await self._paraphrase(user_prompt)
-
-                    # Generate temporal context and system prompt
-                    temporal_context = self._choose_temporal_bucket()
-                    relationship_context = (
-                        random.choice(self.character_relationships)
-                        if self.character_relationships
-                        else None
-                    )
-
-                    system_prompt = self._generate_temporal_system_prompt(
-                        character, temporal_context, relationship_context
-                    )
-
-                    # Add negative instruction to system prompt
-                    if negative_instruction:
-                        system_prompt += negative_instruction
-
-                    # Build messages
-                    messages = [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ]
-
-                    # Add few-shot examples to the conversation context if available
-                    if few_shot_examples:
-                        # Insert 1-2 examples before the current prompt
-                        example_messages = []
-                        for example in few_shot_examples[-2:]:  # Use last 2 examples
-                            example_messages.extend(
-                                [
-                                    {"role": "user", "content": example["user"]},
-                                    {"role": "assistant", "content": example["assistant"]},
-                                ]
-                            )
-
-                        # Insert examples between system and user
-                        messages = [messages[0]] + example_messages + [messages[1]]
-
-                    # Generate response
-                    response = await self.client.chat_complete(
-                        messages=messages,
-                        max_tokens=max_tokens or 300,
+            total_variations_needed = 0
+            
+            for dist in distribution:
+                category_templates = templates.get(dist['category'], templates.get('personal', []))
+                
+                # Select random templates for this bucket
+                selected_templates = random.sample(
+                    category_templates, 
+                    min(dist['count'], len(category_templates))
+                )
+                
+                # If we need more than available templates, we'll generate variations
+                if dist['count'] > len(selected_templates):
+                    variations_per_template = (dist['count'] // len(selected_templates)) + 1
+                else:
+                    variations_per_template = 1
+                
+                for template in selected_templates[:dist['count']]:
+                    # Only generate variation if needed
+                    if extra_quality and variations_per_template > 1:
+                        # Generate ONE variation at a time, as needed
+                        questions = await self._generate_question_variations(
+                            template, 
+                            character, 
+                            num_variations=1  # Only one at a time!
+                        )
+                        question = questions[0] if questions else template
+                    else:
+                        question = template
+                    
+                    total_variations_needed += 1
+                    
+                    # Generate the response immediately
+                    await self._generate_single_sample(
+                        question=question,
+                        temporal_context=dist['temporal'],
+                        category=dist['category'],
+                        character=character,
+                        batch=batch,
+                        few_shot_examples=few_shot_examples,
+                        negative_patterns=negative_patterns,
+                        max_tokens=max_tokens,
                         temperature=temperature,
                         top_p=top_p,
-                        **sampling_kwargs,
+                        **sampling_kwargs
                     )
-
-                    if response and len(response.strip()) > 10:
-                        # Create sample with original structure (without few-shot examples)
-                        sample = {
-                            "messages": [
-                                {
-                                    "role": "system",
-                                    "content": system_prompt.replace(
-                                        negative_instruction, ""
-                                    ).strip(),
-                                },
-                                {"role": "user", "content": user_prompt},
-                                {"role": "assistant", "content": response.strip()},
-                            ]
-                        }
-                        batch.append(sample)
-
-                except Exception as e:
-                    traceback.print_exc()
-                    logger.error(f"Error generating interactive sample {i}: {e}")
-                    continue
-
-            if progress_callback:
-                progress_callback(1.0)
-
-            logger.info(f"✅ Generated interactive batch: {len(batch)} samples")
-            return batch
+                    
+                    if progress_callback:
+                        progress_callback(len(batch) / num_samples)
+                    
+                    # Stop if we have enough
+                    if len(batch) >= num_samples:
+                        break
+                
+                if len(batch) >= num_samples:
+                    break
+            
+            logger.info(f"✅ Generated {len(batch)} samples with only {total_variations_needed} variations")
+            return batch[:num_samples]
+            
         except Exception as e:
-            traceback.print_exc()
-            logger.error(f"Error generating interactive batch: {e}")
+            logger.error(f"Error in optimized batch generation: {e}")
             return []
+
+    async def _generate_single_sample(
+        self,
+        question: str,
+        temporal_context: str,
+        category: str,
+        character: Dict[str, Any],
+        batch: List[Dict[str, Any]],
+        few_shot_examples: Optional[List[Dict[str, str]]] = None,
+        negative_patterns: Optional[List[str]] = None,
+        **generation_kwargs
+    ):
+        """Generate a single sample and add to batch"""
+        try:
+            # Build system prompt
+            relationship_context = (
+                random.choice(self.character_relationships)
+                if self.character_relationships
+                else None
+            )
+            
+            system_prompt = self._generate_temporal_system_prompt(
+                character, temporal_context, relationship_context
+            )
+            
+            # Add negative patterns if provided
+            if negative_patterns:
+                pattern_examples = ". ".join(negative_patterns[:3])
+                system_prompt += f"\n\nIMPORTANT: Avoid responses similar to: {pattern_examples}"
+            
+            # Build messages
+            messages = [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": question}
+            ]
+            
+            # Add few-shot examples if provided
+            if few_shot_examples:
+                example_messages = []
+                for example in random.sample(few_shot_examples, min(2, len(few_shot_examples))):
+                    example_messages.extend([
+                        {"role": "user", "content": example["user"]},
+                        {"role": "assistant", "content": example["assistant"]},
+                    ])
+                messages = [messages[0]] + example_messages + [messages[1]]
+            
+            # Generate response
+            response = await self.client.chat_complete(
+                messages=messages,
+                **generation_kwargs
+            )
+            
+            if response and len(response.strip()) > 10:
+                sample = {
+                    "messages": [
+                        {"role": "system", "content": system_prompt.split("\n\nIMPORTANT:")[0]},
+                        {"role": "user", "content": question},
+                        {"role": "assistant", "content": response.strip()},
+                    ],
+                    "metadata": {
+                        "temporal_context": temporal_context,
+                        "category": category,
+                    }
+                }
+                batch.append(sample)
+                
+        except Exception as e:
+            logger.error(f"Error generating sample: {e}")
 
     async def generate_fast_templated_dataset(
         self,

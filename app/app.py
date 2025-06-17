@@ -1306,6 +1306,10 @@ def page_dataset_preview():
                     samples_to_generate = min(interactive_state['batch_size'], remaining_needed)
                     
                     # Prepare generation parameters with feedback
+                    if interactive_sampling_config is not None:
+                        sampling_kwargs = interactive_sampling_config.to_dict()
+                    else:
+                        sampling_kwargs = {}
                     generation_params = {
                         'num_samples': samples_to_generate,
                         'progress_callback': lambda p: None,  # No progress bar for small batches
@@ -1313,7 +1317,7 @@ def page_dataset_preview():
                         'extra_quality': True,  # Always use quality for interactive
                         'few_shot_examples': interactive_state['few_shot_examples'][-5:],  # Use recent good examples
                         'negative_patterns': interactive_state['negative_patterns'][-10:],  # Use recent bad patterns
-                        **interactive_sampling_config.to_dict()
+                        **sampling_kwargs
                     }
                     
                     # Generate the batch
