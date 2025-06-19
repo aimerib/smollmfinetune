@@ -57,12 +57,34 @@ Example: `R0-1_restore_dataset_generation.md`
 - **Test structure**: `test_<module_name>.py` matches `utils/<module_name>.py`
 - **TDD Enabled**: The codebase now has proper separation of concerns, modular design, and comprehensive test coverage. Future development should follow TDD practices.
 
+### Multi-Layer TDD Approach ✅ 
+We follow a **three-circle TDD methodology**:
+
+**🔴 Inner Circle (Core Logic)**: Pure business logic, data models, algorithms
+- Write unit tests for `utils/` modules first
+- Focus on core functionality without UI dependencies  
+- Fast feedback loop (~seconds)
+
+**🟡 Middle Circle (Integration)**: Component integration, workflows, data flow
+- Integration tests for manager classes working together
+- Test complete workflows (e.g., world creation → character assignment)
+- Medium feedback loop (~10-30 seconds)
+
+**🟢 Outer Circle (UI)**: Streamlit interface, user interactions, visual components
+- **Streamlit App Testing**: Use `streamlit.testing.v1.AppTest` for UI tests
+- Test user workflows: button clicks, form submissions, page navigation
+- Simulate complete user journeys end-to-end
+- Slower feedback loop (~30-60 seconds)
+
 ### TDD Guidelines for Future Sessions:
-1. **Red** → Write failing test first
-2. **Green** → Write minimal code to pass 
-3. **Refactor** → Clean up while maintaining green tests
-4. **Test types**: Unit tests for logic, integration tests for workflows
-5. **Mock external dependencies** (file system, API calls) in unit tests
+1. **Work Inside-Out**: Start with inner circle tests, move outward
+2. **Red-Green-Refactor** at each layer before moving to next
+3. **UI Testing**: All Streamlit pages must have `AppTest` coverage
+4. **Mock Strategy**: Mock external dependencies, keep UI tests focused on interaction
+5. **Test Structure**: 
+   - `tests/unit/` → Inner circle (business logic)
+   - `tests/integration/` → Middle circle (workflows)  
+   - `tests/ui/` → Outer circle (Streamlit pages)
 
 ---
 ## 4. Vision & Analogy - Expanded

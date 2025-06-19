@@ -29,6 +29,7 @@ from utils.dataset import DatasetManager, QualityLevel, GenerationConfig
 from utils.training import TrainingManager
 from utils.inference import InferenceManager
 from utils.comparison import ComparisonManager
+from utils.world import WorldManager
 
 # Configure logging for debugging
 import logging
@@ -64,6 +65,9 @@ def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optio
 def init_session_state():
     if 'character_manager' not in st.session_state:
         st.session_state.character_manager = CharacterManager()
+    
+    if 'world_manager' not in st.session_state:
+        st.session_state.world_manager = WorldManager()
     
     # ✅ FIX: Use singleton DatasetManager 
     if 'dataset_manager' not in st.session_state:
@@ -303,8 +307,8 @@ def render_sidebar():
         # Navigation menu
         selected = option_menu(
             menu_title=None,
-            options=["📁 Character Upload", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison", "🔧 Model Management"],
-            icons=["upload", "search", "table", "gear", "graph-up", "flask", "shuffle", "tools"],
+            options=["📁 Character Upload", "🌍 World Management", "🔍 Dataset Preview", "📚 Dataset Explorer", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison", "🔧 Model Management"],
+            icons=["upload", "globe", "search", "table", "gear", "graph-up", "flask", "shuffle", "tools"],
             menu_icon="cast",
             default_index=0,
             styles={
@@ -4105,6 +4109,9 @@ def main():
     # Page routing
     if selected_page == "📁 Character Upload":
         page_character_upload()
+    elif selected_page == "🌍 World Management":
+        from pages.world_management import page_world_management
+        page_world_management()
     elif selected_page == "🔍 Dataset Preview":
         page_dataset_preview()
     elif selected_page == "📚 Dataset Explorer":
