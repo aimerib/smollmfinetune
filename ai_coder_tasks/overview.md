@@ -23,10 +23,13 @@ Your role as an AI assistant is to help build this story machine. Every componen
 ## 1. Current Codebase (June 2025)
 
 • `app/app.py` – Streamlit UI (8 pages).  
-• `utils/` – core logic:
-  – `dataset` (legacy + refactor in progress)  
-  – `generation` (new modular managers)  
+• `app/utils/` – core logic:
+  – `world.py` – WorldManager with structured lore system ✅
+  – `character/` – CharacterManager with world integration ✅  
+  – `dataset/` (legacy + refactor in progress)  
+  – `generation/` (new modular managers)  
   – `training.py`, `inference.py`, `comparison.py`  
+• `tests/` – comprehensive unit test suite (run with `pytest`)
 • `training_output/` – adapters & checkpoints.
 
 ---
@@ -34,18 +37,32 @@ Your role as an AI assistant is to help build this story machine. Every componen
 
 | Ring | Name                    | Goal (ship when ✅)                                    |
 |------|-------------------------|--------------------------------------------------------|
-| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat      |
+| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat ✅    |
 | R1   | Devkit 1.0             | Structured World+Character authoring (Big 5, lore)     |
 | R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
 | R3   | Multi-User Platform     | DB backend, async jobs, auth/roles                     |
 
-We are currently **here → R0**.
+We are currently **here → R1** (WorldManager foundation complete).
 
 ---
-## 3. Task IDs
+## 3. Task IDs & Testing
 
 Task files use the format `<Ring>-<index>_<slug>.md`  
 Example: `R0-1_restore_dataset_generation.md`
+
+### Testing Standards ✅ TDD-Ready
+- **All tests** go in `/tests/` directory (not in `/app/`)
+- **Comprehensive coverage** required for new components
+- **Run tests** with `pytest` from project root
+- **Test structure**: `test_<module_name>.py` matches `utils/<module_name>.py`
+- **TDD Enabled**: The codebase now has proper separation of concerns, modular design, and comprehensive test coverage. Future development should follow TDD practices.
+
+### TDD Guidelines for Future Sessions:
+1. **Red** → Write failing test first
+2. **Green** → Write minimal code to pass 
+3. **Refactor** → Clean up while maintaining green tests
+4. **Test types**: Unit tests for logic, integration tests for workflows
+5. **Mock external dependencies** (file system, API calls) in unit tests
 
 ---
 ## 4. Vision & Analogy - Expanded
@@ -67,8 +84,12 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 
 • Each task is self-contained and should contain all context necessary. If you deem the information in the card not to be sufficient, ask the user to attach the file to the context. Don't search for it yourself. The codebase is in heavy flux at the moment and could pollute your working context.
 
+• **ALL TESTS go in `/tests/` directory**, never in `/app/`. Follow the established test patterns and maintain comprehensive coverage.
+
 • After completing each task, move the task's .md file into `ai_coder_tasks/tasks/completed` and add to that card file a summary of what was completed and how, so that either a human or an llm agent can refer to it if necessary.
 
 • The NSFW part of the platform requires a human approval for any and every change, and you need to provide a summary of the changes you want to perform with a reason why before doing so. You need explicit affirmative approval from the user before performing the edit. Failure to adhere to this rule will cause termination of the session.
 
 • The LLM should start work with a short friendly preamble, a small note about its thoughts around the task, and only then proceed with its usual flow, thinking, searching, generating code, etc. Friendliness towards humans helps cooperation, and humans are surprisingly fond of pleasantries.
+
+• **TDD is now encouraged** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
