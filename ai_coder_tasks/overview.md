@@ -1,0 +1,74 @@
+# Project Overview
+
+This file is a living document that gives the **big-picture context** needed by both humans and AIs.
+
+---
+## 0. Vision
+From Chatbots to Personas
+
+Our vision is to create believable, persistent, and systemically-aware digital actors, not just reactive chatbots. We are building a platform where the story is not pre-written, but is an emergent property of the player's interaction with a deeply simulated world. As you put it perfectly, the "narrative is a loose excuse to set the player free."
+
+To achieve this, we use the "Devkit + Cartridge" analogy:
+
+• The Devkit (This Application): This is the creative suite where our writers and designers become character psychologists and world builders. They don't write scripts; they define a character's soul—their core personality (the Big Five traits), their memories, their goals, and their relationships. They also define the many worlds' immutable truths in a shared "World Bible (concept name, not a name in code)" that can be loaded in the runtime. The fine-tuning process then takes this structured soul and trains the character's voice, creating a LoRA/DoRA adapter that acts as their unique speech pattern and personality "imprint."
+
+• The Cartridge (The Runtime Packet): When a character is ready, the Devkit exports a self-contained packet. This is the "game cartridge" that the player's runtime engine loads. It contains the character's trained adapter (their voice) and their core data (their soul and world knowledge).
+
+From the player's perspective, the runtime will be somewhat similar to character.ai, sillytavern, pygmalion, et. all, but they can choose different worlds, and within those worlds, load one or more catridge for characters in that world, and start interacting, much like they would in those platforms, but with more available features due to our tight integration with the tokenizer and the new tokens, the runtime can tightly control flow, display things, etc.
+
+The ultimate goal is an anecdote factory. Players won't just follow a plot; they will create unique, personal stories through their actions. They'll form genuine relationships, make rivals, and discover secrets because the characters they interact with have consistent internal lives and motivations.
+
+Your role as an AI assistant is to help build this story machine. Every component, from the UI to the training pipeline, should serve this central vision: empower creators to build living worlds, so that players can create their own unique stories within them.
+---
+## 1. Current Codebase (June 2025)
+
+• `app/app.py` – Streamlit UI (8 pages).  
+• `utils/` – core logic:
+  – `dataset` (legacy + refactor in progress)  
+  – `generation` (new modular managers)  
+  – `training.py`, `inference.py`, `comparison.py`  
+• `training_output/` – adapters & checkpoints.
+
+---
+## 2. Roadmap — "Rings"
+
+| Ring | Name                    | Goal (ship when ✅)                                    |
+|------|-------------------------|--------------------------------------------------------|
+| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat      |
+| R1   | Devkit 1.0             | Structured World+Character authoring (Big 5, lore)     |
+| R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
+| R3   | Multi-User Platform     | DB backend, async jobs, auth/roles                     |
+
+We are currently **here → R0**.
+
+---
+## 3. Task IDs
+
+Task files use the format `<Ring>-<index>_<slug>.md`  
+Example: `R0-1_restore_dataset_generation.md`
+
+---
+## 4. Vision & Analogy - Expanded
+
+Think of this repository as **"Nintendo DS Devkit + Game Cartridge"**:
+
+• **Devkit (Streamlit app)** — what your writers/designers open every morning.  They upload or author characters, spin up synthetic conversations, fine-tune DoRA adapters, and hit _Play_ to test the result.  It should feel playful: sliders, radar charts, and real-time feedback loops rather than YAML walls.
+
+• **Cartridge (Runtime Packet)** — once a character is deemed ready, the devkit exports a self-contained folder (adapter + character_core.json + world_lore.json + runtime_config.json).  The actual game engine only needs this packet plus the base model.
+
+### Personality Radar Chart
+
+Characters expose **Big-Five traits** (O, C, E, A, N) on a 0-1 scale.  In the devkit these are edited with sliders and visualised via a **Plotly Scatterpolar** chart, giving creators an instant "shape" of a personality.
+
+At runtime the prompt constructor injects these scores (or clustered descriptors) so that the LLM's responses statistically match the target profile.
+
+---
+## 5. LLM RULES
+
+• Each task is self-contained and should contain all context necessary. If you deem the information in the card not to be sufficient, ask the user to attach the file to the context. Don't search for it yourself. The codebase is in heavy flux at the moment and could pollute your working context.
+
+• After completing each task, move the task's .md file into `ai_coder_tasks/tasks/completed` and add to that card file a summary of what was completed and how, so that either a human or an llm agent can refer to it if necessary.
+
+• The NSFW part of the platform requires a human approval for any and every change, and you need to provide a summary of the changes you want to perform with a reason why before doing so. You need explicit affirmative approval from the user before performing the edit. Failure to adhere to this rule will cause termination of the session.
+
+• The LLM should start work with a short friendly preamble, a small note about its thoughts around the task, and only then proceed with its usual flow, thinking, searching, generating code, etc. Friendliness towards humans helps cooperation, and humans are surprisingly fond of pleasantries.

@@ -11,6 +11,7 @@ import re
 import asyncio
 from typing import Dict, List, Any, Optional
 from .prompts import PromptTemplates
+from .prompt_registry import registry
 from . import character_analysis
 
 
@@ -337,17 +338,17 @@ async def generate_temporal_prompts(client, character: Dict[str, Any], temporal_
     """Generate prompts for specific temporal contexts (past, present, future)"""
     
     if temporal_context == "past":
-        base_prompts = PromptTemplates.get_prompts_by_bucket("past_romance")
-        base_prompts.extend(PromptTemplates.get_prompts_by_bucket("past_family"))
-        base_prompts.extend(PromptTemplates.get_prompts_by_bucket("past_friends"))
+        base_prompts = registry.get("past_romance").copy()
+        base_prompts.extend(registry.get("past_family"))
+        base_prompts.extend(registry.get("past_friends"))
     elif temporal_context == "present":
-        base_prompts = PromptTemplates.get_prompts_by_bucket("present_meeting")
-        base_prompts.extend(PromptTemplates.get_prompts_by_bucket("present_bonding"))
+        base_prompts = registry.get("present_meeting").copy()
+        base_prompts.extend(registry.get("present_bonding"))
     elif temporal_context == "future":
-        base_prompts = PromptTemplates.get_prompts_by_bucket("future_romance")
-        base_prompts.extend(PromptTemplates.get_prompts_by_bucket("future_desires"))
+        base_prompts = registry.get("future_romance").copy()
+        base_prompts.extend(registry.get("future_desires"))
     else:
-        base_prompts = PromptTemplates.DEFAULT_QUESTIONS
+        base_prompts = registry.get("default")
     
     # Shuffle and return requested number
     random.shuffle(base_prompts)
@@ -413,7 +414,7 @@ async def generate_scenario_based_prompts(client, character: Dict[str, Any],
     
     # Fill remaining slots with generic prompts if needed
     while len(prompts) < num_scenarios:
-        generic_prompt = random.choice(PromptTemplates.DEFAULT_QUESTIONS)
+        generic_prompt = registry.random("default")
         prompts.append({
             'prompt': generic_prompt,
             'context': 'general',

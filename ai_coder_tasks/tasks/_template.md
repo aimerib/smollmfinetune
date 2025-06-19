@@ -1,0 +1,29 @@
+---
+# <Task Title>
+Status: **Todo**  <!-- Todo / In-Progress / Done -->
+Ring: R?
+Created: YYYY-MM-DD
+---
+
+## Goal
+A one-sentence description of what "done" looks like.
+
+## Context
+Why this task exists, links to code, chat excerpts, etc.
+
+## Acceptance Criteria
+- [ ] Behaviour / tests proving it works
+- [ ] …
+
+## Implementation Notes
+```text
+• bullet 1
+• bullet 2
+```
+
+## Checklist / Steps
+1. 
+2. 
+
+## References
+*commit links, docs, issues* 

@@ -2,6 +2,8 @@ import re
 import logging
 from typing import Dict, Any, List
 
+from ..character.kink_extractor import extract_kinks
+
 logger = logging.getLogger(__name__)
 
 
@@ -146,7 +148,8 @@ def extract_character_knowledge(character: Dict[str, Any]) -> Dict[str, Any]:
         'equipment': [],
         'known_spells': [],
         'current_situation': None,
-        'world_info': []
+        'world_info': [],
+        'kinks': {'likes': [], 'limits': []}
     }
     
     # Parse structured format (Type:, Species:, etc.)
@@ -155,6 +158,11 @@ def extract_character_knowledge(character: Dict[str, Any]) -> Dict[str, Any]:
     
     # Combine all text for additional analysis
     full_text = f"{description} {personality} {scenario}".lower()
+    
+    # Extract kinks from character description and personality
+    kink_text = f"{description} {personality}"
+    extracted_kinks = extract_kinks(kink_text)
+    knowledge['kinks'] = extracted_kinks
     
     # Extract from structured fields if not already found
     if not knowledge['occupation']:

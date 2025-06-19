@@ -57,10 +57,11 @@ run_server() {
        --server.fileWatcherType none \
        --logger.level debug
 
-  aphrodite run PocketDoc/Dans-PersonalityEngine-V1.3.0-24b \
+  #  PocketDoc/Dans-PersonalityEngine-V1.3.0-24b \
+  aphrodite run TheDrummer/Agatha-111B-v1 \
       -q fp8 \
-      --launch-kobold-api \
       --host 0.0.0.0 \
+      --tensor-parallel-size 2 \
       --max-model-len 48000 \
       --single-user-mode
 }

@@ -3,7 +3,7 @@ import queue
 import torch
 import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 from transformers import (
     AutoTokenizer, AutoModelForCausalLM, Trainer, TrainingArguments,
     TrainerCallback, DataCollatorForLanguageModeling, EarlyStoppingCallback
@@ -540,12 +540,12 @@ class TrainingManager:
         
         # Apply guideline-driven defaults for character PEFT
         r_val = config.get('lora_r', 16)
-        alpha_val = config.get('lora_alpha', r_val)  # Use α = r for character training
-        dropout_val = config.get('lora_dropout', 0.1)
+        alpha_val = config.get('lora_alpha', r_val * 2)
+        dropout_val = config.get('lora_dropout', 0.0) # 0.0 is the recommended for DoRA
         target_modules_val = config.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
-        finetune_method = config.get('finetune_method', 'lora').lower()
+        finetune_method = config.get('finetune_method', 'dora').lower()
         use_rslora = config.get('use_rslora', False)
-        use_dora = config.get('use_dora', False)
+        use_dora = config.get('use_dora', True)
         
         # Determine method based on config
         if finetune_method == 'dora' or use_dora:
@@ -611,8 +611,7 @@ class TrainingManager:
             try:
                 import torch
                 import transformers
-                import peft
-                import datasets
+
                 print(f"✅ Dependencies OK - PyTorch: {torch.__version__}, Transformers: {transformers.__version__}")
             except ImportError as e:
                 raise RuntimeError(f"Missing dependency: {e}")
