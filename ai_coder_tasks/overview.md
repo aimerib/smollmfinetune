@@ -29,7 +29,7 @@ Your role as an AI assistant is to help build this story machine. Every componen
   – `dataset/` (legacy + refactor in progress)  
   – `generation/` (new modular managers)  
   – `training.py`, `inference.py`, `comparison.py`  
-• `tests/` – comprehensive unit test suite (run with `pytest`)
+• `tests/` – comprehensive TDD unit test suite (run with `pytest`)
 • `training_output/` – adapters & checkpoints.
 
 ---
@@ -37,10 +37,10 @@ Your role as an AI assistant is to help build this story machine. Every componen
 
 | Ring | Name                    | Goal (ship when ✅)                                    |
 |------|-------------------------|--------------------------------------------------------|
-| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat ✅    |
-| R1   | Devkit 1.0             | Structured World+Character authoring (Big 5, lore)     |
+| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat ✅   |
+| R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     |
 | R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
-| R3   | Multi-User Platform     | DB backend, async jobs, auth/roles                     |
+| R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
 
 We are currently **here → R1** (WorldManager foundation complete).
 
