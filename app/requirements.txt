@@ -26,6 +26,8 @@ matplotlib
 
 # Development utilities
 python-dotenv
+pytest
+pytest-asyncio
 
 # Optional inference engines (install based on deployment target)
 # For high-performance GPU deployment:
