@@ -57,95 +57,29 @@ class NSFWGenerationManager(BaseGenerationManager):
     async def generate_nsfw_dataset(
         self,
         character: Dict[str, Any],
-        num_samples: int = 80,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.8,
-        top_p: float = 0.9,
-        progress_callback: Optional[Callable] = None,
-        append_to_existing: bool = True,
-        custom_system_prompt: Optional[str] = None,
-        extra_quality: bool = False,
-        quality_level: Optional[Any] = None,
-        few_shot_examples: Optional[List[Dict[str, str]]] = None,
-        negative_patterns: Optional[List[str]] = None,
-        **sampling_kwargs,
+        **kwargs,
     ) -> List[Dict[str, Any]]:
         """
         Generate NSFW dataset with specialized NSFW content generation.
         
-        This is a stub method that currently delegates to the existing implementation.
-        Will be enhanced with NSFW-specific generation logic in future iterations.
+        This method will be enhanced with NSFW-specific generation logic in future iterations.
+        For now, it calls the base dataset generation method.
         """
-        # TODO: Implement NSFW-specific generation logic
-        # For now, delegate to the existing implementation from the original DatasetManager
-        
-        # Import here to avoid circular imports
-        from ..dataset.manager import DatasetManager
-        
-        # Create a temporary DatasetManager to delegate to existing implementation
-        temp_manager = DatasetManager(
-            api_key=getattr(self.client, 'api_key', None),
-            base_url=getattr(self.client, 'base_url', None),
-            generation_config=self.generation_config
-        )
-        
-        return await temp_manager.generate_dataset(
-            character=character,
-            num_samples=num_samples,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            progress_callback=progress_callback,
-            append_to_existing=append_to_existing,
-            custom_system_prompt=custom_system_prompt,
-            extra_quality=extra_quality,
-            quality_level=quality_level,
-            few_shot_examples=few_shot_examples,
-            negative_patterns=negative_patterns,
-            **sampling_kwargs
-        )
+        logger.info("Calling base generate_dataset from NSFW manager.")
+        # The base manager now has the implementation.
+        return await super().generate_dataset(character=character, **kwargs)
 
     async def generate_interactive_batch(
         self,
         character: Dict[str, Any],
-        num_samples: int = 20,
-        max_tokens: Optional[int] = None,
-        temperature: float = 0.9,
-        top_p: float = 0.95,
-        progress_callback: Optional[Callable] = None,
-        extra_quality: bool = True,
-        few_shot_examples: Optional[List[Dict[str, str]]] = None,
-        negative_patterns: Optional[List[str]] = None,
-        **sampling_kwargs,
+        **kwargs,
     ) -> List[Dict[str, Any]]:
         """
         Generate interactive batch with NSFW-aware content generation.
         
-        This is a stub method that currently delegates to the existing implementation.
-        Will be enhanced with NSFW-specific interactive generation logic in future iterations.
+        This method will be enhanced with NSFW-specific interactive generation logic in future iterations.
+        For now, it calls the base interactive batch generation method.
         """
-        # TODO: Implement NSFW-specific interactive generation logic
-        # For now, delegate to the existing implementation from the original DatasetManager
-        
-        # Import here to avoid circular imports
-        from ..dataset.manager import DatasetManager
-        
-        # Create a temporary DatasetManager to delegate to existing implementation
-        temp_manager = DatasetManager(
-            api_key=getattr(self.client, 'api_key', None),
-            base_url=getattr(self.client, 'base_url', None),
-            generation_config=self.generation_config
-        )
-        
-        return await temp_manager.generate_interactive_batch(
-            character=character,
-            num_samples=num_samples,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            progress_callback=progress_callback,
-            extra_quality=extra_quality,
-            few_shot_examples=few_shot_examples,
-            negative_patterns=negative_patterns,
-            **sampling_kwargs
-        ) 
+        logger.info("Calling base generate_interactive_batch from NSFW manager.")
+        # The base manager now has the implementation.
+        return await super().generate_interactive_batch(character=character, **kwargs) 
