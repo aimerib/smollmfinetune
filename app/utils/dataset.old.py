@@ -3,17 +3,15 @@ import random
 import re
 import textwrap
 import logging
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Callable, Union
+from typing import Any, Dict, List, Optional, Callable
 from datasets import Dataset
-from .openai_client import get_client, OpenAIClient
+from .openai_client import get_client
 try:
     from .vllm_optimized_client import VLLMOptimizedClient, BatchConfig
     VLLM_CLIENT_AVAILABLE = True
 except ImportError:
     VLLM_CLIENT_AVAILABLE = False
     
-import torch
 import json
 import os
 import hashlib
@@ -23,7 +21,7 @@ import warnings
 import gc
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import Dict, List, Any, Optional, Callable, Union
+from typing import Dict, List, Any, Optional, Callable
 from enum import Enum
 import numpy as np
 from pydantic import BaseModel, Field

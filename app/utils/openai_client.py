@@ -9,7 +9,6 @@ import logging
 import traceback
 from typing import List, Dict, Optional, Union, Any, Callable
 import aiohttp
-import json
 
 logger = logging.getLogger(__name__)
 

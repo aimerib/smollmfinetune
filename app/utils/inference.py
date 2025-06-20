@@ -214,7 +214,6 @@ class InferenceManager:
                     # Try loading the adapter to see if dimensions match
                     adapter_path = self._get_model_path(model_path)
                     if adapter_path:
-                        from transformers import AutoConfig
                         config_path = adapter_path / "adapter_config.json"
                         if config_path.exists():
                             with open(config_path, 'r') as f:

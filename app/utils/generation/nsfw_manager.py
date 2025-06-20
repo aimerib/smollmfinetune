@@ -5,7 +5,7 @@ with NSFW-specific generation methods and quality evaluations.
 """
 
 import logging
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from .base_manager import BaseGenerationManager
 from ..dataset import content_evaluation

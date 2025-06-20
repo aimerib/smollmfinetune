@@ -299,7 +299,7 @@ class PromptRegistry:
         Expected path:   app/utils/dataset/kink_prompts/*.json
         File format: {"bucket": "pet_play", "prompts": ["…", …]}
         """
-        import json, glob, os, pathlib
+        import json, glob, pathlib
 
         base = pathlib.Path(__file__).parent / "kink_prompts"
         if not base.exists():

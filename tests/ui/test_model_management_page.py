@@ -5,10 +5,8 @@ Following the three-circle TDD approach - this is the outer circle (UI testing).
 
 import pytest
 from streamlit.testing.v1 import AppTest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock
 from pathlib import Path
-import tempfile
-import shutil
 import sys
 import os
 

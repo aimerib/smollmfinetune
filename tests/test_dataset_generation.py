@@ -1,7 +1,6 @@
 """Unit tests for DatasetManager.generate_dataset() functionality."""
 
 import pytest
-from unittest.mock import AsyncMock
 
 
 class MockDatasetManager:

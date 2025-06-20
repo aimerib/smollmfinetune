@@ -15,9 +15,7 @@ Extracted from main app.py for better maintainability.
 import streamlit as st
 import asyncio
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
-from typing import Dict, Any, List, Optional
 
 def page_model_comparison():
     """Page for comparing different models side-by-side."""

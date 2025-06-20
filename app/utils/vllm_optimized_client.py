@@ -6,12 +6,12 @@ Extends the base OpenAI client with vLLM-specific optimizations.
 import asyncio
 import logging
 import time
-from typing import List, Dict, Optional, Union, Any, Tuple
+from typing import List, Dict, Optional, Union, Any
 from dataclasses import dataclass
 from collections import defaultdict
 import numpy as np
 
-from .openai_client import OpenAIClient, CompletionResponse
+from .openai_client import OpenAIClient
 
 logger = logging.getLogger(__name__)
 

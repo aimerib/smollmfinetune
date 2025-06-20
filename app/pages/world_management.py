@@ -10,7 +10,6 @@ Following the TDD approach, this starts as a minimal implementation.
 """
 
 import streamlit as st
-from typing import Dict, Any
 import pandas as pd
 
 def page_world_management():

@@ -1,8 +1,8 @@
 import os
 import orjson
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union
-from dataclasses import dataclass, asdict
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass
 import logging
 
 logger = logging.getLogger(__name__)

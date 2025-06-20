@@ -6,10 +6,7 @@ prompts based on character information extracted from character cards.
 """
 
 import random
-import json
-import re
-import asyncio
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 from .prompts import PromptTemplates
 from .prompt_registry import registry
 from . import character_analysis

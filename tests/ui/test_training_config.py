@@ -6,11 +6,9 @@ including form handling, profile management, and training configuration validati
 """
 
 import pytest
-import json
 import sys
-import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 # Add the app directory to Python path so we can import from pages
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))

@@ -2,7 +2,7 @@
 
 import json
 import re
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import logging
 
 logger = logging.getLogger(__name__)

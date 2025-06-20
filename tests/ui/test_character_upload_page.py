@@ -5,13 +5,9 @@ Following the three-circle TDD approach - this is the outer circle (UI testing).
 
 import pytest
 from streamlit.testing.v1 import AppTest
-from unittest.mock import Mock, patch, MagicMock
-from pathlib import Path
-import tempfile
-import shutil
+from unittest.mock import Mock
 import sys
 import os
-import json
 
 # Add the app directory to Python path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))

@@ -1,6 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional
-import asyncio
+from typing import List, Dict, Any
 import json
 import logging
 

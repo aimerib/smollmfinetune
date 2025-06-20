@@ -1,9 +1,5 @@
 import unittest
-import asyncio
 import tempfile
-from pathlib import Path
-import json
-import orjson
 
 from app.utils.character.models import CharacterCore, Personality, Relationship, llm_estimate_big5
 from app.utils.character.character import CharacterManager

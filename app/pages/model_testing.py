@@ -12,7 +12,6 @@ Extracted from main app.py for better maintainability.
 
 import streamlit as st
 import asyncio
-from typing import Dict, Any
 
 
 def page_model_testing():

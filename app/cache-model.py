@@ -13,7 +13,6 @@ Usage:
 """
 
 import os
-import sys
 import argparse
 import logging
 from pathlib import Path
@@ -45,7 +44,7 @@ def cache_model(model_name: str, cache_dir: str):
     logger.info(f"🔽 Downloading model: {model_name}")
     
     try:
-        from transformers import AutoTokenizer, AutoConfig, AutoModelForCausalLM
+        from transformers import AutoTokenizer, AutoConfig
         
         # Download model files
         logger.info("📥 Downloading tokenizer...")

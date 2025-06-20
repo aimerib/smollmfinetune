@@ -6,7 +6,7 @@ diverse, character-specific conversations. Prompts are organized by category and
 template strings that can be personalized with character information.
 """
 
-from typing import Dict, List, Tuple
+from typing import List, Tuple
 from dataclasses import dataclass
 from .prompt_registry import registry
 

@@ -1,6 +1,6 @@
 import re
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import torch
 from collections import defaultdict
 

@@ -10,12 +10,9 @@ Tests the extracted model comparison functionality including:
 """
 
 import pytest
-import streamlit as st
-from streamlit.testing.v1 import AppTest
 import sys
 import os
-from unittest.mock import Mock, patch, MagicMock
-import pandas as pd
+from unittest.mock import Mock, patch
 
 # Add the app directory to the path so we can import the page
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
@@ -391,7 +388,6 @@ def test_model_comparison_standalone_execution():
                 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
                 
                 # Import and test the main guard
-                import pages.model_comparison
                 # The main guard should not raise exceptions
                 
             finally:

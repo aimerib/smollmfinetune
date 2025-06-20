@@ -10,13 +10,9 @@ This replaces both page_dataset_preview and page_dataset_explorer_v2.
 """
 
 import pytest
-import streamlit as st
-from streamlit.testing.v1 import AppTest
 import sys
 import os
-from unittest.mock import Mock, patch, MagicMock
-import pandas as pd
-import asyncio
+from unittest.mock import Mock, patch
 
 # Add the app directory to the path so we can import the page
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))

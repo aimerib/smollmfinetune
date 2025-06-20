@@ -12,7 +12,6 @@ Extracted from main app.py for better maintainability.
 
 import streamlit as st
 import json
-from typing import Dict, Any
 
 
 def page_character_upload():
