@@ -222,6 +222,7 @@ class OpenAIClient:
                       top_p: float = 0.9,
                       stop: Optional[List[str]] = None,
                       return_full_response: bool = False,
+                      response_format: Optional[Dict[str, Any]] = None,
                       **kwargs) -> Union[str, CompletionResponse]:
         """
         Generate text completion from a prompt
@@ -253,6 +254,9 @@ class OpenAIClient:
         
         if stop:
             payload['stop'] = stop
+        
+        if response_format:
+            payload['response_format'] = response_format
         
         # Try with session, if it fails, try with fresh session
         for attempt in range(2):
@@ -289,6 +293,7 @@ class OpenAIClient:
                            top_p: float = 0.9,
                            stop: Optional[List[str]] = None,
                            return_full_response: bool = False,
+                           response_format: Optional[Dict[str, Any]] = None,
                            **kwargs) -> Union[str, CompletionResponse]:
         """
         Generate chat completion from messages
@@ -320,6 +325,9 @@ class OpenAIClient:
         
         if stop:
             payload['stop'] = stop
+        
+        if response_format:
+            payload['response_format'] = response_format
         
         # Try with session, if it fails, try with fresh session
         for attempt in range(2):
@@ -378,6 +386,7 @@ class OpenAIClient:
                       top_p: float = 0.9,
                       stop: Optional[List[str]] = None,
                       return_full_response: bool = False,
+                      response_format: Optional[Dict[str, Any]] = None,
                       **kwargs) -> Union[str, CompletionResponse]:
         """
         Universal generate method that automatically chooses completion or chat completion
@@ -404,6 +413,7 @@ class OpenAIClient:
                 top_p=top_p,
                 stop=stop,
                 return_full_response=return_full_response,
+                response_format=response_format,
                 **kwargs
             )
         elif isinstance(prompt, list):
@@ -415,6 +425,7 @@ class OpenAIClient:
                 top_p=top_p,
                 stop=stop,
                 return_full_response=return_full_response,
+                response_format=response_format,
                 **kwargs
             )
         else:

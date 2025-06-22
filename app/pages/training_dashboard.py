@@ -16,6 +16,7 @@ import streamlit as st
 import time
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from typing import Dict, Any
 
 def render_consistency_deep_dive(metrics: Dict[str, Any]):

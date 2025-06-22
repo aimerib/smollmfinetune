@@ -55,6 +55,23 @@ def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optio
 
 # Initialize session state
 def init_session_state():
+    # Initialize OpenAI client first (before other managers that might use it)
+    if 'openai_client_initialized' not in st.session_state:
+        # Get OpenAI configuration from environment
+        api_key = os.getenv('OPENAI_API_KEY', "empty")
+        base_url = os.getenv('OPENAI_BASE_URL')
+        
+        # Set up the global OpenAI client before anything else
+        try:
+            from utils.openai_client import OpenAIClient, set_client
+            client = OpenAIClient(api_key=api_key, base_url=base_url)
+            set_client(client)
+            st.session_state.openai_client_initialized = True
+            logger.info("✅ Global OpenAI client initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize OpenAI client: {e}")
+            st.session_state.openai_client_initialized = False
+
     if 'character_manager' not in st.session_state:
         st.session_state.character_manager = CharacterManager()
     
@@ -274,7 +291,7 @@ def render_header():
     """, unsafe_allow_html=True)
 
 # Render the sidebar navigation
-def render_sidebar():
+def render_sidebar(pg):
     """Render the sidebar navigation"""
     with st.sidebar:
         st.markdown("""
@@ -283,16 +300,52 @@ def render_sidebar():
             </div>
         """, unsafe_allow_html=True)
         
+        # Get current page info
+        current_page_title = pg.title if hasattr(pg, 'title') else "Unknown"
+        
+        # Create a mapping of page titles to page objects for navigation
+        page_mapping = {}
+        page_options = []
+        
+        # Flatten the pages structure for the option menu
+        for section, section_pages in [
+            ("Character Studio", [
+                ("📁 Character Upload", "pages/character_upload.py"),
+                ("📋 Character Management", "pages/character_management.py"),
+            ]),
+            ("World & Data", [
+                ("🌍 World Management", "pages/world_management.py"),
+                ("🎨 Dataset Studio", "pages/dataset_studio.py"),
+            ]),
+            ("Training & Testing", [
+                ("⚙️ Training Config", "pages/training_config.py"),
+                ("📊 Training Dashboard", "pages/training_dashboard.py"),
+                ("🧪 Model Testing", "pages/model_testing.py"),
+                ("⚔️ Model Comparison", "pages/model_comparison.py"),
+                ("🔧 Model Management", "pages/model_management.py"),
+            ]),
+        ]:
+            for title, path in section_pages:
+                page_options.append(title)
+                page_mapping[title] = path
+        
+        # Find current selection index
+        default_index = 0
+        for i, title in enumerate(page_options):
+            if current_page_title in title or title in current_page_title:
+                default_index = i
+                break
+        
         # Navigation menu
         selected = option_menu(
             menu_title=None,
-            options=["📁 Character Upload", "🌍 World Management", "🎨 Dataset Studio", "⚙️ Training Config", "📊 Training Dashboard", "🧪 Model Testing", "⚔️ Model Comparison", "🔧 Model Management"],
-            icons=["upload", "globe", "palette", "gear", "graph-up", "flask", "shuffle", "tools"],
-            menu_icon="cast",
-            default_index=0,
+            options=page_options,
+            icons=[None] * len(page_options),  # No bootstrap icons, just use emojis
+            menu_icon=None,
+            default_index=default_index,
             styles={
                 "container": {"padding": "0!important", "background-color": "transparent"},
-                "icon": {"color": "#06b6d4", "font-size": "18px"},
+                "icon": {"display": "none"},  # Hide icon space since we're using emojis in text
                 "nav-link": {
                     "font-size": "16px",
                     "text-align": "left",
@@ -303,6 +356,10 @@ def render_sidebar():
                 "nav-link-selected": {"background-color": "rgba(99, 102, 241, 0.2)"},
             }
         )
+        
+        # Handle navigation - switch to selected page if different from current
+        if selected != current_page_title and selected in page_mapping:
+            st.switch_page(page_mapping[selected])
         
         # Training status (ensure it's always up to date)
         if hasattr(st.session_state, 'training_manager'):
@@ -385,23 +442,6 @@ def render_sidebar():
                             st.success(f"Checkpoint exported to {zip_path}")
                         else:
                             st.info("No checkpoints found to export.")
-    
-    return selected
-
-# Original page_character_upload() function has been extracted to pages/character_upload.py
-
-# Original page_dataset_preview() function has been extracted to pages/dataset_studio.py
-
-# Original page_training_config() function has been extracted to pages/training_config.py
-# Original page_training_dashboard() function has been extracted to pages/training_dashboard.py
-
-# Model testing and inference page
-
-# Original page_dataset_explorer_v2() function has been extracted to pages/dataset_studio.py
-
-# Original page_model_comparison() function has been extracted to pages/model_comparison.py
-
-# Original page_model_management() function has been extracted to pages/model_management.py
 
 # Main app function
 def main():
@@ -421,37 +461,35 @@ def main():
         # Reset the request flag
         st.session_state.launch_tensorboard_request = False
 
+    # Configure pages for modern navigation
+    pages = {
+        "Character Studio": [
+            st.Page("pages/character_upload.py", title="📁 Character Upload", icon="📁"),
+            st.Page("pages/character_management.py", title="📋 Character Management", icon="📋"),
+        ],
+        "World & Data": [
+            st.Page("pages/world_management.py", title="🌍 World Management", icon="🌍"),
+            st.Page("pages/dataset_studio.py", title="🎨 Dataset Studio", icon="🎨"),
+        ],
+        "Training & Testing": [
+            st.Page("pages/training_config.py", title="⚙️ Training Config", icon="⚙️"),
+            st.Page("pages/training_dashboard.py", title="📊 Training Dashboard", icon="📊"),
+            st.Page("pages/model_testing.py", title="🧪 Model Testing", icon="🧪"),
+            st.Page("pages/model_comparison.py", title="⚔️ Model Comparison", icon="⚔️"),
+            st.Page("pages/model_management.py", title="🔧 Model Management", icon="🔧"),
+        ],
+    }
+
+    # Use hidden navigation to maintain custom sidebar
+    pg = st.navigation(pages, position="hidden")
 
     render_header()
     
-    # Sidebar navigation
-    selected_page = render_sidebar()
+    # Render custom sidebar with navigation
+    render_sidebar(pg)
     
-    # Page routing
-    if selected_page == "📁 Character Upload":
-        from pages.character_upload import page_character_upload
-        page_character_upload()
-    elif selected_page == "🌍 World Management":
-        from pages.world_management import page_world_management
-        page_world_management()
-    elif selected_page == "🎨 Dataset Studio":
-        from pages.dataset_studio import page_dataset_studio
-        page_dataset_studio()
-    elif selected_page == "⚙️ Training Config":
-        from pages.training_config import page_training_config
-        page_training_config()
-    elif selected_page == "📊 Training Dashboard":
-        from pages.training_dashboard import page_training_dashboard
-        page_training_dashboard()
-    elif selected_page == "🧪 Model Testing":
-        from pages.model_testing import page_model_testing
-        page_model_testing()
-    elif selected_page == "⚔️ Model Comparison":
-        from pages.model_comparison import page_model_comparison
-        page_model_comparison()
-    elif selected_page == "🔧 Model Management":
-        from pages.model_management import page_model_management
-        page_model_management()
+    # Run the selected page
+    pg.run()
     
     # Footer
     st.markdown("""

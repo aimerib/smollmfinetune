@@ -22,7 +22,8 @@ Your role as an AI assistant is to help build this story machine. Every componen
 ---
 ## 1. Current Codebase (June 2025)
 
-• `app/app.py` – Streamlit UI (8 pages).  
+• `app/app.py` – Streamlit UI
+• `app/pages/` - 8 pages.  
 • `app/utils/` – core logic:
   – `world.py` – WorldManager with structured lore system ✅
   – `character/` – CharacterManager with world integration ✅  
@@ -42,7 +43,7 @@ Your role as an AI assistant is to help build this story machine. Every componen
 | R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
 | R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
 
-We are currently **here → R1** (WorldManager foundation complete).
+We are currently **here → R1**.
 
 ---
 ## 3. Task IDs & Testing
@@ -50,7 +51,7 @@ We are currently **here → R1** (WorldManager foundation complete).
 Task files use the format `<Ring>-<index>_<slug>.md`  
 Example: `R0-1_restore_dataset_generation.md`
 
-### Testing Standards ✅ TDD-Ready
+### Testing Standards - TDD
 - **All tests** go in `/tests/` directory (not in `/app/`)
 - **Comprehensive coverage** required for new components
 - **Run tests** with `pytest` from project root
@@ -114,4 +115,4 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 
 • The LLM should start work with a short friendly preamble, a small note about its thoughts around the task, and only then proceed with its usual flow, thinking, searching, generating code, etc. Friendliness towards humans helps cooperation, and humans are surprisingly fond of pleasantries.
 
-• **TDD is now encouraged** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
+• **TDD is now mandatory for every card** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
