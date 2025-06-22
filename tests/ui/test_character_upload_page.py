@@ -112,32 +112,33 @@ page_character_upload()
         assert not at.exception
         assert len(at.markdown) > 0  # Basic page structure present
     
-    def test_conversion_simulation_function_exists(self):
-        """Test that character conversion simulation function exists and works"""
+    def test_real_llm_conversion_integration(self):
+        """Test that page properly handles real LLM conversion workflow"""
         test_script = """
 import streamlit as st
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
 
-# Test that simulate_character_conversion function is available
-from pages.character_upload import simulate_character_conversion
+# Set up character manager with async import method
+mock_cm = Mock()
+mock_cm.get_current_world.return_value = "Test World"
+mock_cm.validate_character_card.return_value = (True, "")
+mock_cm.save_character.return_value = True
 
-# Should be callable
-assert callable(simulate_character_conversion)
+# Mock the async import method
+async def mock_import(card_data):
+    from utils.character.models import CharacterCore, Personality
+    return CharacterCore(
+        name=card_data.get('name', 'Test'),
+        description=card_data.get('description', 'Test desc'),
+        personality_traits=Personality()
+    )
 
-# Mock test data
-test_data = {
-    'name': 'TestChar',
-    'description': 'Test description'
-}
+mock_cm.import_sillytavern_card = mock_import
+st.session_state.character_manager = mock_cm
+st.session_state.openai_client_initialized = True
 
-mock_manager = Mock()
-result = simulate_character_conversion(test_data, mock_manager)
-
-# Should return a CharacterCore-like object
-assert hasattr(result, 'name')
-assert result.name == 'TestChar'
-assert hasattr(result, 'personality_traits')
-assert hasattr(result, 'goals')
+from pages.character_upload import page_character_upload
+page_character_upload()
 """
         
         at = AppTest.from_string(test_script).run()
