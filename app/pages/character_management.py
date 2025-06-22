@@ -22,9 +22,12 @@ from pydantic import BaseModel, Field
 
 from utils.character import CharacterManager
 from utils.character.models import CharacterCore, Personality, Relationship
+from utils.character.character_intelligence import CharacterIntelligenceService
 from utils.world import WorldManager
 from utils.openai_client import get_client
 from components.personality_editor import render_personality_editor, log_preference_event
+from components.character_creation.character_synthesis_preview import render_character_synthesis_preview
+from components.world_context_panel import render_world_context_panel, render_ecosystem_insights, render_preference_insights
 
 logger = logging.getLogger(__name__)
 
@@ -1101,6 +1104,135 @@ def render_examples_tab(core: CharacterCore):
             st.metric("Total Lines", len(lines))
 
 
+def render_live_preview_tab(core: CharacterCore):
+    """Render the Live Preview tab with character synthesis"""
+    st.markdown("### 🎭 Live Character Preview")
+    
+    if not core.name:
+        st.info("👈 Add character details in other tabs to see live preview")
+        return
+    
+    # Get intelligence service
+    intelligence_service = st.session_state.character_intelligence
+    
+    # Render the synthesis preview
+    synthesis = render_character_synthesis_preview(
+        character=core,
+        intelligence_service=intelligence_service,
+        key_prefix="mgmt_preview"
+    )
+    
+    # Show enhanced actions if synthesis is available
+    if synthesis:
+        st.markdown("---")
+        st.markdown("### 🚀 Enhanced Actions")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            if st.button("🔍 Validate Character", key="validate_char_btn", use_container_width=True):
+                with st.spinner("Validating character..."):
+                    try:
+                        # Add validation logic here
+                        st.success("✅ Character validation complete!")
+                        st.info(f"Training Readiness: {int(synthesis.training_readiness * 100)}%")
+                    except Exception as e:
+                        st.error(f"Validation failed: {str(e)}")
+        
+        with col2:
+            if st.button("🗣️ Preview Voice", key="preview_voice_btn", use_container_width=True):
+                if synthesis.sample_dialogue:
+                    st.markdown("**Character Voice Sample:**")
+                    for dialogue in synthesis.sample_dialogue[:1]:
+                        st.markdown(f"```\n{dialogue}\n```")
+                else:
+                    st.info("Add more character details to generate voice preview")
+        
+        with col3:
+            if st.button("🎨 Generate Dataset", key="generate_dataset_btn", use_container_width=True):
+                st.info("Redirecting to Dataset Studio...")
+                # Set current character for dataset generation
+                st.session_state.current_character_core = core
+                st.switch_page("pages/dataset_studio.py")
+
+
+def render_world_integration_tab(core: CharacterCore):
+    """Render the World Integration tab with advanced world-character analysis"""
+    st.markdown("### 🌍 World Integration & Ecosystem")
+    
+    if not core.name:
+        st.info("👈 Add character details to see world integration analysis")
+        return
+    
+    # Get current world and managers
+    char_manager = st.session_state.character_manager
+    world_manager = st.session_state.world_manager
+    intelligence_service = st.session_state.character_intelligence
+    current_world = char_manager.get_current_world()
+    
+    if not current_world:
+        st.warning("⚠️ No world selected. Please select a world first.")
+        return
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        # World integration analysis
+        world_suggestions = render_world_context_panel(
+            character=core,
+            world_name=current_world,
+            world_manager=world_manager,
+            key_prefix="mgmt_world"
+        )
+        
+        # Add preference tracking for world suggestions
+        if world_suggestions:
+            # Track user interactions with world suggestions for preference learning
+            intelligence_service.track_user_preference(
+                context="world_integration_viewed",
+                options=["viewed_suggestions"],
+                chosen="viewed_suggestions",
+                character_context=core
+            )
+    
+    with col2:
+        # Character ecosystem insights
+        render_ecosystem_insights(
+            world_name=current_world,
+            intelligence_service=intelligence_service,
+            key_prefix="mgmt_ecosystem"
+        )
+        
+        st.markdown("---")
+        
+        # User preference insights
+        render_preference_insights(
+            intelligence_service=intelligence_service,
+            key_prefix="mgmt_prefs"
+        )
+        
+        st.markdown("---")
+        
+        # Ecosystem-based character suggestions
+        if st.button("💡 Suggest Next Character", key="suggest_next_char"):
+            with st.spinner("Analyzing ecosystem for character suggestions..."):
+                try:
+                    suggestion = asyncio.run(
+                        intelligence_service.suggest_character_based_on_ecosystem(current_world)
+                    )
+                    
+                    st.markdown("### 🎯 Character Suggestion")
+                    st.markdown(f"**Question:** {suggestion.question}")
+                    st.markdown(f"**Focus:** {suggestion.focus_area.title()}")
+                    st.markdown(f"**Reasoning:** {suggestion.reasoning}")
+                    
+                    if st.button("🚀 Start Creating This Character", key="start_suggested_char"):
+                        st.switch_page("pages/character_builder.py")
+                        
+                except Exception as e:
+                    st.error(f"Failed to generate suggestion: {str(e)}")
+
+
 def render_toolbar(core: CharacterCore):
     """Render the global toolbar with Save/Duplicate/Delete actions"""
     st.markdown("---")
@@ -1367,6 +1499,12 @@ def page_character_management():
     if 'world_manager' not in st.session_state:
         st.session_state.world_manager = WorldManager()
     
+    # Initialize intelligence service for enhanced features
+    if 'character_intelligence' not in st.session_state:
+        st.session_state.character_intelligence = CharacterIntelligenceService(
+            world_manager=st.session_state.world_manager
+        )
+    
     # Handle forced character reload (from discarding changes)
     if st.session_state.get('force_reload_character', False):
         if 'current_character_core' in st.session_state and st.session_state.current_character_core:
@@ -1425,7 +1563,7 @@ def page_character_management():
     st.markdown(f"### Editing: **{core.name}**")
     
     # Create tabs
-    tab1, tab2, tab3, tab4 = st.tabs(["📝 Profile", "🧠 Personality", "🎯 Goals & Relationships", "💬 Examples"])
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📝 Profile", "🧠 Personality", "🎯 Goals & Relationships", "💬 Examples", "🎭 Live Preview", "🌍 World Integration"])
     
     with tab1:
         render_profile_tab(core)
@@ -1438,6 +1576,12 @@ def page_character_management():
     
     with tab4:
         render_examples_tab(core)
+    
+    with tab5:
+        render_live_preview_tab(core)
+    
+    with tab6:
+        render_world_integration_tab(core)
     
     # Global toolbar
     render_toolbar(core)

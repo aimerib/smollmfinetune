@@ -311,6 +311,7 @@ def render_sidebar(pg):
         for section, section_pages in [
             ("Character Studio", [
                 ("📁 Character Upload", "pages/character_upload.py"),
+                ("🗨️ Conversational Builder", "pages/character_builder.py"),
                 ("📋 Character Management", "pages/character_management.py"),
             ]),
             ("World & Data", [
@@ -465,6 +466,7 @@ def main():
     pages = {
         "Character Studio": [
             st.Page("pages/character_upload.py", title="📁 Character Upload", icon="📁"),
+            st.Page("pages/character_builder.py", title="🗨️ Conversational Builder", icon="🗨️"),
             st.Page("pages/character_management.py", title="📋 Character Management", icon="📋"),
         ],
         "World & Data": [
