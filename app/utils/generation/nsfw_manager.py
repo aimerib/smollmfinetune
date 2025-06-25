@@ -26,20 +26,20 @@ class NSFWGenerationManager(BaseGenerationManager):
         super().__init__(api_key=api_key, base_url=base_url, generation_config=generation_config)
         logger.info("NSFWGenerationManager initialized with NSFW capabilities")
 
-    def is_nsfw_content(self, sample: Dict[str, Any]) -> bool:
-        """Check if sample contains NSFW content"""
-        return content_evaluation.is_nsfw_content(sample)
+    async def is_nsfw_content(self, content: str) -> bool:
+        """Check if content contains NSFW content"""
+        return await content_evaluation.is_nsfw_content(self.client, content)
 
-    def categorize_nsfw_style(self, sample: Dict[str, Any]) -> str:
+    async def categorize_nsfw_style(self, content: str) -> str:
         """Categorize the style of NSFW content"""
-        return content_evaluation.categorize_nsfw_style(sample)
+        return await content_evaluation.categorize_nsfw_style(self.client, content)
 
     async def evaluate_nsfw_quality(
         self, response: str, character: Dict[str, Any], prompt: str
     ) -> Dict[str, float]:
         """Evaluate quality of NSFW content"""
         return await content_evaluation.evaluate_nsfw_quality(
-            response, character, prompt, self._generate_single_response
+            self.client, response, character, prompt
         )
 
     def analyze_character_intimacy_style(

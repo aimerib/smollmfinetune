@@ -162,8 +162,7 @@ class ComparisonManager:
         char_name = character.get('name', 'the character')
         
         # Create character card block for context
-        from .character import CharacterManager
-        char_manager = CharacterManager()
+        char_manager = self.inference_manager.character_manager
         character_definition = char_manager.make_card_block(character)
         
         # Define evaluation criteria with personality engine as judge

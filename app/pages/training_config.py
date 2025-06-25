@@ -354,9 +354,16 @@ def page_training_config():
             # --------------------------------------------------------------
             # Resume-from-checkpoint selection
             # --------------------------------------------------------------
-            available_ckpts = st.session_state.training_manager.get_available_checkpoints(
-                st.session_state.current_character.get("name", "unknown")
-            )
+            # Get character name safely - handle both CharacterCore and dict
+            current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+            if hasattr(current_character, 'name'):
+                char_name = current_character.name
+            elif isinstance(current_character, dict):
+                char_name = current_character.get("name", "unknown")
+            else:
+                char_name = "unknown"
+            
+            available_ckpts = st.session_state.training_manager.get_available_checkpoints(char_name)
 
             if available_ckpts:
                 resume_ckpt_option = st.selectbox(
@@ -533,7 +540,14 @@ def page_training_config():
     # Handle profile saving
     if 'save_profile' in locals() and save_profile:
         try:
-            char_name = st.session_state.current_character.get("name", "untitled")
+            # Get character name safely - handle both CharacterCore and dict
+            current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+            if hasattr(current_character, 'name'):
+                char_name = current_character.name
+            elif isinstance(current_character, dict):
+                char_name = current_character.get("name", "untitled")
+            else:
+                char_name = "untitled"
             
             config_to_save = {
                 "character_name": char_name,

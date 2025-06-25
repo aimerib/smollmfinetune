@@ -4,6 +4,10 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import logging
 
+from utils.openai_client import get_client
+
+# from utils.openai_client import OpenAIClient
+
 from ..world import WorldManager
 from .models import CharacterCore, Personality, Relationship, llm_estimate_big5
 
@@ -21,11 +25,12 @@ class CharacterManager:
         "scenario",
     }
     
-    def __init__(self, world_manager: Optional[WorldManager] = None):
+    def __init__(self, world_manager: Optional[WorldManager] = None, client = None):
         self.current_character: Optional[Dict[str, Any]] = None
         self.current_character_core: Optional[CharacterCore] = None
         self.world_manager = world_manager or WorldManager()
         self.current_world: Optional[str] = None
+        self.client = client or get_client()
         
         # Ensure default world exists
         self._ensure_default_world()
@@ -104,7 +109,7 @@ class CharacterManager:
         
         # Use existing analysis tools to extract richer information
         from ..dataset.character_analysis import extract_character_knowledge
-        knowledge = extract_character_knowledge(card_data)
+        knowledge = await extract_character_knowledge(client=self.client, character=card_data)
         
         # Extract appearance from description if structured
         appearance = ""

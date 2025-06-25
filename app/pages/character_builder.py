@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Optional
 import logging
 
+from utils.openai_client import get_client
 from utils.character import CharacterManager
 from utils.character.models import CharacterCore
 from utils.character.character_intelligence import CharacterIntelligenceService
@@ -24,14 +25,20 @@ logger = logging.getLogger(__name__)
 def page_character_builder():
     """Main Conversational Character Builder page"""
     
-    st.markdown('<h2 class="gradient-text">🗨️ Conversational Character Builder</h2>', unsafe_allow_html=True)
+    # Check if we're enhancing an existing character from import
+    enhance_existing = st.session_state.get('enhance_existing_character')
+    
+    if enhance_existing:
+        st.markdown('<h2 class="gradient-text">🗨️ Character Enhancement Interview</h2>', unsafe_allow_html=True)
+    else:
+        st.markdown('<h2 class="gradient-text">🗨️ Conversational Character Builder</h2>', unsafe_allow_html=True)
     
     # Initialize managers if not available
-    if 'character_manager' not in st.session_state:
-        st.session_state.character_manager = CharacterManager()
-    
     if 'world_manager' not in st.session_state:
         st.session_state.world_manager = WorldManager()
+    
+    if 'character_manager' not in st.session_state:
+        st.session_state.character_manager = CharacterManager(world_manager=st.session_state.world_manager, client=get_client())
     
     # Initialize intelligence service
     if 'character_intelligence' not in st.session_state:
@@ -39,16 +46,35 @@ def page_character_builder():
             world_manager=st.session_state.world_manager
         )
     
-    # Show introduction
-    st.markdown("""
-        <div class="custom-card">
-            <h3 style="color: white; margin-top: 0;">🎭 AI-Guided Character Creation</h3>
-            <p style="color: rgba(255,255,255,0.8);">
-                Let our AI guide you through creating a rich, compelling character through natural conversation. 
-                No more blank forms - just tell us about your character and watch them come to life!
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    # Show different introductions based on mode
+    if enhance_existing:
+        st.markdown(f"""
+            <div class="custom-card">
+                <h3 style="color: white; margin-top: 0;">🎭 Character Enhancement Interview</h3>
+                <p style="color: rgba(255,255,255,0.8);">
+                    Let's dive deeper into <strong>{enhance_existing.name}</strong>'s personality! We've created a foundation 
+                    from your imported character, now let's discover their unique voice, motivations, and inner world 
+                    through guided conversation.
+                </p>
+                <div style="background: rgba(168, 85, 247, 0.2); padding: 1rem; border-radius: 8px; margin-top: 1rem;">
+                    <strong>✨ Current Character Foundation:</strong><br>
+                    📝 Description: {len(enhance_existing.description)} characters<br>
+                    🎯 Goals: {len(enhance_existing.goals)} defined<br>
+                    🤝 Relationships: {len(enhance_existing.relationships)} connections<br>
+                    🧠 Personality: Big Five traits analyzed
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <div class="custom-card">
+                <h3 style="color: white; margin-top: 0;">🎭 AI-Guided Character Creation</h3>
+                <p style="color: rgba(255,255,255,0.8);">
+                    Let our AI guide you through creating a rich, compelling character through natural conversation. 
+                    No more blank forms - just tell us about your character and watch them come to life!
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
     
     # Check if we have a current world
     char_manager = st.session_state.character_manager
@@ -61,29 +87,61 @@ def page_character_builder():
             st.switch_page("pages/world_management.py")
         return
     
-    st.info(f"🌍 Creating character in world: **{current_world}**")
+    if enhance_existing:
+        st.info(f"🌍 Enhancing character in world: **{current_world}** | Character: **{enhance_existing.name}**")
+    else:
+        st.info(f"🌍 Creating character in world: **{current_world}**")
     
     # Main conversation interface
+    # Pass the existing character if enhancing
+    initial_character = enhance_existing if enhance_existing else None
+    character_name = enhance_existing.name if enhance_existing else st.session_state.get('new_character_name', '')
+    
     completed_character = render_conversational_builder(
         world_manager=world_manager,
-        character_name=st.session_state.get('new_character_name', '')
+        character_name=character_name,
+        existing_character=initial_character
     )
     
     # Handle completed character
     if completed_character:
-        st.success("🎉 Character creation completed!")
+        if enhance_existing:
+            st.success("🎉 Character enhancement completed!")
+        else:
+            st.success("🎉 Character creation completed!")
         
         # Save the character
-        if st.button("💾 Save Character", type="primary", use_container_width=True):
+        save_button_text = "💾 Save Enhanced Character" if enhance_existing else "💾 Save Character"
+        if st.button(save_button_text, type="primary", use_container_width=True):
             if char_manager.save_character(completed_character):
-                st.success(f"✅ Character '{completed_character.name}' saved successfully!")
+                success_msg = f"✅ Character '{completed_character.name}' enhanced successfully!" if enhance_existing else f"✅ Character '{completed_character.name}' saved successfully!"
+                st.success(success_msg)
                 
                 # Set as current character
                 st.session_state.current_character_core = completed_character
                 st.session_state.selected_character = completed_character.name
                 
-                # Clear conversation state
+                # Clear conversation state and enhancement flag
                 reset_conversation()
+                if 'enhance_existing_character' in st.session_state:
+                    del st.session_state.enhance_existing_character
+                
+                # Show enhancement comparison if this was an enhancement
+                if enhance_existing:
+                    st.markdown("### 🔄 Enhancement Summary")
+                    col_before, col_after = st.columns(2)
+                    
+                    with col_before:
+                        st.markdown("**Before Enhancement:**")
+                        st.markdown(f"• Description: {len(enhance_existing.description)} chars")
+                        st.markdown(f"• Goals: {len(enhance_existing.goals)}")
+                        st.markdown(f"• Relationships: {len(enhance_existing.relationships)}")
+                    
+                    with col_after:
+                        st.markdown("**After Enhancement:**")
+                        st.markdown(f"• Description: {len(completed_character.description)} chars")
+                        st.markdown(f"• Goals: {len(completed_character.goals)}")
+                        st.markdown(f"• Relationships: {len(completed_character.relationships)}")
                 
                 # Offer next steps
                 col1, col2, col3 = st.columns(3)
@@ -97,9 +155,16 @@ def page_character_builder():
                         st.switch_page("pages/dataset_studio.py")
                 
                 with col3:
-                    if st.button("🗨️ Create Another Character", use_container_width=True):
-                        reset_conversation()
-                        st.rerun()
+                    if enhance_existing:
+                        if st.button("🗨️ Enhance Another Character", use_container_width=True):
+                            reset_conversation()
+                            if 'enhance_existing_character' in st.session_state:
+                                del st.session_state.enhance_existing_character
+                            st.switch_page("pages/character_upload.py")
+                    else:
+                        if st.button("🗨️ Create Another Character", use_container_width=True):
+                            reset_conversation()
+                            st.rerun()
             else:
                 st.error("❌ Failed to save character")
     

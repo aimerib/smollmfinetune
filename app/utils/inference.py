@@ -538,7 +538,7 @@ class InferenceManager:
         """
         from .character import CharacterManager
         
-        char_manager = CharacterManager()
+        char_manager = CharacterManager(world_manager=self.world_manager, client=self.client)
         card_block = char_manager.make_card_block(character)
         
         context_parts = [card_block]

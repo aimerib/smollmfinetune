@@ -63,3 +63,4 @@ class QAPair(BaseModel):
     """A single question–answer pair used for factual QA datasets."""
     question: str = Field(..., description="User question to reveal the fact")
     answer: str = Field(..., description="Character's first-person answer confirming the fact")
+

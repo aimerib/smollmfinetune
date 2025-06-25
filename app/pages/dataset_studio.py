@@ -24,7 +24,14 @@ def page_dataset_studio():
         st.warning("⚠️ Please upload a character card first.")
         return
     
-    char_name = st.session_state.current_character.get("name", "Unknown")
+    # Get character name safely - handle both CharacterCore and dict
+    current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+    if hasattr(current_character, 'name'):
+        char_name = current_character.name
+    elif isinstance(current_character, dict):
+        char_name = current_character.get("name", "Unknown")
+    else:
+        char_name = "Unknown"
     st.markdown(f"### Creating dataset for: **{char_name}**")
     
     # Check for existing dataset

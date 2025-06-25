@@ -9,9 +9,21 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 
-def get_dataset_path(character: Dict[str, Any]) -> str:
+def _extract_character_name(character) -> str:
+    """Extract character name from either Dict or CharacterCore object"""
+    if hasattr(character, 'name'):
+        # CharacterCore object
+        return character.name
+    elif isinstance(character, dict):
+        # Dictionary format
+        return character.get("name", "unknown")
+    else:
+        return "unknown"
+
+
+def get_dataset_path(character) -> str:
     """Get the file path for a character's dataset"""
-    char_name = character.get("name", "unknown")
+    char_name = _extract_character_name(character)
     safe_name = "".join(c for c in char_name if c.isalnum() or c in " -_").strip()
     safe_name = safe_name.replace(" ", "_")
     
@@ -22,7 +34,7 @@ def get_dataset_path(character: Dict[str, Any]) -> str:
     return str(datasets_dir / f"{safe_name}_dataset.json")
 
 
-def save_dataset(character: Dict[str, Any], dataset: List[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None) -> None:
+def save_dataset(character, dataset: List[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None) -> None:
     """Save dataset to disk with optional metadata"""
     try:
         dataset_path = get_dataset_path(character)
@@ -50,9 +62,15 @@ def save_dataset(character: Dict[str, Any], dataset: List[Dict[str, Any]], metad
                     'prompt': None
                 }
         
+        # Convert CharacterCore to dict format for storage
+        if hasattr(character, 'model_dump'):
+            character_data = character.model_dump()
+        else:
+            character_data = character
+            
         with tempfile.NamedTemporaryFile("w", delete=False, dir=os.path.dirname(dataset_path), encoding="utf-8") as tmp_f:
             json.dump({
-                'character': character,
+                'character': character_data,
                 'dataset': dataset,
                 'created_at': _time.time(),
                 'sample_count': len(dataset),
@@ -102,8 +120,8 @@ def load_dataset_with_metadata(character: Dict[str, Any]) -> Optional[tuple[List
         return None
 
 
-def get_dataset_info(character: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Get dataset metadata without loading full dataset"""
+def get_dataset_info(character) -> Optional[Dict[str, Any]]:
+    """Get dataset metadata without loading full dataset. Accepts Dict or CharacterCore."""
     try:
         dataset_path = get_dataset_path(character)
         if os.path.exists(dataset_path):

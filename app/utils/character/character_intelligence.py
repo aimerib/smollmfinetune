@@ -478,31 +478,24 @@ class CharacterIntelligenceService:
         return current_character
     
     async def _generate_next_conversation_question(self, character: CharacterCore) -> ConversationSuggestion:
-        """Generate the next conversation question based on character state."""
+        """Generate the next conversation question based on character state and personality."""
         # Analyze what's missing or could be improved
         gaps = self._analyze_character_gaps(character)
         
         if gaps['major_gaps']:
-            # Focus on major missing elements
+            # Focus on major missing elements with personality-aware questions
             focus_area = gaps['major_gaps'][0]
-            question_templates = {
-                'description': "Tell me more about what makes your character unique. What would someone notice about them first?",
-                'backstory': "What's a story from their past that really shaped who they became?",
-                'goals': "What does your character want most in life? What drives them?",
-                'relationships': "Who are the important people in their life? Tell me about someone they care about.",
-                'personality': "What's something surprising about their personality that people might not expect?"
-            }
-            question = question_templates.get(focus_area, "Tell me more about your character.")
+            question = await self._generate_personality_aware_question(character, focus_area)
             priority = 5
         else:
-            # Dive deeper into existing elements
-            question = "That's interesting! What else can you tell me about them?"
+            # Dive deeper with personality insights
+            question = await self._generate_personality_aware_deepening_question(character)
             focus_area = 'depth'
             priority = 3
         
         return ConversationSuggestion(
             question=question,
-            reasoning=f"Exploring {focus_area} to develop the character further",
+            reasoning=f"Exploring {focus_area} with personality-aware prompting",
             focus_area=focus_area,
             priority=priority
         )
@@ -917,7 +910,7 @@ class CharacterIntelligenceService:
         
         # Get all characters in the world
         from .character import CharacterManager
-        char_manager = CharacterManager(self.world_manager)
+        char_manager = CharacterManager(world_manager=self.world_manager, client=self.client)
         char_manager.set_current_world(world_name)
         character_names = char_manager.list_characters_in_world(world_name)
         
@@ -1148,4 +1141,75 @@ class CharacterIntelligenceService:
             else:
                 insights["personality_tendencies"][trait] = f"balanced ({value:.2f})"
         
-        return insights 
+        return insights
+    
+    async def _generate_personality_aware_question(self, character: CharacterCore, focus_area: str) -> str:
+        """Generate questions tailored to the character's personality traits."""
+        traits = character.personality_traits
+        
+        # Determine dominant traits
+        trait_descriptors = []
+        if traits.extraversion >= 0.7:
+            trait_descriptors.append("outgoing and social")
+        elif traits.extraversion <= 0.3:
+            trait_descriptors.append("reserved and introspective")
+            
+        if traits.openness >= 0.7:
+            trait_descriptors.append("creative and curious")
+        elif traits.openness <= 0.3:
+            trait_descriptors.append("practical and traditional")
+            
+        if traits.conscientiousness >= 0.7:
+            trait_descriptors.append("organized and disciplined")
+        elif traits.conscientiousness <= 0.3:
+            trait_descriptors.append("spontaneous and flexible")
+            
+        if traits.agreeableness >= 0.7:
+            trait_descriptors.append("cooperative and trusting")
+        elif traits.agreeableness <= 0.3:
+            trait_descriptors.append("competitive and independent")
+        
+        personality_context = ", ".join(trait_descriptors) if trait_descriptors else "balanced"
+        
+        # Generate personality-aware questions based on focus area
+        question_prompts = {
+            'description': f"Given that {character.name} seems {personality_context}, what specific details about their appearance, mannerisms, or presence would reflect this personality?",
+            
+            'backstory': f"Considering {character.name}'s {personality_context} nature, what key life experiences shaped them into this kind of person? What story from their past explains who they are today?",
+            
+            'goals': f"Based on {character.name} being {personality_context}, what kind of aspirations and goals would naturally drive someone with their personality? What do they truly want?",
+            
+            'relationships': f"Given that {character.name} appears {personality_context}, how do they form and maintain relationships? Tell me about someone important in their life and how their personality affects that bond.",
+            
+            'personality': f"You've established that {character.name} is {personality_context}. What surprising contradictions or hidden depths might they have? What would people not expect about them?"
+        }
+        
+        return question_prompts.get(focus_area, f"Tell me more about how {character.name}'s {personality_context} personality shows up in their daily life.")
+    
+    async def _generate_personality_aware_deepening_question(self, character: CharacterCore) -> str:
+        """Generate deepening questions based on personality analysis."""
+        traits = character.personality_traits
+        
+        # Focus on the most extreme traits for interesting contradictions
+        extreme_traits = []
+        if traits.extraversion >= 0.8:
+            extreme_traits.append(("highly extraverted", "When do they need solitude? What overwhelms even their social energy?"))
+        elif traits.extraversion <= 0.2:
+            extreme_traits.append(("very introverted", "What brings them out of their shell? When do they surprise people by being social?"))
+            
+        if traits.openness >= 0.8:
+            extreme_traits.append(("extremely creative", "What traditional or conventional side do they have? When do they crave simplicity?"))
+        elif traits.openness <= 0.2:
+            extreme_traits.append(("very traditional", "What secretly fascinates them? When do they surprise themselves with curiosity?"))
+            
+        if traits.conscientiousness >= 0.8:
+            extreme_traits.append(("highly organized", "When do they let loose? What makes them abandon their usual structure?"))
+        elif traits.conscientiousness <= 0.2:
+            extreme_traits.append(("very spontaneous", "What do they take seriously? When do they show unexpected discipline?"))
+        
+        if extreme_traits:
+            trait_desc, question = extreme_traits[0]  # Focus on first extreme trait
+            return f"Since {character.name} is {trait_desc}, I'm curious: {question}"
+        else:
+            # Balanced personality - explore subtleties
+            return f"Since {character.name} has a balanced personality, what subtle quirks or preferences make them uniquely themselves? What would only close friends notice about them?" 

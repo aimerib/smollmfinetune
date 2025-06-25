@@ -133,7 +133,8 @@ async def generate_with_quality_curation(
             curated_samples = [s['sample'] for s in evaluated_samples]
         else:
             # Curate with diversity
-            curated_samples = curate_diverse_samples(
+            curated_samples = await curate_diverse_samples(
+                client=client,
                 evaluated_samples=evaluated_samples,
                 target_size=final_dataset_size,
                 diversity_weight=diversity_weight
@@ -212,7 +213,8 @@ async def judge_sample_batch(
         assistant_msg = sample['messages'][2]['content']
         
         # Check if this is NSFW content
-        if is_nsfw_content(sample):
+        is_nsfw = await is_nsfw_content(client, assistant_msg)
+        if is_nsfw:
             nsfw_indices.append(i)
             # Use specialized NSFW evaluation
             scores = await evaluate_nsfw_quality(
@@ -246,7 +248,8 @@ Respond with ONLY a JSON object with numeric scores:
     
     # Process non-NSFW samples in batch
     prompts = [p for p in judgment_prompts if p is not None]
-    non_nsfw_indices = [i for i, sample in enumerate(samples) if not is_nsfw_content(sample)]
+    # Get indices of non-NSFW samples (those not already marked as NSFW)
+    non_nsfw_indices = [i for i in range(len(samples)) if i not in nsfw_indices]
     
     if prompts:
         try:
@@ -326,7 +329,7 @@ def get_default_scores() -> Dict[str, float]:
     }
 
 
-def ensure_nsfw_diversity(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+async def ensure_nsfw_diversity(client, samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Ensure variety in intimate content styles"""
     
     nsfw_categories = {
@@ -340,7 +343,17 @@ def ensure_nsfw_diversity(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     
     # Categorize all samples
     for sample in samples:
-        category = categorize_nsfw_style(sample['sample'])
+        # Extract the assistant message for categorization
+        if 'sample' in sample and 'messages' in sample['sample'] and len(sample['sample']['messages']) > 2:
+            assistant_msg = sample['sample']['messages'][2]['content']
+            category_result = await categorize_nsfw_style(client, assistant_msg)
+            # Extract the first style if it's a list, otherwise use 'non_nsfw'
+            if isinstance(category_result, list) and category_result:
+                category = category_result[0].get('style', 'non_nsfw')
+            else:
+                category = 'non_nsfw'
+        else:
+            category = 'non_nsfw'
         nsfw_categories[category].append(sample)
     
     # Calculate target distribution
@@ -381,7 +394,8 @@ def ensure_nsfw_diversity(samples: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return balanced_samples
 
 
-def curate_diverse_samples(
+async def curate_diverse_samples(
+    client,
     evaluated_samples: List[Dict[str, Any]],
     target_size: int,
     diversity_weight: float = 0.3
@@ -399,7 +413,7 @@ def curate_diverse_samples(
             system_msg = first_sample['messages'][0].get('content', '').lower()
             if any(word in system_msg for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate']):
                 logger.info("💕 Applying NSFW diversity curation")
-                evaluated_samples = ensure_nsfw_diversity(evaluated_samples)
+                evaluated_samples = await ensure_nsfw_diversity(client, evaluated_samples)
     
     # Sort by quality score first
     sorted_samples = sorted(evaluated_samples, key=lambda x: x['scores']['overall_score'], reverse=True)

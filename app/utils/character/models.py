@@ -84,17 +84,29 @@ Respond with ONLY a JSON object in this exact format:
         response = await client.generate(
             prompt=prompt,
             max_tokens=200,
-            temperature=0.1,  # Low temperature for consistent scoring
-            stop=["}"]
+            temperature=0.1,
+            response_format=Personality
         )
         
-        # Add closing brace if truncated
+        if not response or not response.strip():
+            logger.warning("Empty response from LLM for Big Five estimation")
+            return Personality()
+        
+        # Clean and parse response
         response_text = response.strip()
-        if not response_text.endswith("}"):
-            response_text += "}"
+        
+        # Try to extract JSON from response
+        import re
+        json_match = re.search(r'\{[^}]*\}', response_text, re.DOTALL)
+        if json_match:
+            json_text = json_match.group()
+        else:
+            # Fallback: try to construct JSON from the response
+            logger.debug(f"No JSON found in response, trying to parse manually: {response_text}")
+            return Personality()  # Default on parse failure
             
         # Parse JSON response
-        scores = json.loads(response_text)
+        scores = json.loads(json_text)
         
         # Validate and clamp scores to 0-1 range
         for key in ["openness", "conscientiousness", "extraversion", "agreeableness", "neuroticism"]:
@@ -105,6 +117,9 @@ Respond with ONLY a JSON object in this exact format:
         
         return Personality(**scores)
         
+    except json.JSONDecodeError as e:
+        logger.warning(f"Failed to parse Big Five JSON response: {e}")
+        return Personality()
     except Exception as e:
         logger.warning(f"Failed to estimate Big Five traits via LLM: {e}")
         # Return default personality on failure

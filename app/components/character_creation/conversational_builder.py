@@ -17,7 +17,7 @@ from utils.world import WorldManager
 logger = logging.getLogger(__name__)
 
 
-def render_conversational_builder(world_manager: WorldManager, character_name: str = "") -> Optional[CharacterCore]:
+def render_conversational_builder(world_manager: WorldManager, character_name: str = "", existing_character: Optional[CharacterCore] = None) -> Optional[CharacterCore]:
     """
     Render the conversational character builder interface.
     
@@ -38,7 +38,16 @@ def render_conversational_builder(world_manager: WorldManager, character_name: s
     # Initialize conversation state
     if 'conversation_started' not in st.session_state:
         st.session_state.conversation_started = False
-        st.session_state.current_character = CharacterCore(name=character_name)
+        # Use existing character if provided (enhancement mode) or create new one
+        if existing_character:
+            st.session_state.current_character = existing_character
+            st.session_state.enhancement_mode = True
+            # Store original character for personality-aware prompting
+            st.session_state.personality_context = get_personality_context(existing_character)
+        else:
+            st.session_state.current_character = CharacterCore(name=character_name)
+            st.session_state.enhancement_mode = False
+            st.session_state.personality_context = None
         st.session_state.conversation_complete = False
     
     # Create layout
@@ -66,17 +75,35 @@ def render_conversation_interface(intelligence: CharacterIntelligenceService, wo
     with conversation_container:
         # Start conversation button or continue
         if not st.session_state.conversation_started:
-            st.markdown("""
-                <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); 
-                            padding: 2rem; border-radius: 12px; text-align: center; margin-bottom: 2rem;">
-                    <h3 style="color: white; margin: 0;">✨ Let's Create Your Character Together</h3>
-                    <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">
-                        I'll guide you through a conversation to discover your character's soul
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
+            # Different intro for enhancement vs creation
+            if st.session_state.get('enhancement_mode', False):
+                char_name = st.session_state.current_character.name
+                personality_insights = st.session_state.get('personality_context', '')
+                
+                st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%); 
+                                padding: 2rem; border-radius: 12px; text-align: center; margin-bottom: 2rem;">
+                        <h3 style="color: white; margin: 0;">🎭 Let's Enhance {char_name}</h3>
+                        <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">
+                            Based on their personality analysis, I'll guide you through deepening their unique voice and inner world
+                        </p>
+                        {f'<div style="background: rgba(255,255,255,0.1); padding: 1rem; border-radius: 8px; margin-top: 1rem;"><small>🧠 Personality Focus: {personality_insights}</small></div>' if personality_insights else ''}
+                    </div>
+                """, unsafe_allow_html=True)
+                button_text = "🚀 Start Personality-Aware Enhancement"
+            else:
+                st.markdown("""
+                    <div style="background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); 
+                                padding: 2rem; border-radius: 12px; text-align: center; margin-bottom: 2rem;">
+                        <h3 style="color: white; margin: 0;">✨ Let's Create Your Character Together</h3>
+                        <p style="color: rgba(255,255,255,0.9); margin: 0.5rem 0;">
+                            I'll guide you through a conversation to discover your character's soul
+                        </p>
+                    </div>
+                """, unsafe_allow_html=True)
+                button_text = "🚀 Start Character Creation"
             
-            if st.button("🚀 Start Character Creation", type="primary", use_container_width=True):
+            if st.button(button_text, type="primary", use_container_width=True):
                 # Start the conversation
                 suggestion = asyncio.run(intelligence.start_conversational_creation(
                     initial_name=st.session_state.current_character.name,
@@ -391,9 +418,44 @@ def reset_conversation():
         'conversation_complete',
         'current_suggestion',
         'current_synthesis',
-        'char_intelligence'
+        'char_intelligence',
+        'enhancement_mode',
+        'personality_context'
     ]
     
     for key in keys_to_clear:
         if key in st.session_state:
-            del st.session_state[key] 
+            del st.session_state[key]
+
+
+def get_personality_context(character: CharacterCore) -> str:
+    """Generate personality context string for enhanced conversation guidance."""
+    if not character.personality_traits:
+        return ""
+    
+    traits = character.personality_traits
+    high_traits = []
+    low_traits = []
+    
+    trait_map = {
+        'openness': ('Creative/Open-minded', 'Traditional/Practical'),
+        'conscientiousness': ('Organized/Disciplined', 'Spontaneous/Flexible'),
+        'extraversion': ('Outgoing/Social', 'Reserved/Introspective'),
+        'agreeableness': ('Cooperative/Trusting', 'Competitive/Skeptical'),
+        'neuroticism': ('Emotionally Sensitive', 'Emotionally Stable')
+    }
+    
+    for trait_key, (high_desc, low_desc) in trait_map.items():
+        value = getattr(traits, trait_key)
+        if value >= 0.7:
+            high_traits.append(high_desc)
+        elif value <= 0.3:
+            low_traits.append(low_desc)
+    
+    context_parts = []
+    if high_traits:
+        context_parts.append(f"High: {', '.join(high_traits)}")
+    if low_traits:
+        context_parts.append(f"Low: {', '.join(low_traits)}")
+    
+    return "; ".join(context_parts) if context_parts else "Balanced personality" 

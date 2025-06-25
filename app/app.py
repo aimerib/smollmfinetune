@@ -1,6 +1,8 @@
 from asyncio.log import logger
 import os
 
+from utils.openai_client import get_client
+
 os.environ.setdefault("STREAMLIT_SERVER_FILE_WATCHER_TYPE", "none")
 
 import streamlit as st
@@ -38,22 +40,71 @@ logging.basicConfig(
 _GLOBAL_DATASET_MANAGER = None
 
 def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optional[str] = None):
-    """Get or create a singleton DatasetManager instance"""
-    global _GLOBAL_DATASET_MANAGER
+    """Ensure that we don't accidentally create multiple DatasetManager instances"""
+    # Use a global dataset manager to prevent reinitialization issues
+    if hasattr(get_or_create_dataset_manager, '_instance'):
+        return get_or_create_dataset_manager._instance
     
-    if _GLOBAL_DATASET_MANAGER is None:
-        logger.info(f"🔧 Creating singleton DatasetManager with model: {os.getenv('MODEL_NAME')}")
-        _GLOBAL_DATASET_MANAGER = DatasetManager(
-            api_key=api_key,
-            base_url=base_url,
-        )
-        logger.info("✅ Singleton DatasetManager created successfully")
-    else:
-        logger.info("♻️ Reusing existing singleton DatasetManager")
-    
-    return _GLOBAL_DATASET_MANAGER
+    try:
+        from utils.dataset import DatasetManager
+        manager = DatasetManager(api_key=api_key, base_url=base_url)
+        get_or_create_dataset_manager._instance = manager
+        logger.info("✅ DatasetManager singleton created successfully")
+        return manager
+    except Exception as e:
+        logger.error(f"❌ Failed to create DatasetManager: {e}")
+        # Don't cache failed instances
+        return None
 
-# Initialize session state
+
+def get_current_character_safely():
+    """
+    Safely get the current character from session state, handling both CharacterCore and dict formats.
+    
+    Returns:
+        tuple: (character_object, character_name) or (None, None) if no character
+    """
+    # Try CharacterCore first (new format)
+    char_core = st.session_state.get('current_character_core')
+    if char_core and hasattr(char_core, 'name'):
+        return char_core, char_core.name
+    
+    # Try legacy dict format
+    legacy_char = st.session_state.get('current_character')
+    if legacy_char:
+        if isinstance(legacy_char, dict):
+            name = legacy_char.get('name', 'Unknown')
+            return legacy_char, name
+        elif hasattr(legacy_char, 'name'):
+            # It's actually a CharacterCore stored in wrong key
+            return legacy_char, legacy_char.name
+    
+    return None, None
+
+
+def set_current_character(character):
+    """
+    Safely set the current character in session state.
+    
+    Args:
+        character: Either a CharacterCore object or dict
+    """
+    if hasattr(character, 'name'):
+        # It's a CharacterCore object
+        st.session_state.current_character_core = character
+        st.session_state.selected_character = character.name
+        # Clear legacy format to avoid confusion
+        if 'current_character' in st.session_state:
+            del st.session_state.current_character
+    elif isinstance(character, dict):
+        # It's legacy format
+        st.session_state.current_character = character
+        name = character.get('name', 'Unknown')
+        st.session_state.selected_character = name
+    else:
+        logger.warning(f"Unknown character format: {type(character)}")
+
+
 def init_session_state():
     # Initialize OpenAI client first (before other managers that might use it)
     if 'openai_client_initialized' not in st.session_state:
@@ -72,12 +123,12 @@ def init_session_state():
             logger.error(f"❌ Failed to initialize OpenAI client: {e}")
             st.session_state.openai_client_initialized = False
 
-    if 'character_manager' not in st.session_state:
-        st.session_state.character_manager = CharacterManager()
-    
     if 'world_manager' not in st.session_state:
         st.session_state.world_manager = WorldManager()
-    
+
+    if 'character_manager' not in st.session_state:
+        st.session_state.character_manager = CharacterManager(world_manager=st.session_state.world_manager, client=get_client())
+
     # ✅ FIX: Use singleton DatasetManager 
     if 'dataset_manager' not in st.session_state:
         # Get OpenAI configuration from environment
@@ -292,15 +343,23 @@ def render_header():
 
 # Render the sidebar navigation
 def render_sidebar(pg):
-    """Render the sidebar navigation"""
+    """Render the modern navigation sidebar"""
     with st.sidebar:
-        st.markdown("""
+        # App branding
+        st.markdown(f"""
             <div style="text-align: center; padding: 1rem 0;">
-                <h2 style="color: #f8fafc;">🚀 AI Studio</h2>
+                <h1 style="margin: 0; background: linear-gradient(45deg, #6366f1, #8b5cf6); 
+                           -webkit-background-clip: text; -webkit-text-fill-color: transparent; 
+                           background-clip: text; font-size: 1.5rem;">
+                    🎭 Character AI Studio
+                </h1>
+                <p style="margin: 0.5rem 0 0 0; color: #64748b; font-size: 0.9rem;">
+                    Build • Train • Deploy
+                </p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Get current page info
+        # Get current page info first
         current_page_title = pg.title if hasattr(pg, 'title') else "Unknown"
         
         # Create a mapping of page titles to page objects for navigation
@@ -394,9 +453,22 @@ def render_sidebar(pg):
             </div>
         """, unsafe_allow_html=True)
         
-        # Character and dataset info
-        if st.session_state.current_character:
-            char_name = st.session_state.current_character.get("name", "Unknown")
+        # Character info - handle both legacy dict and new CharacterCore
+        current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+        if current_character:
+            # Get character name safely regardless of format
+            if hasattr(current_character, 'name'):
+                # CharacterCore object
+                char_name = current_character.name
+                char_data = current_character
+            elif isinstance(current_character, dict):
+                # Legacy dictionary format
+                char_name = current_character.get("name", "Unknown")
+                char_data = current_character
+            else:
+                char_name = "Unknown"
+                char_data = None
+            
             st.markdown(f"""
                 <div class="metric-card">
                     <h4 style="margin: 0 0 0.5rem 0;">🎭 Current Character</h4>
@@ -404,20 +476,28 @@ def render_sidebar(pg):
                 </div>
             """, unsafe_allow_html=True)
             
-            # Dataset info
-            dataset_info = st.session_state.dataset_manager.get_dataset_info(st.session_state.current_character)
-            if dataset_info['exists']:
-                st.markdown(f"""
-                    <div class="metric-card">
-                        <h4 style="margin: 0 0 0.5rem 0;">📊 Dataset</h4>
-                        <p style="margin: 0;">Samples: {dataset_info['sample_count']}</p>
-                    </div>
-                """, unsafe_allow_html=True)
+            # Dataset info - only if we have a valid character
+            if char_data:
+                dataset_info = st.session_state.dataset_manager.get_dataset_info(char_data)
+                if dataset_info['exists']:
+                    st.markdown(f"""
+                        <div class="metric-card">
+                            <h4 style="margin: 0 0 0.5rem 0;">📊 Dataset</h4>
+                            <p style="margin: 0;">Samples: {dataset_info['sample_count']}</p>
+                        </div>
+                    """, unsafe_allow_html=True)
         
         # Quick actions for current character
-        if st.session_state.current_character:
+        current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+        if current_character:
             with st.expander("🗃️ Character Assets", expanded=False):
-                char_name = st.session_state.current_character.get("name", "unknown")
+                # Get character name safely
+                if hasattr(current_character, 'name'):
+                    char_name = current_character.name
+                elif isinstance(current_character, dict):
+                    char_name = current_character.get("name", "unknown")
+                else:
+                    char_name = "unknown"
 
                 col_a, col_b, col_c = st.columns(3)
 

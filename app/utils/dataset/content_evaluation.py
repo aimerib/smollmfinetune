@@ -2,8 +2,19 @@
 
 import json
 import re
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Literal
 import logging
+
+from pydantic import BaseModel
+
+# Define CharacterAnalysis here to avoid circular imports
+class CharacterAnalysis(BaseModel):
+    character_consistency: float = 5.0
+    emotional_authenticity: float = 5.0
+    narrative_flow: float = 5.0
+    creative_expression: float = 5.0
+    sensual_detail: float = 5.0
+    overall_score: float = 5.0
 
 logger = logging.getLogger(__name__)
 
@@ -85,58 +96,88 @@ def evaluate_response_quality(response: str, character: Dict[str, Any], prompt: 
     
     return quality_metrics
 
+class NsfwResponse(BaseModel):
+    is_nsfw: bool
 
-def is_nsfw_content(sample: Dict[str, Any]) -> bool:
+
+async def is_nsfw_content(client, content: str) -> bool:
     """Check if a sample contains NSFW/intimate content"""
-    if 'messages' not in sample or len(sample['messages']) < 3:
+
+    if not content:
         return False
-    
-    user_msg = sample['messages'][1].get('content', '').lower()
-    assistant_msg = sample['messages'][2].get('content', '').lower()
-    
-    nsfw_keywords = [
-        'kiss', 'touch', 'intimate', 'desire', 'passion', 'sensual',
-        'naked', 'body', 'skin', 'breast', 'lips', 'bedroom',
-        'seduce', 'fantasy', 'pleasure', 'aroused', 'breathless',
-        'caress', 'embrace', 'whisper', 'moan', 'shiver'
-    ]
-    
-    nsfw_actions = [
-        '*kiss', '*touch', '*caress', '*hold', '*pull', '*breathe',
-        '*trace', '*whisper', '*moan', '*gasp', '*shiver', '*tremble'
-    ]
-    
-    # Check for keywords
-    for keyword in nsfw_keywords:
-        if keyword in user_msg or keyword in assistant_msg:
-            return True
-    
-    # Check for action patterns
-    for action in nsfw_actions:
-        if action in user_msg or action in assistant_msg:
-            return True
-    
-    return False
+
+    prompt = f"""
+    Analyze the following content for NSFW/intimate content:
+    {content}
+
+    Respond with ONLY a JSON object with a single boolean value:
+    {{"is_nsfw": true}}
+    """
+
+    try:
+        response = await client.generate(
+            prompt=prompt,
+            max_tokens=1000,
+            temperature=0.1,
+            top_p=0.95,
+            response_format=NsfwResponse
+        )
+
+        return response.is_nsfw
+    except Exception as e:
+        logger.debug(f"NSFW content check error: {e}")
+        return False
 
 
-def categorize_nsfw_style(sample: Dict[str, Any]) -> str:
+class NsfwStyle(BaseModel):
+    style: Literal['romantic', 'playful', 'passionate', 'emotional', 'sensual', 'hardcore', 'shy', 'dominant', 'submissive', 'kinky', 'voyeuristic', 'exhibitionistic', 'fetishistic', 'masochistic', 'sadistic']
+    name: str
+
+async def categorize_nsfw_style(client, content: str) -> str:
     """Categorize the style of NSFW content"""
-    if not is_nsfw_content(sample):
+    assistant_msg = content.lower()
+
+    if not assistant_msg:
         return 'non_nsfw'
-    
-    assistant_msg = sample['messages'][2].get('content', '').lower()
-    
-    # Analyze response style
-    if any(word in assistant_msg for word in ['love', 'cherish', 'soul', 'heart', 'gentle']):
-        return 'romantic'
-    elif any(word in assistant_msg for word in ['tease', 'play', 'game', 'fun', 'laugh']):
-        return 'playful'
-    elif any(word in assistant_msg for word in ['need', 'urgent', 'now', 'wild', 'intense']):
-        return 'passionate'
-    elif any(word in assistant_msg for word in ['feel', 'emotion', 'vulnerable', 'trust']):
-        return 'emotional'
-    else:
-        return 'sensual'
+
+    prompt = f"""
+    Categorize the style of the following content:
+    {content}
+
+    Respond with ONLY a JSON array containing objects with a single string value and the name of the character:
+    [{{"style": "romantic", "name": "cricket"}}, {{"style": "playful", "name": "Sarah"}}, {{"style": "passionate", "name": "Jen"}}]
+
+    The style should be one of the following:
+    - romantic
+    - playful
+    - passionate
+    - emotional
+    - sensual
+    - hardcore
+    - shy
+    - dominant
+    - submissive
+    - kinky
+    - voyeuristic
+    - exhibitionistic
+    - fetishistic
+    - masochistic
+    - sadistic
+    """
+
+    try:
+        response = await client.generate(
+            prompt=prompt,
+            max_tokens=1000,
+            temperature=0.1,
+            top_p=0.95,
+            response_format=[NsfwStyle]
+        )
+
+        return response
+    except Exception as e:
+        logger.debug(f"NSFW style categorization error: {e}")
+        return [{'style': 'non_nsfw', 'name': 'non_nsfw'}]
 
 
 async def evaluate_nsfw_quality(client, response: str, character: Dict[str, Any], 
@@ -144,12 +185,14 @@ async def evaluate_nsfw_quality(client, response: str, character: Dict[str, Any]
     """Evaluate NSFW response quality with specialized criteria"""
     
     char_name = character.get('name', 'Assistant')
-    personality = character.get('personality', '')[:200]
+    personality = character.get('personality', '')
+    description = character.get('description', '')
     
     judgment_prompt = f"""Evaluate this intimate/romantic response for quality in an adult entertainment context:
 
 Character: {char_name}
 Personality: {personality}
+Description: {description}
 
 User: {prompt}
 Response: {response}
@@ -170,40 +213,52 @@ Respond with ONLY a JSON object with numeric scores:
             prompt=judgment_prompt,
             max_tokens=1000,
             temperature=0.1,
-            top_p=0.95
+            top_p=0.95,
+            response_format=CharacterAnalysis
         )
         
-        # Parse the response
-        json_match = re.search(r'\{[^}]+\}', response)
-        if json_match:
-            scores_dict = json.loads(json_match.group())
-            
-            # Calculate weighted score for NSFW content
-            weights = {
-                'character_consistency': 0.25,
-                'emotional_authenticity': 0.20,
-                'narrative_flow': 0.15,
-                'creative_expression': 0.10,
-                'sensual_detail': 0.10
-            }
-            
-            overall_score = sum(
-                scores_dict.get(key, 5) * weight 
-                for key, weight in weights.items()
-            )
-            
-            scores_dict['overall_score'] = overall_score
-            return scores_dict
+        # Parse the response if it's a string, otherwise return the structured response
+        if isinstance(response, str):
+            json_match = re.search(r'\{[^}]+\}', response)
+            if json_match:
+                return json.loads(json_match.group())
+            else:
+                return _get_default_scores()
         else:
-            # Fallback scores
-            return {
-                'character_consistency': 5.0,
-                'emotional_authenticity': 5.0,
-                'narrative_flow': 5.0,
-                'creative_expression': 5.0,
-                'sensual_detail': 5.0,
-                'overall_score': 5.0
-            }
+            # If it's already structured (Pydantic model), convert to dict
+            return response.model_dump() if hasattr(response, 'model_dump') else response
+        
+        # # Parse the response
+        # json_match = re.search(r'\{[^}]+\}', response)
+        # if json_match:
+        #     scores_dict = json.loads(json_match.group())
+            
+        #     # Calculate weighted score for NSFW content
+        #     weights = {
+        #         'character_consistency': 0.25,
+        #         'emotional_authenticity': 0.20,
+        #         'narrative_flow': 0.15,
+        #         'creative_expression': 0.10,
+        #         'sensual_detail': 0.10
+        #     }
+            
+        #     overall_score = sum(
+        #         scores_dict.get(key, 5) * weight 
+        #         for key, weight in weights.items()
+        #     )
+            
+        #     scores_dict['overall_score'] = overall_score
+        #     return scores_dict
+        # else:
+        #     # Fallback scores
+        #     return {
+        #         'character_consistency': 5.0,
+        #         'emotional_authenticity': 5.0,
+        #         'narrative_flow': 5.0,
+        #         'creative_expression': 5.0,
+        #         'sensual_detail': 5.0,
+        #         'overall_score': 5.0
+        #     }
             
     except Exception as e:
         logger.debug(f"NSFW evaluation error: {e}")
@@ -212,14 +267,7 @@ Respond with ONLY a JSON object with numeric scores:
 
 def _get_default_scores() -> Dict[str, float]:
     """Return default scores when evaluation fails"""
-    return {
-        'character_consistency': 5.0,
-        'emotional_authenticity': 5.0,
-        'narrative_flow': 5.0,
-        'creative_expression': 5.0,
-        'sensual_detail': 5.0,
-        'overall_score': 5.0
-    }
+    return CharacterAnalysis().model_dump()
 
 
 def analyze_temporal_distribution(dataset: List[Dict[str, Any]]) -> Dict[str, Any]:

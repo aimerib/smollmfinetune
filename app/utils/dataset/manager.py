@@ -18,7 +18,6 @@ try:
 except ImportError:
     torch = None
 
-from ..generation import NSFWGenerationManager
 from .models import GenerationConfig, QualityLevel
 from . import character_analysis
 from . import prompt_generators
@@ -27,7 +26,7 @@ from . import quality_curation
 logger = logging.getLogger(__name__)
 
 
-class DatasetManager(NSFWGenerationManager):
+class DatasetManager:
     """Manages synthetic dataset generation and processing using OpenAI API"""
 
     def __init__(
@@ -44,9 +43,28 @@ class DatasetManager(NSFWGenerationManager):
             base_url: Base URL for API (defaults to OpenAI, but can be changed for compatible endpoints)
             generation_config: Enhanced generation configuration
         """
-        # Initialize parent NSFWGenerationManager which handles client setup
-        super().__init__(api_key=api_key, base_url=base_url, generation_config=generation_config)
+        # Initialize generation configuration
+        self.generation_config = generation_config or GenerationConfig()
+        
+        # Initialize client (using the client setup from base_manager logic)
+        if api_key or base_url:
+            from ..openai_client import OpenAIClient, set_client
+            client = OpenAIClient(api_key=api_key, base_url=base_url)
+            set_client(client)
+        
+        from ..openai_client import get_client
+        self.client = get_client()
+        
+        # Initialize NSFW generation manager for composition
+        from ..generation import NSFWGenerationManager
+        self.nsfw_manager = NSFWGenerationManager(api_key=api_key, base_url=base_url, generation_config=generation_config)
+        
         logger.info(f"DatasetManager façade initialized with model: {os.getenv('MODEL_NAME')}")
+
+        # Character-specific components (will be initialized per character)
+        self.quality_filter = None
+        self.progressive_refiner = None
+        self.character_profile = None
 
         # Initialize default prompts for backwards compatibility
         self.default_user_prompts = [
@@ -864,3 +882,102 @@ Name: {card.get('name', 'Unknown')}
 Description: {card.get('description', '')}
 Personality: {card.get('personality', '')}
 Scenario: {card.get('scenario', '')}"""
+
+    # ================ NSFW Functionality Forwarding ================
+    
+    async def is_nsfw_content(self, content: str) -> bool:
+        """Check if content contains NSFW content"""
+        return await self.nsfw_manager.is_nsfw_content(content)
+
+    async def categorize_nsfw_style(self, content: str) -> str:
+        """Categorize the style of NSFW content"""
+        return await self.nsfw_manager.categorize_nsfw_style(content)
+
+    async def evaluate_nsfw_quality(self, response: str, character: Dict[str, Any], prompt: str) -> Dict[str, float]:
+        """Evaluate quality of NSFW content"""
+        return await self.nsfw_manager.evaluate_nsfw_quality(response, character, prompt)
+
+    # ================ Base Generation Methods ================
+    
+    def _setup_character_components(self, character: Dict[str, Any]):
+        """Setup character-specific processing components"""
+        # Create simplified character profile for enhanced processing
+        from .character_analysis import extract_character_knowledge
+        knowledge = extract_character_knowledge(character)
+        
+        # Store character info for processing
+        self.character_profile = {
+            'name': character.get("name", "Assistant"),
+            'personality_traits': knowledge.get("traits", [])[:5],
+            'background': character.get("description", ""),
+            'key_relationships': knowledge.get("relationships", [])[:3],
+            'speech_patterns': knowledge.get("speech_patterns", [])[:5],
+        }
+        
+        logger.info(f"🎭 Character components initialized for {self.character_profile['name']}")
+
+    async def _generate_single_response(
+        self,
+        prompt: str,
+        max_tokens: int = 300,
+        temperature: float = 0.8,
+        system_prompt: Optional[str] = None,
+    ) -> str:
+        """Generate a single response using the LLM client."""
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            response = await self.client.chat_complete(
+                messages=messages, max_tokens=max_tokens, temperature=temperature
+            )
+
+            return response.strip() if response else ""
+
+        except Exception as e:
+            logger.warning(f"Error generating single response: {e}")
+            return ""
+
+    # ================ Dataset IO Methods ================
+    
+    def _get_dataset_path(self, character: Dict[str, Any]) -> str:
+        """Get the file path for storing character dataset"""
+        from . import io_manager
+        return io_manager.get_dataset_path(character)
+
+    def save_dataset(self, character: Dict[str, Any], dataset: List[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Save dataset to file"""
+        from . import io_manager
+        io_manager.save_dataset(character, dataset, metadata)
+
+    def load_dataset(self, character: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+        """Load dataset from file"""
+        from . import io_manager
+        return io_manager.load_dataset(character)
+
+    def load_dataset_with_metadata(self, character: Dict[str, Any]) -> Optional[tuple[List[Dict[str, Any]], Dict[str, Any]]]:
+        """Load dataset with metadata from file"""
+        from . import io_manager
+        return io_manager.load_dataset_with_metadata(character)
+
+    def get_dataset_info(self, character: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Get dataset information"""
+        from . import io_manager
+        return io_manager.get_dataset_info(character)
+
+    def delete_dataset(self, character: Dict[str, Any]) -> bool:
+        """Delete dataset file"""
+        from . import io_manager
+        return io_manager.delete_dataset(character)
+
+    def export_dataset(self, character: Dict[str, Any]) -> Optional[str]:
+        """Export dataset to downloadable format"""
+        from . import io_manager
+        return io_manager.export_dataset(character)
+
+    def import_dataset_from_bytes(self, character: Dict[str, Any], raw_bytes: bytes, merge_mode: str = "replace") -> bool:
+        """Import dataset from bytes"""
+        from . import io_manager
+        return io_manager.import_dataset_from_bytes(character, raw_bytes, merge_mode)

@@ -402,11 +402,11 @@ def page_character_management_enhanced():
     st.markdown('<h2 class="gradient-text">📋 Character Management Studio (Enhanced)</h2>', unsafe_allow_html=True)
     
     # Initialize managers
-    if 'character_manager' not in st.session_state:
-        st.session_state.character_manager = CharacterManager()
-    
     if 'world_manager' not in st.session_state:
         st.session_state.world_manager = WorldManager()
+    
+    if 'character_manager' not in st.session_state:
+        st.session_state.character_manager = CharacterManager(world_manager=st.session_state.world_manager, client=get_client())
     
     if 'char_intelligence' not in st.session_state:
         st.session_state.char_intelligence = CharacterIntelligenceService(st.session_state.world_manager)

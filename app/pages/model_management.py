@@ -24,7 +24,14 @@ def page_model_management():
     
     # Get available models and character info
     available_models = st.session_state.inference_manager.get_available_models()
-    character_name = st.session_state.current_character.get('name', 'Unknown')
+    # Get character name safely - handle both CharacterCore and dict
+    current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+    if hasattr(current_character, 'name'):
+        character_name = current_character.name
+    elif isinstance(current_character, dict):
+        character_name = current_character.get("name", "Unknown")
+    else:
+        character_name = "Unknown"
     
     tab1, tab2, tab3 = st.tabs(["🔀 Model Merging", "📊 Model Overview", "🗃️ Model Assets"])
     
