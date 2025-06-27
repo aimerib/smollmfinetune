@@ -6,21 +6,40 @@ Created: 2025-06-19
 ---
 
 ## Goal
-Implement a persistent, goal-oriented "agent loop" for each character, giving them an inner life and the ability to act proactively, including initiating conversations with the user.
+Build a production-ready autonomous agent system that enables characters to pursue goals, form memories, evolve relationships, and initiate interactions based on their personality and world state.
 
 ## Context
-This feature is the definitive step in transforming characters from reactive chatbots into believable, living actors. By giving each character a persistent, asynchronous cognitive loop (Perceive-Reflect-Plan-Act), they gain true agency, capable of pursuing their own goals and driving the narrative forward independently.
+To create truly living characters, we need agents that operate independently of user input. This system provides characters with persistent goals, memory, and decision-making capabilities while maintaining performance and preventing unwanted behavior.
 
 ## Acceptance Criteria
-- [ ] Agent Service: A new service is created at `narrative_engine/agent_service.py`, containing an `AgentLoop` class.
-- [ ] Cognitive Cycle: The `AgentLoop` implements the four-step cycle:
-  - [ ] Perceive: Gathers data from the character's core file, the world lore, and recent conversation history.
-  - [ ] Reflect: Uses an LLM call to generate a private "internal monologue" summarizing its state and goals.
-  - [ ] Plan: Uses a second LLM call to form a simple, actionable plan based on its reflection.
-  - [ ] Act: Can update its own internal state (e.g., mood) or queue a proactive message for the user.
-- [ ] Proactive Messaging: A new database table or queue (`proactive_messages`) is created. The agent's "Act" step can place messages here.
-- [ ] UI Notifications: The main application UI is updated to poll for new proactive messages for the current user and display a non-intrusive notification (e.g., "Kaelen has a message for you...").
-- [ ] Asynchronous Execution: The agent loops for all characters run in a separate background process or worker (e.g., using Celery or `asyncio.TaskGroup`).
+
+### High-Performance Agent Engine:
+- [ ] Async agent scheduler with configurable execution intervals
+- [ ] Memory-efficient agent state management with persistent storage
+- [ ] Goal-driven behavior trees with dynamic priority adjustment
+- [ ] Resource management and execution limits per agent
+- [ ] Health monitoring and automatic agent recovery
+
+### Production Agent Behaviors:
+- [ ] **Goal Pursuit**: Long-term objective tracking and execution
+- [ ] **Relationship Management**: Dynamic relationship modeling and evolution
+- [ ] **Memory Formation**: Automatic episodic and semantic memory creation
+- [ ] **Mood Evolution**: Persistent emotional state with realistic changes
+- [ ] **Proactive Messaging**: Context-aware user outreach and conversation initiation
+
+### Integration & Safety:
+- [ ] Message queue system with delivery guarantees
+- [ ] User notification preferences and consent management
+- [ ] Agent behavior boundaries and content filtering
+- [ ] Performance monitoring and resource usage tracking
+- [ ] Rollback system for problematic agent actions
+
+### Configuration & Control:
+- [ ] Agent behavior editor with visual workflow designer
+- [ ] Real-time agent monitoring dashboard
+- [ ] Agent activity logs and decision explanations
+- [ ] User controls for agent interaction frequency
+- [ ] A/B testing framework for agent behavior optimization
 
 ## Implementation Notes
 ```text

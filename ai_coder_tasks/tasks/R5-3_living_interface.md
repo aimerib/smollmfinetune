@@ -6,18 +6,40 @@ Created: 2025-06-19
 ---
 
 ## Goal
-Enable the Narrative-LLM to directly influence and manipulate the user interface by emitting special tool calls, making the platform itself feel like a magical, responsive part of the story world.
+Build a secure, extensible system that allows characters to manipulate UI elements, create immersive visual effects, and provide interactive storytelling elements through controlled tool calls.
 
 ## Context
-Inspired by a Disney Imagineer's approach, this feature dissolves the boundary between the narrative and the interface. The character is no longer confined to a text box but can change the application's theme, present items to the user, and use typography to express emotion, creating a deeply immersive and delightful experience.
+Modern users expect rich, interactive experiences. By allowing characters to control visual presentation, audio cues, and interface elements, we create a more engaging platform that competes with modern interactive media while maintaining security and performance.
 
 ## Acceptance Criteria
-- [ ] New Tool Definitions: Define the schemas for new tool calls in `narrative_engine/api/tool_schema.py`:
-  - [ ] `SetUIAttribute(theme: str, accent_color: str, font_style: str)`
-  - [ ] `PresentItem(item_name: str, item_id: str, icon: str)`
-- [ ] Orchestrator Update: The Orchestrator is modified to intercept these specific UI-related tool calls. Instead of sending them to a game engine, it places them into a dedicated command queue in the user's session state (e.g., `st.session_state.ui_commands`).
-- [ ] Frontend Handler: The main Streamlit application (`app.py`) includes a handler function that runs at the start of every page render. This function checks the `ui_commands` queue, executes the commands (e.g., by injecting CSS with `st.markdown` or by adding new elements to a sidebar), and then clears the queue.
-- [ ] Expressive Typography: The chat display logic is updated to check for control tokens like `<stage_whisper>` or `<shout>` and apply inline CSS to modify the font size and style of that specific message.
+
+### Secure UI Command System:
+- [ ] Whitelist-based tool call validation with security sandboxing
+- [ ] Rate limiting for UI manipulation commands per character/session
+- [ ] Command queue with priority system and rollback capabilities
+- [ ] Audit logging for all UI manipulation attempts
+- [ ] Permission system for different UI modification levels
+
+### Rich Visual Effects Engine:
+- [ ] **Theme Control**: Dynamic color schemes, backgrounds, fonts
+- [ ] **Animation System**: Character-triggered CSS animations and transitions
+- [ ] **Sound Integration**: Ambient audio and character-specific sound effects
+- [ ] **Interactive Elements**: Buttons, forms, and clickable objects spawned by characters
+- [ ] **Visual Overlays**: Character-controlled popups, notifications, and dialog boxes
+
+### Performance & UX:
+- [ ] Optimized CSS injection with minimal DOM manipulation
+- [ ] Smooth transitions between UI states
+- [ ] Mobile-responsive UI manipulation
+- [ ] Accessibility compliance for all dynamic elements
+- [ ] Undo/reset functionality for UI modifications
+
+### Creator Configuration:
+- [ ] UI permission editor for defining what characters can modify
+- [ ] Visual effect library with preview capabilities
+- [ ] Template system for common UI manipulation patterns
+- [ ] A/B testing for different UI interaction styles
+- [ ] Analytics dashboard for UI engagement tracking
 
 ## Implementation Notes
 ```text

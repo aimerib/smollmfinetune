@@ -6,19 +6,40 @@ Created: 2025-06-19
 ---
 
 ## Goal
-Re-architect the Narrative-LLM and its training pipeline to generate both "surface" dialogue and hidden "subtext," representing the character's true, unspoken intentions, thereby creating deep psychological realism.
+Implement a three-head model architecture that generates surface dialogue, internal thoughts, and emotional state simultaneously, providing rich psychological depth for character interactions and enabling advanced narrative features.
 
 ## Context
-Inspired by Hemingway's "Iceberg Theory," this feature imbues characters with a rich inner life. The model will learn to separate what a character says from what they mean, a critical step towards creating truly believable, layered personas rather than simple text generators.
+Characters need believable inner lives that inform their external behavior. By training the model to generate both what characters say and what they think/feel, we enable sophisticated features like emotional intelligence, character development arcs, and realistic relationship dynamics.
 
 ## Acceptance Criteria
-- [ ] Schema Update: The `Turn` model in `narrative_engine/data_schema.py` is updated with a new field: `subtext: Optional[str] = None`.
-- [ ] Architecture Modification:
-  - [ ] The `NarrativeLLM` in `narrative_engine/model.py` is modified to include a third output head: `subtext_head`.
-  - [ ] The model's forward pass will now return three sets of logits: `text_logits`, `action_logits`, and `subtext_logits`.
-- [ ] Loss Function Upgrade: The `DualHeadLoss` is refactored into a `MultiHeadLoss` (`narrative_engine/loss.py`) capable of calculating a joint loss across all three heads, using an expanded loss mask.
-- [ ] Data Pipeline Update: The `DatasetProcessor` (`narrative_engine/data_pipeline.py`) is updated to handle the subtext field, correctly tagging its tokens for the new `subtext_head` in the loss mask.
-- [ ] UI for Creators: The Dataset Studio and live chat interfaces gain a "🎭 Director's View" toggle that, when enabled, displays the generated subtext beneath the surface dialogue for review and editing.
+
+### Model Architecture Enhancement:
+- [ ] Three-head architecture: `dialogue_head`, `thought_head`, `emotion_head`
+- [ ] Shared attention layers with head-specific projection layers
+- [ ] Attention masking to prevent heads from accessing each other's outputs
+- [ ] Memory-efficient implementation with gradient checkpointing
+- [ ] Configurable head weighting for different training phases
+
+### Training Pipeline Updates:
+- [ ] Multi-head loss function with balanced weighting strategies
+- [ ] Curriculum learning: train dialogue first, then add inner layers
+- [ ] Data augmentation pipeline for generating internal thoughts
+- [ ] Validation metrics for each head independently
+- [ ] Early stopping based on composite loss improvement
+
+### Production Features:
+- [ ] Real-time emotion tracking and character mood persistence
+- [ ] Relationship dynamic modeling based on internal thoughts
+- [ ] Character development arc tracking through thought evolution
+- [ ] Context-aware subtext generation based on conversation history
+- [ ] Performance optimization for triple-head inference
+
+### Creator Tools:
+- [ ] Character psychology editor for defining thought patterns
+- [ ] Emotion calibration interface with personality trait integration
+- [ ] Relationship matrix visualization showing hidden dynamics
+- [ ] Character development timeline with internal state evolution
+- [ ] A/B testing for different subtext generation strategies
 
 ## Implementation Notes
 ```text

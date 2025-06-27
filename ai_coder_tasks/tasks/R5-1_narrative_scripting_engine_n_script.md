@@ -6,29 +6,39 @@ Created: 2025-06-19
 ---
 
 ## Goal
-Implement "N-Script," a simple, event-driven scripting language that allows power-user creators to define deterministic narrative logic and control the flow of the story with precision.
+Build a production-ready scripting language and execution engine that enables power users to create deterministic narrative logic, quest systems, and character behavior trees with a simple, readable syntax.
 
 ## Context
-Inspired by Steve Wozniak's philosophy of providing elegant, powerful tools, this feature adds a "hacker mode" for creators. It provides a deterministic, low-level escape hatch from the probabilistic nature of the LLM, enabling the creation of intricate, clockwork-like narrative devices that the standard UI doesn't support.
+Professional game writers need precise control over story pacing and character interactions. N-Script provides a lightweight, event-driven programming language specifically designed for narrative control, bridging the gap between LLM creativity and traditional game scripting.
 
 ## Acceptance Criteria
-### Parser Implementation:
-- [ ] A new module `narrative_engine/scripting/parser.py` is created.
-- [ ] It contains a parser that can take an N-Script string and output a structured Abstract Syntax Tree (AST).
+### Scripting Language Engine:
+- [ ] PLY-based parser in `narrative_engine/scripting/parser.py` with formal grammar
+- [ ] AST compiler in `narrative_engine/scripting/compiler.py` with bytecode generation
+- [ ] High-performance executor in `narrative_engine/scripting/executor.py` with event loop
+- [ ] Comprehensive error handling with line-number specific debugging
+- [ ] Hot-reloading of scripts without server restart
 
-### Executor Implementation:
-- [ ] A new module `narrative_engine/scripting/executor.py` is created.
-- [ ] The Orchestrator is equipped with an instance of the Executor, which loads the parsed AST for the current world.
-- [ ] The Executor checks its rules against events fired by the platform on each turn (e.g., `on_turn_start`, `on_tool_call`).
+### Production Language Features:
+- [ ] **Variables**: `SET $trust_level = character.trust + 10`
+- [ ] **Conditionals**: `IF $trust_level > 50 THEN show_secret_dialog`
+- [ ] **Loops**: `WHILE inventory.has("key") DO unlock_doors`
+- [ ] **Functions**: `DEFINE check_relationship(name) RETURN character(name).trust`
+- [ ] **Events**: `ON user_message, ON character_response, ON world_state_change`
 
-### UI Integration:
-- [ ] A new "📜 N-Script" tab is added to the `page_world_management.py` UI.
-- [ ] This tab contains an `st.code_editor` with syntax highlighting for N-Script, allowing creators to write and save scripts to a `world_script.nscript` file within the world's directory.
+### Integration Architecture:
+- [ ] Event dispatcher system integrated with main conversation loop
+- [ ] Script state persistence between conversations
+- [ ] Performance monitoring and script execution limits
+- [ ] Sandbox execution environment for security
+- [ ] Cache optimization for frequently executed scripts
 
-### Core Language Features:
-- [ ] Events: `ON turn(number)`, `ON tool_call(name)`.
-- [ ] Conditions: `IF character('name').relationship.trust < value`.
-- [ ] Actions: `THEN inject_memory("text")`, `THEN force_control_token("<token>")`, `THEN trigger_event("event_name")`.
+### Developer Experience:
+- [ ] VS Code extension for N-Script syntax highlighting and debugging
+- [ ] Script validation and linting in real-time
+- [ ] Interactive debugger with breakpoints and variable inspection
+- [ ] Comprehensive documentation with examples and tutorials
+- [ ] Script testing framework with unit test support
 
 ## Implementation Notes
 ```text

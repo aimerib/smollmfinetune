@@ -6,20 +6,40 @@ Created: 2025-06-19
 ---
 
 ## Goal
-Simulate "offline" interactions between characters within a world, allowing the world state and character relationships to evolve emergently, creating a truly living, persistent digital ecosystem.
+Build a scalable simulation engine that evolves world state and character relationships through automated interactions, creating dynamic, living worlds that change over time without user input.
 
 ## Context
-Inspired by a biologist's view of an ecosystem, this feature makes the world feel alive even when the player is away. By simulating interactions based on characters' intrinsic goals and personalities, the platform generates emergent narratives and a dynamic history, making the world richer and more believable each time the user returns.
+Persistent worlds require ongoing evolution to feel alive. This system simulates character interactions, world events, and relationship changes, creating emergent storytelling that enhances user engagement and creates unique narrative opportunities.
 
 ## Acceptance Criteria
-- [ ] Simulation Script: A new script, `scripts/run_ecology_simulation.py`, is created. It's designed to be run periodically as a background job (e.g., nightly cron job).
-- [ ] Simulation Logic:
-  - [ ] The script selects a world at random.
-  - [ ] It selects two characters from that world.
-  - [ ] It runs a simplified, non-interactive simulation of an encounter between them, using their goals and relationship data to seed an LLM prompt.
-  - [ ] The LLM generates a summary of the outcome (e.g., `"outcome": "Theft attempt failed"`, `"relationship_change": {"rivalry": "+10"}`, `"new_world_fact": "A strange light was seen near the Citadel vault."`).
-- [ ] World State Mutation: The script uses the WorldManager and CharacterManager to atomically update the canonical world state based on the simulation outcome. This includes updating relationship scores in `character_core.json` and adding new events to `world_lore.json`.
-- [ ] Thread Safety: The Manager classes are reviewed and updated to ensure their file/database write operations are thread-safe to prevent race conditions.
+
+### Scalable Simulation Architecture:
+- [ ] Event-driven simulation engine with pluggable interaction models
+- [ ] Distributed processing support for large worlds with many characters
+- [ ] Intelligent event scheduling based on character proximity and relationships
+- [ ] Configurable simulation complexity and resource usage limits
+- [ ] Real-time simulation monitoring and performance metrics
+
+### Rich Simulation Features:
+- [ ] **Social Dynamics**: Relationship evolution based on personality compatibility
+- [ ] **Economic Systems**: Resource trading and wealth accumulation
+- [ ] **Political Events**: Alliance formation and conflict emergence
+- [ ] **Environmental Changes**: Weather, seasons, and world state evolution
+- [ ] **Emergent Storylines**: Multi-character story arc generation
+
+### Production Infrastructure:
+- [ ] Microservice architecture with Redis-based event queue
+- [ ] Database transaction management for atomic world state updates
+- [ ] Conflict resolution system for simultaneous character actions
+- [ ] Backup and rollback system for simulation state
+- [ ] API for external simulation modules and extensions
+
+### User Experience:
+- [ ] World history timeline with major event visualization
+- [ ] Character relationship network graphs
+- [ ] Simulation outcome notifications and summaries
+- [ ] User controls for simulation speed and complexity
+- [ ] Integration with character creation for population dynamics
 
 ## Implementation Notes
 ```text
