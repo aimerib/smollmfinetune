@@ -42,6 +42,7 @@ Your role as an AI assistant is to help build this story machine. Every componen
 | R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     |
 | R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
 | R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
+| R4   | Narrative Engine        | New model architecture and pretraining                 |
 
 We are currently **here → R1**.
 
