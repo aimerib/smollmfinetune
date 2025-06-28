@@ -33,6 +33,68 @@ def render_consistency_deep_dive(metrics: Dict[str, Any]):
             """
         )
 
+        # ✨ NEW: Personality Drift Analysis (R1-9)
+        if metrics.get('personality_drift_available', False) or 'personality_drift_result' in metrics:
+            st.markdown("---")
+            st.markdown("#### 🎭 Personality Drift Analysis")
+            
+            if 'personality_drift_result' in metrics:
+                drift_result = metrics['personality_drift_result']
+                
+                # Import here to avoid circular imports
+                try:
+                    from ..components.personality_drift_analyzer import render_personality_drift_chart
+                    
+                    # Create beautiful radar chart
+                    fig = render_personality_drift_chart(drift_result, "Personality Consistency Check")
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Show drift insights
+                    drift_col1, drift_col2, drift_col3 = st.columns(3)
+                    
+                    with drift_col1:
+                        drift_magnitude = drift_result.drift_magnitude
+                        drift_color = "#10b981" if drift_magnitude < 0.1 else "#f59e0b" if drift_magnitude < 0.3 else "#ef4444"
+                        st.markdown(f"""
+                            <div style="text-align: center; padding: 0.8rem; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid {drift_color};">
+                                <h5 style="margin: 0; color: {drift_color};">Drift Magnitude</h5>
+                                <h3 style="margin: 0.3rem 0; color: {drift_color};">{drift_magnitude:.3f}</h3>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with drift_col2:
+                        confidence = drift_result.confidence_score
+                        conf_color = "#10b981" if confidence > 0.8 else "#f59e0b" if confidence > 0.6 else "#ef4444"
+                        st.markdown(f"""
+                            <div style="text-align: center; padding: 0.8rem; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid {conf_color};">
+                                <h5 style="margin: 0; color: {conf_color};">Confidence</h5>
+                                <h3 style="margin: 0.3rem 0; color: {conf_color};">{confidence:.0%}</h3>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    with drift_col3:
+                        samples = drift_result.samples_analyzed
+                        sample_color = "#10b981" if samples >= 40 else "#f59e0b" if samples >= 20 else "#ef4444"
+                        st.markdown(f"""
+                            <div style="text-align: center; padding: 0.8rem; background: rgba(255,255,255,0.05); border-radius: 6px; border-left: 3px solid {sample_color};">
+                                <h5 style="margin: 0; color: {sample_color};">Samples</h5>
+                                <h3 style="margin: 0.3rem 0; color: {sample_color};">{samples}</h3>
+                            </div>
+                        """, unsafe_allow_html=True)
+                    
+                    # Quick interpretation
+                    if drift_magnitude < 0.1:
+                        st.success("🎉 **Excellent personality consistency!** The model is staying true to the authored personality.")
+                    elif drift_magnitude < 0.2:
+                        st.info("✅ **Good personality consistency.** Minor variations are normal and expected.")
+                    else:
+                        st.warning("⚠️ **Personality drift detected.** Consider reviewing training data for personality consistency.")
+                        
+                except ImportError as e:
+                    st.error(f"Could not load personality drift analyzer: {e}")
+            else:
+                st.info("💡 **Personality drift analysis will be available once training progresses.**")
+
         evaluated_samples = metrics.get('evaluated_samples', [])
         if not evaluated_samples:
             st.info("No detailed evaluation samples available for this step yet.")
@@ -261,7 +323,7 @@ def page_training_dashboard():
                 )
             
             # Secondary metrics row (if validation is enabled)
-            if 'eval_loss' in metrics or 'character_consistency' in metrics:
+            if 'eval_loss' in metrics or 'character_consistency' in metrics or 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:
                 st.markdown("---")
                 col5, col6, col7, col8 = st.columns(4)
                 
@@ -302,6 +364,80 @@ def page_training_dashboard():
                         training_health,
                         delta_color=health_color
                     )
+            
+            # ✨ NEW: Advanced Metrics Row (R1-9) 
+            if 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:
+                st.markdown("---")
+                st.markdown("### 🎭 Advanced Character Metrics")
+                
+                adv_col1, adv_col2, adv_col3, adv_col4 = st.columns(4)
+                
+                with adv_col1:
+                    if 'avg_personality_alignment' in metrics:
+                        personality_score = metrics['avg_personality_alignment']
+                        personality_delta = metrics.get('personality_alignment_delta', 0)
+                        delta_color = "normal" if abs(personality_delta) < 0.05 else ("normal" if personality_delta > 0 else "inverse")
+                        
+                        st.metric(
+                            "🧠 Personality Alignment",
+                            f"{personality_score:.3f}" if isinstance(personality_score, (int, float)) else str(personality_score),
+                            delta=f"{personality_delta:+.3f}" if personality_delta != 0 else None,
+                            delta_color=delta_color,
+                            help="How well responses match the authored personality profile (Big Five traits)"
+                        )
+                
+                with adv_col2:
+                    if 'avg_lore_adherence' in metrics:
+                        lore_score = metrics['avg_lore_adherence']
+                        lore_delta = metrics.get('lore_adherence_delta', 0)
+                        delta_color = "normal" if abs(lore_delta) < 0.05 else ("normal" if lore_delta > 0 else "inverse")
+                        
+                        st.metric(
+                            "📜 Lore Adherence",
+                            f"{lore_score:.3f}" if isinstance(lore_score, (int, float)) else str(lore_score),
+                            delta=f"{lore_delta:+.3f}" if lore_delta != 0 else None,
+                            delta_color=delta_color,
+                            help="How well responses respect and incorporate world lore facts"
+                        )
+                
+                with adv_col3:
+                    # Combined quality score
+                    if 'avg_personality_alignment' in metrics and 'avg_lore_adherence' in metrics:
+                        combined_score = (metrics['avg_personality_alignment'] + metrics['avg_lore_adherence']) / 2
+                        st.metric(
+                            "🎯 Overall Quality",
+                            f"{combined_score:.3f}",
+                            help="Combined personality alignment and lore adherence score"
+                        )
+                    elif 'character_consistency' in metrics:
+                        consistency = metrics['character_consistency']
+                        st.metric(
+                            "🎭 Character Quality",
+                            f"{consistency:.3f}" if isinstance(consistency, (int, float)) else str(consistency),
+                            help="Overall character performance metric"
+                        )
+                
+                with adv_col4:
+                    # Performance indicator
+                    if 'avg_personality_alignment' in metrics:
+                        personality_score = metrics['avg_personality_alignment']
+                        if personality_score > 0.8:
+                            performance = "Excellent"
+                            performance_color = "#10b981"
+                        elif personality_score > 0.6:
+                            performance = "Good"
+                            performance_color = "#f59e0b"
+                        else:
+                            performance = "Needs Work"
+                            performance_color = "#ef4444"
+                        
+                        st.markdown(f"""
+                            <div style="text-align: center; padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; border-left: 4px solid {performance_color};">
+                                <h4 style="margin: 0; color: {performance_color};">Performance</h4>
+                                <h3 style="margin: 0.5rem 0; color: {performance_color};">{performance}</h3>
+                                <p style="margin: 0; font-size: 0.9rem; color: #cbd5e1;">Character Training</p>
+                            </div>
+                        """, unsafe_allow_html=True)
         
         # Enhanced loss curve with multiple metrics
         if 'loss_history' in metrics and metrics['loss_history']:

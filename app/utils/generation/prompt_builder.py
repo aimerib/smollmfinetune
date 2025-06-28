@@ -7,6 +7,7 @@ into conversation prompts. Supports NSFW styling and multi-turn conversations.
 """
 
 import random
+import re
 from typing import Dict, Any, List, Optional, Union
 import logging
 
@@ -16,14 +17,19 @@ logger = logging.getLogger(__name__)
 class PromptBuilder:
     """Advanced prompt builder with personality and lore injection"""
     
-    def __init__(self, world_lore: Optional[Dict[str, Any]] = None):
+    def __init__(self, world_lore: Optional[Dict[str, Any]] = None, control_tokens: Optional[List[Dict[str, Any]]] = None):
         """
-        Initialize the prompt builder with world context.
+        Initialize the prompt builder with world context and control tokens.
         
         Args:
             world_lore: Dictionary containing world facts and context
+            control_tokens: List of control token definitions
         """
         self.world_lore = world_lore or {'facts': []}
+        self.control_tokens = control_tokens or []
+        
+        # Build token lookup for fast access
+        self.token_lookup = {token.get("token", ""): token for token in self.control_tokens}
         
         # Big Five personality trait mappings
         self.big_five_adjectives = {
@@ -56,7 +62,7 @@ class PromptBuilder:
     
     def build_prompt(self, character: Union[Dict[str, Any], Any], mode: str = "chat", 
                     base_prompt: str = "", nsfw_style: Optional[str] = None,
-                    use_cache: bool = False, **opts) -> str:
+                    use_cache: bool = False, add_token_hints: bool = True, **opts) -> str:
         """
         Build an enhanced prompt with personality, goals, relationships, and lore.
         
@@ -66,6 +72,7 @@ class PromptBuilder:
             base_prompt: Base prompt text to enhance
             nsfw_style: NSFW style tag ("soft", "explicit", "kink")
             use_cache: Whether to use caching (placeholder for future implementation)
+            add_token_hints: Whether to add natural language hints for control tokens
             **opts: Additional options
             
         Returns:
@@ -104,15 +111,22 @@ class PromptBuilder:
             if lore_fact:
                 components.append(f"Remember: {lore_fact}")
             
-            # 6. Add NSFW style tag if needed
+            # 6. Add NSFW style tag if needed (convert to control token format)
             if mode == "nsfw" and nsfw_style:
-                components.append(f"[NSFW:{nsfw_style}]")
+                nsfw_token = f"<nsfw_{nsfw_style}>"
+                components.append(nsfw_token)
             
-            # 7. Add the base prompt
+            # 7. Add control token hints if enabled and tokens are present
+            if add_token_hints:
+                token_hints = self._generate_token_hints(components, base_prompt)
+                if token_hints:
+                    components.insert(-len(components), token_hints)  # Insert after character info but before content
+            
+            # 8. Add the base prompt
             if base_prompt:
                 components.append(f"\nUser: {base_prompt}")
             
-            # 8. Mode-specific formatting
+            # 9. Mode-specific formatting
             if mode == "qa":
                 components.append("Answer factually and stay in character.")
             elif mode == "chat":
@@ -195,10 +209,68 @@ class PromptBuilder:
         if facts:
             return random.choice(facts)
         return None
+    
+    def _find_tokens_in_text(self, text: str) -> List[str]:
+        """Find control tokens in text using regex"""
+        token_pattern = r'<[^>]+>'
+        found_tokens = re.findall(token_pattern, text)
+        
+        # Filter to only known control tokens
+        valid_tokens = []
+        for token in found_tokens:
+            if token in self.token_lookup:
+                valid_tokens.append(token)
+        
+        return valid_tokens
+    
+    def _generate_token_hints(self, components: List[str], base_prompt: str = "") -> Optional[str]:
+        """Generate natural language hints for control tokens found in the prompt"""
+        # Combine all text to search for tokens
+        full_text = " ".join(components) + " " + base_prompt
+        
+        # Find all control tokens
+        found_tokens = self._find_tokens_in_text(full_text)
+        
+        if not found_tokens:
+            return None
+        
+        # Remove duplicates while preserving order
+        unique_tokens = list(dict.fromkeys(found_tokens))
+        
+        # Generate hints
+        hints = []
+        for token in unique_tokens:
+            token_info = self.token_lookup.get(token)
+            if token_info:
+                description = token_info.get("description", "")
+                if description:
+                    hints.append(f"The token {token} means {description}")
+        
+        if hints:
+            hint_text = "Token meanings: " + "; ".join(hints) + "."
+            return hint_text
+        
+        return None
+    
+    def apply_control_tokens(self, text: str, selected_tokens: List[str]) -> str:
+        """Apply control tokens to text by inserting them at the beginning"""
+        if not selected_tokens:
+            return text
+        
+        # Insert tokens at the beginning
+        token_string = " ".join(selected_tokens)
+        return f"{token_string} {text}"
+    
+    def get_available_tokens_by_category(self, category: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Get available control tokens, optionally filtered by category"""
+        if category is None:
+            return self.control_tokens
+        
+        return [token for token in self.control_tokens if token.get("category") == category]
 
 
 def build_prompt(character: Union[Dict[str, Any], Any], world_lore: Dict[str, Any],
-                mode: str = "chat", base_prompt: str = "", **opts) -> str:
+                mode: str = "chat", base_prompt: str = "", control_tokens: Optional[List[Dict[str, Any]]] = None, **opts) -> str:
     """
     Standalone function to build a prompt.
     
@@ -207,12 +279,13 @@ def build_prompt(character: Union[Dict[str, Any], Any], world_lore: Dict[str, An
         world_lore: World lore context
         mode: Generation mode
         base_prompt: Base prompt text
+        control_tokens: List of control token definitions
         **opts: Additional options
         
     Returns:
         Enhanced prompt string
     """
-    builder = PromptBuilder(world_lore=world_lore)
+    builder = PromptBuilder(world_lore=world_lore, control_tokens=control_tokens)
     return builder.build_prompt(character=character, mode=mode, base_prompt=base_prompt, **opts)
 
 

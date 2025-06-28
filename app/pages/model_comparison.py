@@ -254,7 +254,7 @@ def page_model_comparison():
         st.info("**Variable Metrics** (showing how performance changes throughout training)")
         
         # Create tabs for different types of analysis
-        analysis_tab1, analysis_tab2, analysis_tab3 = st.tabs(["📈 Training Progress", "🎯 Character Consistency", "📋 Detailed Comparison"])
+        analysis_tab1, analysis_tab2, analysis_tab3, analysis_tab4 = st.tabs(["📈 Training Progress", "🎯 Character Consistency", "🎭 Personality Drift", "📋 Detailed Comparison"])
         
         with analysis_tab1:
             st.markdown("##### Training Loss & Learning Progress")
@@ -527,6 +527,180 @@ def page_model_comparison():
             st.plotly_chart(fig_consistency, use_container_width=True)
             
         with analysis_tab3:
+            st.markdown("##### 🎭 Personality Drift Analysis")
+            st.info("🌟 **New Feature**: Compare how well your trained models maintain the authored personality profile.")
+            
+            # Model selection for drift analysis
+            st.markdown("**Select a model for personality drift analysis:**")
+            
+            # Filter to only trained models (not base models)
+            trained_models_for_drift = [m for m in selected_models if not m.startswith("Base:")]
+            
+            if not trained_models_for_drift:
+                st.warning("⚠️ **No trained models selected.** Select some trained models (checkpoints or final models) to analyze personality drift.")
+            else:
+                # Select model for analysis
+                selected_drift_model = st.selectbox(
+                    "Choose model to analyze:",
+                    trained_models_for_drift,
+                    key="drift_analysis_model"
+                )
+                
+                col_btn, col_samples = st.columns([1, 1])
+                
+                with col_samples:
+                    num_samples = st.slider(
+                        "Analysis samples:",
+                        min_value=10,
+                        max_value=100,
+                        value=50,
+                        step=10,
+                        help="More samples = higher accuracy but slower analysis"
+                    )
+                
+                with col_btn:
+                    if st.button("🚀 Run Drift Analysis", type="primary", use_container_width=True):
+                        if selected_drift_model and st.session_state.get('current_character_core'):
+                            
+                            with st.spinner(f"🔄 Analyzing personality drift for {selected_drift_model}..."):
+                                try:
+                                    # Import here to avoid circular imports
+                                    from ..components.personality_drift_analyzer import PersonalityDriftAnalyzer
+                                    
+                                    # Get character data safely
+                                    current_character = st.session_state.current_character_core
+                                    if hasattr(current_character, 'personality_traits'):
+                                        character_dict = {
+                                            'name': current_character.name,
+                                            'personality_traits': {
+                                                'openness': current_character.personality_traits.openness,
+                                                'conscientiousness': current_character.personality_traits.conscientiousness,
+                                                'extraversion': current_character.personality_traits.extraversion,
+                                                'agreeableness': current_character.personality_traits.agreeableness,
+                                                'neuroticism': current_character.personality_traits.neuroticism
+                                            }
+                                        }
+                                    else:
+                                        character_dict = current_character
+                                    
+                                    # Create analyzer and run analysis
+                                    analyzer = PersonalityDriftAnalyzer(selected_drift_model, character_dict)
+                                    
+                                    # Use asyncio to run the async function
+                                    import asyncio
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    
+                                    try:
+                                        drift_result = loop.run_until_complete(
+                                            analyzer.analyze_personality_drift(num_samples=num_samples)
+                                        )
+                                        
+                                        # Store result in session state
+                                        st.session_state[f'drift_result_{selected_drift_model}'] = drift_result
+                                        
+                                    finally:
+                                        loop.close()
+                                    
+                                    st.success(f"✅ **Analysis complete!** Analyzed {drift_result.samples_analyzed} samples.")
+                                    
+                                except Exception as e:
+                                    st.error(f"❌ **Analysis failed:** {str(e)}")
+                        else:
+                            st.error("❌ Please select a model and ensure a character is loaded.")
+                
+                # Display results if available
+                if selected_drift_model:
+                    drift_result_key = f'drift_result_{selected_drift_model}'
+                    if drift_result_key in st.session_state:
+                        drift_result = st.session_state[drift_result_key]
+                        
+                        st.markdown("---")
+                        st.markdown("#### 📊 Analysis Results")
+                        
+                        # Import chart renderer
+                        try:
+                            from ..components.personality_drift_analyzer import render_personality_drift_chart
+                            
+                            # Create two columns for chart and insights
+                            chart_col, insights_col = st.columns([2, 1])
+                            
+                            with chart_col:
+                                # Render the beautiful radar chart
+                                fig = render_personality_drift_chart(
+                                    drift_result, 
+                                    f"Personality Drift: {selected_drift_model.split(': ')[-1]}"
+                                )
+                                st.plotly_chart(fig, use_container_width=True)
+                            
+                            with insights_col:
+                                st.markdown("##### 🔍 Analysis Summary")
+                                
+                                # Drift magnitude
+                                drift_magnitude = drift_result.drift_magnitude
+                                if drift_magnitude < 0.1:
+                                    drift_status = "🟢 Excellent"
+                                    drift_color = "#10b981"
+                                elif drift_magnitude < 0.2:
+                                    drift_status = "🟡 Good"
+                                    drift_color = "#f59e0b"
+                                else:
+                                    drift_status = "🔴 Needs Attention"
+                                    drift_color = "#ef4444"
+                                
+                                st.markdown(f"""
+                                    <div style="padding: 1rem; background: rgba(255,255,255,0.05); border-radius: 8px; border-left: 4px solid {drift_color}; margin-bottom: 1rem;">
+                                        <h4 style="margin: 0; color: {drift_color};">Overall Drift</h4>
+                                        <h2 style="margin: 0.5rem 0; color: {drift_color};">{drift_status}</h2>
+                                        <p style="margin: 0; font-size: 0.9rem; color: #cbd5e1;">Magnitude: {drift_magnitude:.3f}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
+                                
+                                # Per-trait breakdown
+                                if drift_result.drift_breakdown:
+                                    st.markdown("**Per-Trait Drift:**")
+                                    trait_names = {
+                                        'openness': '🎨 Openness',
+                                        'conscientiousness': '📋 Conscientiousness',
+                                        'extraversion': '🎉 Extraversion', 
+                                        'agreeableness': '🤝 Agreeableness',
+                                        'neuroticism': '😰 Neuroticism'
+                                    }
+                                    
+                                    for trait, drift_amount in drift_result.drift_breakdown.items():
+                                        trait_display = trait_names.get(trait, trait.title())
+                                        drift_pct = drift_amount * 100
+                                        
+                                        if drift_amount < 0.1:
+                                            trait_color = "#10b981"
+                                        elif drift_amount < 0.2:
+                                            trait_color = "#f59e0b"
+                                        else:
+                                            trait_color = "#ef4444"
+                                        
+                                        st.markdown(f"""
+                                            <div style="display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                                                <span>{trait_display}</span>
+                                                <span style="color: {trait_color}; font-weight: bold;">{drift_pct:.1f}%</span>
+                                            </div>
+                                        """, unsafe_allow_html=True)
+                                
+                                # Analysis details
+                                st.markdown(f"**Samples Analyzed:** {drift_result.samples_analyzed}")
+                                st.markdown(f"**Confidence:** {drift_result.confidence_score:.0%}")
+                                
+                                # Recommendations
+                                if drift_magnitude > 0.2:
+                                    st.warning("💡 **Recommendation:** Consider fine-tuning with more personality-consistent training data.")
+                                elif drift_magnitude > 0.1:
+                                    st.info("💡 **Recommendation:** Monitor personality consistency as training progresses.")
+                                else:
+                                    st.success("🎉 **Great job!** Your model maintains excellent personality consistency.")
+                        
+                        except ImportError as e:
+                            st.error(f"Could not load drift analysis components: {e}")
+            
+        with analysis_tab4:
             # Detailed metrics table focusing on variable metrics
             st.markdown("##### Checkpoint Comparison Table")
             st.info("💡 **Focus on differences:** This table shows metrics that vary between checkpoints")

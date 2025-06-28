@@ -181,6 +181,95 @@ def page_dataset_studio():
                     use_expander=False
                 )
         
+        # Control Token Selector
+        st.markdown("#### 🎭 Control Token Assistant")
+        
+        # Get available tokens from current world
+        world_manager = getattr(st.session_state, 'world_manager', None)
+        available_tokens = []
+        if world_manager and world_manager.current_world:
+            available_tokens = world_manager.get_current_tokens()
+        
+        if available_tokens:
+            # Group tokens by category for better UI
+            token_categories = {}
+            for token in available_tokens:
+                category = token.get('category', 'other')
+                if category not in token_categories:
+                    token_categories[category] = []
+                token_categories[category].append(token)
+            
+            # Token insertion interface
+            col_token1, col_token2 = st.columns([1, 1])
+            
+            with col_token1:
+                # Category selector
+                if token_categories:
+                    selected_category = st.selectbox(
+                        "Token Category",
+                        options=['all'] + list(token_categories.keys()),
+                        help="Filter tokens by category"
+                    )
+                    
+                    # Token selector based on category
+                    if selected_category == 'all':
+                        tokens_to_show = available_tokens
+                    else:
+                        tokens_to_show = token_categories.get(selected_category, [])
+                    
+                    if tokens_to_show:
+                        token_options = [f"{t['ui_icon']} {t['token']} - {t['description']}" for t in tokens_to_show]
+                        selected_token_idx = st.selectbox(
+                            "Insert Control Token",
+                            options=range(len(token_options)),
+                            format_func=lambda x: token_options[x],
+                            help="Select a control token to insert into prompts"
+                        )
+                        
+                        if st.button("➕ Add Token to Generation", use_container_width=True):
+                            selected_token = tokens_to_show[selected_token_idx]['token']
+                            # Store selected tokens in session state for use during generation
+                            if 'selected_control_tokens' not in st.session_state:
+                                st.session_state.selected_control_tokens = []
+                            if selected_token not in st.session_state.selected_control_tokens:
+                                st.session_state.selected_control_tokens.append(selected_token)
+                                st.success(f"✅ Added {selected_token} to generation!")
+                                st.rerun()
+                            else:
+                                st.warning(f"Token {selected_token} already selected!")
+            
+            with col_token2:
+                # Show currently selected tokens
+                st.markdown("**Selected Tokens for Generation:**")
+                selected_tokens = st.session_state.get('selected_control_tokens', [])
+                
+                if selected_tokens:
+                    for i, token in enumerate(selected_tokens):
+                        col_token_display, col_token_remove = st.columns([3, 1])
+                        
+                        with col_token_display:
+                            # Find token info
+                            token_info = next((t for t in available_tokens if t['token'] == token), {})
+                            icon = token_info.get('ui_icon', '🏷️')
+                            description = token_info.get('description', token)
+                            st.text(f"{icon} {token} - {description}")
+                        
+                        with col_token_remove:
+                            if st.button("❌", key=f"remove_token_{i}", help=f"Remove {token}"):
+                                st.session_state.selected_control_tokens.remove(token)
+                                st.rerun()
+                    
+                    # Clear all button
+                    if st.button("🗑️ Clear All Tokens", use_container_width=True):
+                        st.session_state.selected_control_tokens = []
+                        st.rerun()
+                else:
+                    st.info("No tokens selected. Choose tokens from the left to include them in generation prompts.")
+        else:
+            st.warning("⚠️ No control tokens available. Make sure you have a world loaded with token definitions.")
+        
+        st.markdown("---")
+        
         # Current batch review interface
         if interactive_state['current_batch']:
             st.markdown("---")
