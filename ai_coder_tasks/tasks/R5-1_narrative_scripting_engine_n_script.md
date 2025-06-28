@@ -1,64 +1,115 @@
----
 # R5-1: The Narrative Scripting Engine (N-Script)
-Status: **Todo**
-Ring: R5
-Created: 2025-06-19
+
+- **Ring:** R5
+- **Status:** Not Started
+- **Author:** Principal Engineer AI
+- **Effort:** Medium
+- **Related-Tasks:** R4-12, R4-13
+
 ---
 
-## Goal
-Build a production-ready scripting language and execution engine that enables power users to create deterministic narrative logic, quest systems, and character behavior trees with a simple, readable syntax.
+## 1. Goal
 
-## Context
-Professional game writers need precise control over story pacing and character interactions. N-Script provides a lightweight, event-driven programming language specifically designed for narrative control, bridging the gap between LLM creativity and traditional game scripting.
+To create a simple, event-driven scripting system that allows designers to define deterministic narrative logic (e.g., "if-this-then-that") that interacts with the emergent, agent-driven world.
+
+---
+
+## 2. Why? (The Story)
+
+While we want an emergent world, designers still need control. They need to be able to write "if-this-then-that" logic for critical story moments, tutorials, or safety rails. For example: "IF the player enters the Dragon's Lair for the first time, THEN force the Dragon to deliver its monologue." N-Script is the tool that gives designers this power, blending scripted events with the emergent simulation. It's the safety net and the director's tool for our AI improv actors.
+
+---
+
+## 3. How? (The Implementation)
+
+N-Script will be implemented as a set of components that integrate with the `AgenticLoopFramework`. The initial version will use a simple YAML-based DSL for readability and ease of parsing.
+
+1.  **Define the N-Script DSL (Domain Specific Language):**
+    -   Design a human-readable YAML syntax for scripts.
+    -   The script will define `Triggers` and `Actions`.
+    -   **Example `dragon_monologue.nscript`:**
+        ```yaml
+        script_id: dragon_monologue_intro
+        trigger:
+          type: ON_ENTER_LOCATION
+          location_id: "dragon_lair_entrance"
+          actor_filter: "player" # Only triggers for the player
+          once: true # This script only runs once per campaign
+        actions:
+          - type: FORCE_ACTION
+            target_agent_id: "dragon_boss"
+            action:
+              # This uses the same Action Schema from R4-13
+              type: SpeakToAction
+              message: "Frail mortal, you have stumbled into my domain..."
+          - type: SET_STATE
+            target_agent_id: "dragon_boss"
+            state_patch:
+              # This directly modifies the agent's state in the StateManager
+              status: "hostile"
+        ```
+
+2.  **Create the `ScriptManager`:**
+    -   This service resides in `narrative_engine/nscript.py`.
+    -   It loads all `.nscript` files from a world's `/scripts` directory at startup.
+    -   It uses a library like `PyYAML` to parse them into validated `Script` data objects.
+
+3.  **Implement the `TriggerMonitor`:**
+    -   Also in `narrative_engine/nscript.py`, this component subscribes to the event stream from the `RuntimeStateManager` (R4-12).
+    -   When an event occurs (e.g., state change, location change), it checks if any loaded script's trigger conditions are met.
+
+4.  **Implement the `ActionExecutor`:**
+    -   When a trigger is matched, the `TriggerMonitor` passes the corresponding `actions` list to the `ActionExecutor`.
+    -   The `ActionExecutor` is responsible for executing the action.
+        -   For a `FORCE_ACTION`, it directly calls the `agent.act()` method from the `AgenticLoopFramework` (R4-13), bypassing that agent's `perceive` and `think` steps for that one tick.
+        -   For a `SET_STATE`, it calls the `StateManager.update_state()` method directly.
+
+---
+
+## 4. How to Test?
+
+-   **Unit Tests (`tests/narrative_engine/test_nscript.py`):**
+    -   Test the N-Script parser: can it correctly parse valid YAML script files and reject invalid ones (e.g., missing required keys)?
+    -   Test the `TriggerMonitor`: given a state change event from a mock `StateManager`, does it correctly identify and fire the matched script?
+    -   Test the `ActionExecutor`: does it make the correct calls to the (mocked) agent and `StateManager` interfaces based on the action list?
+-   **Integration Test:**
+    -   Create a test scenario with the `AgenticLoopFramework`. Let an agent move into a location, which should fire an N-Script trigger from a loaded test script.
+    -   Assert that the trigger forces another agent to perform a specific action.
+    -   Verify the final state in the `StateManager` is correct.
 
 ## Acceptance Criteria
-### Scripting Language Engine:
-- [ ] PLY-based parser in `narrative_engine/scripting/parser.py` with formal grammar
-- [ ] AST compiler in `narrative_engine/scripting/compiler.py` with bytecode generation
-- [ ] High-performance executor in `narrative_engine/scripting/executor.py` with event loop
-- [ ] Comprehensive error handling with line-number specific debugging
-- [ ] Hot-reloading of scripts without server restart
+### DSL & Parsing
+- [ ] YAML-based `.nscript` schema with JSON-Schema validation file in `narrative_engine/nscript_schema.json`.
+- [ ] Parser `ScriptManager.load_scripts(world_path)` raises `ScriptValidationError` on invalid file.
 
-### Production Language Features:
-- [ ] **Variables**: `SET $trust_level = character.trust + 10`
-- [ ] **Conditionals**: `IF $trust_level > 50 THEN show_secret_dialog`
-- [ ] **Loops**: `WHILE inventory.has("key") DO unlock_doors`
-- [ ] **Functions**: `DEFINE check_relationship(name) RETURN character(name).trust`
-- [ ] **Events**: `ON user_message, ON character_response, ON world_state_change`
+### Trigger Runtime
+- [ ] `TriggerMonitor` subscribes to `StateManager.event_bus`; latency <50 ms/event.
+- [ ] Opt-in debug logs showing matched script id & actions executed.
 
-### Integration Architecture:
-- [ ] Event dispatcher system integrated with main conversation loop
-- [ ] Script state persistence between conversations
-- [ ] Performance monitoring and script execution limits
-- [ ] Sandbox execution environment for security
-- [ ] Cache optimization for frequently executed scripts
+### Action Execution
+- [ ] Support at minimum `FORCE_ACTION`, `SET_STATE`, `EMIT_EVENT` action types.
+- [ ] Unit tests reaching 90 % branch coverage across parser, monitor, executor.
 
-### Developer Experience:
-- [ ] VS Code extension for N-Script syntax highlighting and debugging
-- [ ] Script validation and linting in real-time
-- [ ] Interactive debugger with breakpoints and variable inspection
-- [ ] Comprehensive documentation with examples and tutorials
-- [ ] Script testing framework with unit test support
+### Integration & Tooling
+- [ ] Example script folder added to `content/worlds/Default World/scripts/` with at least two scripts including `dragon_monologue_intro`.
+- [ ] Docs page `docs/nscript.md` explaining syntax + examples.
+- [ ] Streamlit "Scripts" tab in World Management page listing scripts & validation status.
 
 ## Implementation Notes
 ```text
-• TDD Instructions:
-  - Red (Parser): In tests/narrative_engine/scripting/test_parser.py, write a test that feeds a valid N-Script string to the parser and asserts that it produces a correct, non-empty AST. Write another test with invalid syntax and assert it raises a ParsingError.
-  - Green (Parser): Implement the N-Script parser to make the tests pass.
-  - Red (Executor): In tests/narrative_engine/scripting/test_executor.py, create a dummy event and a pre-defined AST. Instantiate the Executor with the AST. Fire the event. Assert that the correct action is "called" (i.e., returned by the executor's process_event method).
-  - Green (Executor): Implement the executor logic to correctly evaluate conditions and identify the right actions to take.
-  - Integration (Orchestrator): Write a test for the Orchestrator where a scripted rule should modify the final prompt sent to the LLM (e.g., by adding a memory or control token).
+• Use pydantic v2 for in-memory Script objects.
+• Leverage watchdog to reload scripts at runtime when files change (hot-reload for designers).
+• Ensure thread-safe interaction with StateManager via asyncio.Queue event bus.
 ```
 
 ## Checklist / Steps
-1. Design N-Script language syntax and grammar
-2. Implement parser for N-Script strings to AST
-3. Create executor for running AST against events
-4. Integrate executor with Orchestrator
-5. Add N-Script editor tab to world management UI
-6. Implement script file saving/loading
-7. Write comprehensive tests for parser and executor
-8. Add syntax highlighting and error reporting
+1. Define JSON-Schema + pydantic models.
+2. Implement ScriptManager load & validation.
+3. Build TriggerMonitor + ActionExecutor.
+4. Write unit tests with pytest fixtures.
+5. Create example scripts & documentation.
+6. Add Scripts tab to world_management UI.
+7. Achieve >90 % test coverage then move card to completed.
 
 ## References
-This is a new, foundational feature for Ring 5. 
+Builds on R4-12 StateManager and R4-13 Agentic Loop.

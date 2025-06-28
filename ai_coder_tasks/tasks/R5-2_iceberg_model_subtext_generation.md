@@ -1,65 +1,95 @@
----
-# R5-2: The Iceberg Model (Subtext Generation)
-Status: **Todo**
-Ring: R5
-Created: 2025-06-19
+# R5-2: Iceberg Model (Subtext Generation)
+
+- **Ring:** R5
+- **Status:** Not Started
+- **Author:** Principal Engineer AI
+- **Effort:** Medium
+- **Related-Tasks:** R4-3, R4-13
+
 ---
 
-## Goal
-Implement a three-head model architecture that generates surface dialogue, internal thoughts, and emotional state simultaneously, providing rich psychological depth for character interactions and enabling advanced narrative features.
+## 1. Goal
 
-## Context
-Characters need believable inner lives that inform their external behavior. By training the model to generate both what characters say and what they think/feel, we enable sophisticated features like emotional intelligence, character development arcs, and realistic relationship dynamics.
+To modify the Narrative Engine and agent framework to generate a character's "internal monologue" (subtext) in addition to their spoken dialogue or actions. This subtext is visible to the player/director but not to other characters.
+
+---
+
+## 2. Why? (The Story)
+
+What a character says is only half the story. What they *think* is where the real drama lies. Does the character say "I'm fine" while thinking "I can't believe they betrayed me"? This "Iceberg Model" creates dramatic irony and deepens the player's connection to the characters by exposing their inner world. It also provides a powerful debugging tool for writers, showing what the character's motivations truly are.
+
+---
+
+## 3. How? (The Implementation)
+
+This feature will be implemented by modifying the `think` step of the `AgenticLoopFramework` and leveraging the dual-head output capability planned in R4-3.
+
+1.  **Update the `Agent.think()` Method Signature:**
+    -   In `narrative_engine/agent.py`, modify the `think` method in the `BaseAgent` interface.
+    -   It should now return a `ThinkResult` object instead of just an `Action`.
+    -   The `ThinkResult` data class will be: `ThinkResult(action: Action, subtext: str)`.
+
+2.  **Modify the Prompt for Dual Output:**
+    -   In the `think` method's implementation, adjust the prompt sent to the Narrative Engine (R4 model).
+    -   The prompt will now explicitly ask for two outputs, clearly separated.
+    -   **Example Prompt Suffix:**
+        ```
+        ...Based on the above, generate the character's next action and their private inner thoughts.
+
+        [SUBTEXT]
+        (The character's inner monologue and true feelings)
+        [/SUBTEXT]
+
+        [ACTION]
+        (The structured action the character will perform, in the specified format)
+        [/ACTION]
+        ```
+
+3.  **Implement Parsing Logic:**
+    -   After receiving the response from the LLM, the `think` method must parse the output.
+    -   It will extract the content between the `[SUBTEXT]` tags and the `[ACTION]` tags.
+    -   The action content will be parsed into a structured `Action` object as before.
+    -   The subtext content will be stored as a simple string.
+
+4.  **Log the Subtext:**
+    -   The `AgenticLoopFramework`'s main scheduler will be updated to handle the new `ThinkResult` object.
+    -   After calling `agent.think()`, it will pass the `action` to the `agent.act()` method as before.
+    -   The `subtext` string will be logged to a new, dedicated stream, perhaps in the `RuntimeStateManager`, tagged with the character's ID and the current timestamp. It is then the responsibility of the UI (R5-3) to fetch and display this information.
+
+---
+
+## 4. How to Test?
+
+-   **Unit Tests (`tests/narrative_engine/test_agent_think.py`):**
+    -   Create a new test file for this functionality.
+    -   Mock the R4 model call. Provide a canned response that includes both `[SUBTEXT]` and `[ACTION]` blocks.
+    -   Call the `agent.think()` method and assert that it returns a `ThinkResult` object with the correctly parsed `Action` and `subtext` string.
+    -   Test edge cases: what if the model fails to generate one of the blocks? The system should handle this gracefully (e.g., subtext is an empty string).
+-   **Integration Test:**
+    -   In an integration test for the `AgenticLoopFramework`, check that after a tick, the subtext log in the (mocked) `StateManager` has been updated correctly. 
 
 ## Acceptance Criteria
-
-### Model Architecture Enhancement:
-- [ ] Three-head architecture: `dialogue_head`, `thought_head`, `emotion_head`
-- [ ] Shared attention layers with head-specific projection layers
-- [ ] Attention masking to prevent heads from accessing each other's outputs
-- [ ] Memory-efficient implementation with gradient checkpointing
-- [ ] Configurable head weighting for different training phases
-
-### Training Pipeline Updates:
-- [ ] Multi-head loss function with balanced weighting strategies
-- [ ] Curriculum learning: train dialogue first, then add inner layers
-- [ ] Data augmentation pipeline for generating internal thoughts
-- [ ] Validation metrics for each head independently
-- [ ] Early stopping based on composite loss improvement
-
-### Production Features:
-- [ ] Real-time emotion tracking and character mood persistence
-- [ ] Relationship dynamic modeling based on internal thoughts
-- [ ] Character development arc tracking through thought evolution
-- [ ] Context-aware subtext generation based on conversation history
-- [ ] Performance optimization for triple-head inference
-
-### Creator Tools:
-- [ ] Character psychology editor for defining thought patterns
-- [ ] Emotion calibration interface with personality trait integration
-- [ ] Relationship matrix visualization showing hidden dynamics
-- [ ] Character development timeline with internal state evolution
-- [ ] A/B testing for different subtext generation strategies
+- [ ] **API Change**: `BaseAgent.think()` returns `ThinkResult(action: Action, subtext: str)`; dataclass lives in `narrative_engine/types.py`.
+- [ ] **Prompt Format**: Prompt suffix with `[SUBTEXT]` / `[ACTION]` tags lives in `utils/prompt_templates.py`; unit test snapshot asserts tags present.
+- [ ] **Parser**: Robust regex parser raises `SubtextParseError` on malformed tags; 100 % branch coverage.
+- [ ] **State Logging**: Subtext stored via `StateManager.add_subtext(agent_id, text, ts)`; retrieval API added.
+- [ ] **UI Hook**: Director's View (R5-3) fetches & displays subtext; placeholder if none.
+- [ ] **Tests**: `tests/narrative_engine/test_subtext_parser.py` (unit) and integration test with AgentLoop verifying subtext log update.
 
 ## Implementation Notes
 ```text
-• TDD Instructions:
-  - Red (Schema): Update the Pydantic model tests to verify that the Turn model now correctly handles the subtext field.
-  - Red (Model): Update the test_forward_pass_shapes test in tests/narrative_engine/test_model.py to assert that the model's output dictionary now contains subtext_logits of the correct shape.
-  - Red (Loss): Create tests/narrative_engine/test_multi_head_loss.py. Write a test that provides dummy data for all three heads and asserts that the loss is calculated correctly based on the masking.
-  - Green (All): Implement the architectural, loss, and data pipeline changes to make the backend tests pass.
-  - Red/Green (UI): Using streamlit.testing.v1.AppTest, write a test for the chat UI. Pre-populate a message with subtext. Assert that the subtext is initially hidden. Simulate clicking the "Director's View" toggle and assert that the subtext is now visible in the rendered output.
+• Keep dual-head architecture optional: if model lacks `[SUBTEXT]`, gracefully fallback with empty string.
+• Use pydantic to validate ThinkResult.
+• For existing model weights, insert tagged prompt but rely on model to copy guidance tokens until retrained.
 ```
 
 ## Checklist / Steps
-1. Update Turn model schema to include subtext field
-2. Modify NarrativeLLM architecture to add subtext_head
-3. Refactor DualHeadLoss to MultiHeadLoss for three heads
-4. Update DatasetProcessor to handle subtext tokens
-5. Add Director's View toggle to UI interfaces
-6. Implement subtext display/hide functionality
-7. Write comprehensive tests for all components
-8. Update training pipeline to handle three-head loss
+1. Create ThinkResult dataclass & update BaseAgent.
+2. Add prompt template with tags.
+3. Implement parser + tests.
+4. Extend StateManager with subtext log table.
+5. Update AgentLoop to log subtext.
+6. Adjust Director's View UI to render subtext.
 
 ## References
-Depends on R4-1 (Model Architecture), R4-2 (Data Pipeline), and R4-3 (Loss Function). 
+Depends on dual-head capability (R4-3) and feeds R5-3 Living Interface for display. 

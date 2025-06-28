@@ -1,0 +1,41 @@
+---
+# R4γ-2  Spot-Instance Training Orchestrator
+Status: **Todo**
+Ring: R4γ
+Created: 2025-06-27
+---
+
+## Goal
+Automate weekend/overnight pre-training runs on pre-emptible (spot) A100 instances, using checkpoint sharding (R4γ-1) for fault-tolerant resume, and tear-down resources when idle to minimise cost.
+
+## Context
+Single-dev budget means compute must be opportunistic. A thin orchestrator written in Terraform + Python will launch spot GPU pods, stream training logs to WandB, checkpoint every N steps to S3, and auto-resume after interruption.
+
+## Acceptance Criteria
+- [ ] **Terraform Module** `infra/spot_runner/` provisioning:
+      • One AWS p4d or runpod A100 spot instance
+      • S3 bucket/url for shards, IAM policy least privilege
+      • CloudWatch or Prometheus exporter for cost & uptime.
+- [ ] **Bootstrap Script** `scripts/spot_boot.sh` installs deps, git clone repo at specified SHA, restores latest checkpoint via shard loader, invokes `run_sft.py` with `--resume-from`.
+- [ ] **Controller CLI** `scripts/spotctl.py` with commands `deploy`, `status`, `terminate`, `tail-logs`.
+- [ ] **Auto-Resume Logic**: If instance pre-empted, GitHub Action poller detects missing heartbeat and runs `spotctl deploy --resume` to spin a new one.
+- [ ] **Cost Guardrails**: Daily budget limit env var; orchestrator scales down once cost cap hit.
+- [ ] **Unit Tests** `tests/infra/test_spotctl.py` mocking boto3/runpod API calls.
+- [ ] **Runbook** `docs/spot_orchestrator.md` covering setup, env vars, cost tips.
+
+## Implementation Notes
+```text
+• Heartbeat: training loop writes timestamp to S3 key `heartbeats/{run_id}` every 5 min; poller checks age.
+• Use Terraform Cloud variable sets for secrets; local backend acceptable for PoC.
+• For RunPod, same logic but use their REST API.
+```
+
+## Checklist / Steps
+1. Write Terraform to launch GPU spot with EBS + S3 IAM.
+2. Implement bootstrap & shard restore.
+3. Build spotctl CLI with rich console output.
+4. Add GitHub Action `spot-monitor.yml` polling job.
+5. Validate by intentionally terminating instance mid-run; ensure resume.
+
+## References
+Depends on R4γ-1 checkpoint sharding, uses telemetry_sdk for heartbeat logging. Links to cost metrics in R3-4 observability. 
