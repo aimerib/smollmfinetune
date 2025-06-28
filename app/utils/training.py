@@ -1625,4 +1625,223 @@ class TrainingManager:
             json.dump(metadata, f, indent=4)
         
         logger.info(f"✅ Metadata added to checkpoint: {metadata_path}")
-        return True 
+        return True
+    
+    def export_runtime_packet(self, character_name: str) -> str:
+        """
+        Export a character runtime packet containing all assets needed for deployment.
+        
+        Args:
+            character_name: Name of the character to export
+            
+        Returns:
+            str: Path to the created runtime packet directory
+            
+        Raises:
+            FileNotFoundError: If character or adapter not found
+            ValueError: If required files are missing
+        """
+        import shutil
+        from pathlib import Path
+        
+        # Create runtime packets directory
+        runtime_packets_dir = Path("runtime_packets")
+        runtime_packets_dir.mkdir(exist_ok=True)
+        
+        # Create character-specific export directory
+        packet_dir = runtime_packets_dir / character_name
+        if packet_dir.exists():
+            shutil.rmtree(packet_dir)
+        packet_dir.mkdir(parents=True, exist_ok=True)
+        
+        logger.info(f"🎮 Creating runtime packet for '{character_name}' at {packet_dir}")
+        
+        # Step 1: Find character data across all worlds
+        character_data = self._find_character_in_worlds(character_name)
+        if not character_data:
+            raise FileNotFoundError(f"Character '{character_name}' not found in any world")
+        
+        char_core_path, world_path = character_data
+        
+        # Step 2: Find the best available adapter (prefer RLHF over SFT)
+        adapter_source = self._find_best_adapter(character_name)
+        if not adapter_source:
+            raise FileNotFoundError(f"No trained adapter found for character '{character_name}'")
+        
+        adapter_path, adapter_type = adapter_source
+        logger.info(f"Using {adapter_type} adapter from: {adapter_path}")
+        
+        # Step 3: Copy adapter.safetensors
+        source_adapter = adapter_path / "adapter.safetensors"
+        if not source_adapter.exists():
+            raise FileNotFoundError(f"adapter.safetensors not found at {source_adapter}")
+        
+        shutil.copy2(source_adapter, packet_dir / "adapter.safetensors")
+        logger.info(f"✅ Copied adapter.safetensors ({adapter_type})")
+        
+        # Step 4: Copy character_core.json
+        shutil.copy2(char_core_path, packet_dir / "character_core.json")
+        logger.info(f"✅ Copied character_core.json")
+        
+        # Step 5: Copy world_lore.json
+        world_lore_path = world_path / "world_lore.json"
+        if world_lore_path.exists():
+            shutil.copy2(world_lore_path, packet_dir / "world_lore.json")
+            logger.info(f"✅ Copied world_lore.json")
+        else:
+            # Create minimal world lore if missing
+            minimal_lore = {
+                "meta": {"version": 1},
+                "facts": {},
+                "timeline": [],
+                "factions": [],
+                "places": []
+            }
+            with open(packet_dir / "world_lore.json", 'w') as f:
+                json.dump(minimal_lore, f, indent=2)
+            logger.warning(f"⚠️ Created minimal world_lore.json (original not found)")
+        
+        # Step 6: Copy tokens.json
+        tokens_path = world_path / "tokens.json"
+        if tokens_path.exists():
+            shutil.copy2(tokens_path, packet_dir / "tokens.json")
+            logger.info(f"✅ Copied tokens.json")
+        else:
+            # Create minimal tokens if missing
+            minimal_tokens = []
+            with open(packet_dir / "tokens.json", 'w') as f:
+                json.dump(minimal_tokens, f, indent=2)
+            logger.warning(f"⚠️ Created empty tokens.json (original not found)")
+        
+        # Step 7: Create runtime_config.json
+        runtime_config = self._create_runtime_config(adapter_path, adapter_type)
+        with open(packet_dir / "runtime_config.json", 'w') as f:
+            json.dump(runtime_config, f, indent=2)
+        logger.info(f"✅ Created runtime_config.json")
+        
+        # Step 8: Create export manifest
+        manifest = {
+            "character_name": character_name,
+            "export_date": datetime.datetime.now(datetime.UTC).isoformat(),
+            "adapter_type": adapter_type,
+            "world_name": world_path.name,
+            "files": [
+                "adapter.safetensors",
+                "character_core.json", 
+                "world_lore.json",
+                "tokens.json",
+                "runtime_config.json"
+            ],
+            "format_version": "1.0"
+        }
+        
+        with open(packet_dir / "manifest.json", 'w') as f:
+            json.dump(manifest, f, indent=2)
+        logger.info(f"✅ Created manifest.json")
+        
+        logger.info(f"🎉 Runtime packet created successfully at: {packet_dir}")
+        return str(packet_dir)
+    
+    def _find_character_in_worlds(self, character_name: str) -> Optional[tuple[Path, Path]]:
+        """
+        Find character_core.json file across all worlds.
+        
+        Returns:
+            tuple[Path, Path] | None: (character_core_path, world_path) if found, None otherwise
+        """
+        worlds_root = Path("content/worlds")
+        if not worlds_root.exists():
+            return None
+        
+        for world_dir in worlds_root.iterdir():
+            if not world_dir.is_dir():
+                continue
+            
+            char_core_path = world_dir / "characters" / character_name / "character_core.json"
+            if char_core_path.exists():
+                return char_core_path, world_dir
+        
+        return None
+    
+    def _find_best_adapter(self, character_name: str) -> Optional[tuple[Path, str]]:
+        """
+        Find the best available adapter for a character.
+        Prefers RLHF adapter over SFT adapter.
+        
+        Returns:
+            tuple[Path, str] | None: (adapter_path, adapter_type) if found, None otherwise
+        """
+        adapter_dir = self._adapter_dir(character_name)
+        if not adapter_dir.exists():
+            return None
+        
+        # Check for RLHF adapter first (preferred)
+        rlhf_grpo_path = adapter_dir / "rlhf_output" / "adapter_grpo"
+        rlhf_ppo_path = adapter_dir / "rlhf_output" / "adapter_ppo"
+        
+        for rlhf_path, rlhf_type in [(rlhf_grpo_path, "RLHF-GRPO"), (rlhf_ppo_path, "RLHF-PPO")]:
+            if rlhf_path.exists() and (rlhf_path / "adapter.safetensors").exists():
+                return rlhf_path, rlhf_type
+        
+        # Fall back to SFT adapter
+        if (adapter_dir / "adapter.safetensors").exists():
+            return adapter_dir, "SFT"
+        
+        return None
+    
+    def _create_runtime_config(self, adapter_path: Path, adapter_type: str) -> dict:
+        """
+        Create runtime configuration for the exported packet.
+        
+        Args:
+            adapter_path: Path to the adapter directory
+            adapter_type: Type of adapter (SFT, RLHF-GRPO, RLHF-PPO)
+            
+        Returns:
+            dict: Runtime configuration
+        """
+        # Load training metadata to get base model
+        metadata_path = adapter_path / "training_metadata.json"
+        base_model = self.base_model  # Default fallback
+        
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                base_model = metadata.get('base_model', self.base_model)
+            except Exception as e:
+                logger.warning(f"Failed to read metadata: {e}")
+        
+        # Create tokenizer path based on base model
+        tokenizer_path = f".cache/tokenizers/{base_model.replace('/', '-')}-patched"
+        
+        config = {
+            "base_model": base_model,
+            "adapter_path": "adapter.safetensors",
+            "tokenizer_path": tokenizer_path,
+            "character_file": "character_core.json",
+            "world_file": "world_lore.json",
+            "tokens_file": "tokens.json",
+            "adapter_type": adapter_type,
+            "format_version": "1.0"
+        }
+        
+        # Add adapter-specific configuration if metadata exists
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, 'r') as f:
+                    metadata = json.load(f)
+                
+                config["training_metadata"] = {
+                    "training_method": metadata.get('training_method', 'lora'),
+                    "use_dora": metadata.get('use_dora', False),
+                    "use_rslora": metadata.get('use_rslora', False),
+                    "lora_r": metadata.get('lora_r', 16),
+                    "lora_alpha": metadata.get('lora_alpha', 16),
+                    "lora_dropout": metadata.get('lora_dropout', 0.1),
+                    "target_modules": metadata.get('target_modules', ["q_proj", "k_proj", "v_proj", "o_proj"])
+                }
+            except Exception as e:
+                logger.warning(f"Failed to include training metadata: {e}")
+        
+        return config 

@@ -274,6 +274,53 @@ def page_model_management():
                 else:
                     st.info("No checkpoints found to export.")
         
+        # ✅ NEW: Runtime Packet Export
+        st.markdown("---")
+        st.markdown("### 🎮 Runtime Packet Export")
+        st.info("💡 **Runtime Packets** are self-contained cartridges ready for deployment in game engines or runtime environments. They include everything needed to run your character!")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown("""
+            **Runtime Packet Contents:**
+            - 🧠 Trained adapter (RLHF preferred, or SFT)
+            - 👤 Character core data (personality, goals, relationships)
+            - 🌍 World lore and context
+            - 🎛️ Control tokens for runtime control
+            - ⚙️ Runtime configuration for deployment
+            """)
+        
+        with col2:
+            if st.button("🎮 Export Runtime Packet", use_container_width=True, type="primary"):
+                try:
+                    with st.spinner(f"Creating runtime packet for {character_name}..."):
+                        packet_path = st.session_state.training_manager.export_runtime_packet(character_name)
+                    
+                    st.balloons()
+                    st.success(f"🎉 Runtime packet created successfully!")
+                    st.info(f"📦 **Location**: `{packet_path}`")
+                    
+                    # Show packet contents
+                    packet_dir = Path(packet_path)
+                    if packet_dir.exists():
+                        files = [f.name for f in packet_dir.iterdir() if f.is_file()]
+                        st.markdown("**Packet Contents:**")
+                        for file in sorted(files):
+                            st.markdown(f"- ✅ `{file}`")
+                    
+                    st.markdown("---")
+                    st.markdown("**🚀 Next Steps:**")
+                    st.markdown("- Copy the runtime packet to your game engine or runtime environment")
+                    st.markdown("- Load the packet using the runtime configuration")
+                    st.markdown("- Your character is ready to interact with players!")
+                    
+                except FileNotFoundError as e:
+                    st.error(f"❌ Export failed: {str(e)}")
+                    st.info("💡 Make sure you have trained a model for this character first.")
+                except Exception as e:
+                    st.error(f"❌ Export failed: {str(e)}")
+        
         # Show disk usage
         st.markdown("### Disk Usage")
         
