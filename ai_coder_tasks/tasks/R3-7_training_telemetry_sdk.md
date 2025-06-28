@@ -1,7 +1,7 @@
 ---
-# R3-9-3  Training Telemetry SDK
+# R3-7  Training Telemetry SDK
 Status: **Todo**
-Ring: R3.9
+Ring: R3
 Created: 2025-06-27
 ---
 

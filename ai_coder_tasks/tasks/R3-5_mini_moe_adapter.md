@@ -1,7 +1,7 @@
 ---
-# R3-9-1  Mini-MoE Adapter Spike
+# R3-5  Mini-MoE Adapter Spike
 Status: **Todo**
-Ring: R3.9
+Ring: R3
 Created: 2025-06-27
 ---
 
@@ -36,4 +36,4 @@ This task is the first stepping-stone between the production Devkit (R3) and the
 5. Document findings & move card to `completed/` when metrics met.
 
 ## References
-Prereqs: R3-3 (Data Analysis), R3-4 (Observability).  Feeds into R4α-1 Dual-Head Tiny-Llama Spike. 
+Prereqs: R3-3 (Data Analysis), R3-4 (Observability).  Feeds into R4-0.1 Dual-Head Tiny-Llama Spike. 

@@ -1,7 +1,7 @@
 ---
-# R3-9-2  Self-Play Data Faucet
+# R3-6  Self-Play Data Faucet
 Status: **Todo**
-Ring: R3.9
+Ring: R3
 Created: 2025-06-27
 ---
 
