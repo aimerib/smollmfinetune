@@ -10,9 +10,14 @@ import asyncio
 from typing import Optional, Dict, Any
 import logging
 
-from utils.character.character_intelligence import CharacterIntelligenceService, ConversationSuggestion
-from utils.character.models import CharacterCore
-from utils.world import WorldManager
+try:
+    from utils.character.character_intelligence import CharacterIntelligenceService, ConversationSuggestion
+    from utils.character.models import CharacterCore
+    from utils.world import WorldManager
+except ImportError:
+    from app.utils.character.character_intelligence import CharacterIntelligenceService, ConversationSuggestion
+    from app.utils.character.models import CharacterCore
+    from app.utils.world import WorldManager
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +50,7 @@ def render_conversational_builder(world_manager: WorldManager, character_name: s
             # Store original character for personality-aware prompting
             st.session_state.personality_context = get_personality_context(existing_character)
         else:
-            st.session_state.current_character = CharacterCore(name=character_name)
+            st.session_state.current_character = CharacterCore(name=character_name, description="")
             st.session_state.enhancement_mode = False
             st.session_state.personality_context = None
         st.session_state.conversation_complete = False

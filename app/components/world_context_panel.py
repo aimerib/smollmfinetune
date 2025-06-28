@@ -9,9 +9,14 @@ import asyncio
 from typing import Dict, Any, List, Optional
 import logging
 
-from utils.character.models import CharacterCore
-from utils.character.world_character_integration import WorldCharacterIntegrator, WorldIntegrationSuggestions
-from utils.world import WorldManager
+try:
+    from utils.character.models import CharacterCore
+    from utils.character.world_character_integration import WorldCharacterIntegrator, WorldIntegrationSuggestions
+    from utils.world import WorldManager
+except ImportError:
+    from app.utils.character.models import CharacterCore
+    from app.utils.character.world_character_integration import WorldCharacterIntegrator, WorldIntegrationSuggestions
+    from app.utils.world import WorldManager
 
 logger = logging.getLogger(__name__)
 

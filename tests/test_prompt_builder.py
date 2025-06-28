@@ -99,7 +99,7 @@ class TestPromptBuilder:
         ])
         
         # Should NOT contain NSFW tags in chat mode
-        assert '[NSFW:' not in result
+        assert '<nsfw_' not in result
     
     def test_build_prompt_nsfw_mode_soft(self, prompt_builder, sample_character):
         """Test building NSFW prompt with soft style tag"""
@@ -110,12 +110,20 @@ class TestPromptBuilder:
             base_prompt="How do you feel about intimacy?"
         )
         
-        # Should contain NSFW tag with specified style
-        assert '[NSFW:soft]' in result
+        # Should contain NSFW tag with specified style (control token format)
+        assert '<nsfw_soft>' in result
         
         # Should still contain personality and lore elements
-        personality_words = ['anxious', 'worried', 'stressed', 'emotional', 'sensitive', 'creative', 'organized', 'kind', 'reserved']
-        assert any(adj in result for adj in personality_words), f"Expected personality adjectives in: {result}"
+        # Check for adjectives that can actually be generated from the character's Big Five scores
+        openness_words = ['creative', 'imaginative', 'open-minded', 'artistic', 'curious', 'adventurous']
+        conscientiousness_words = ['organized', 'disciplined', 'reliable', 'methodical', 'careful', 'thorough']
+        extraversion_words = ['introverted', 'reserved', 'quiet', 'thoughtful', 'contemplative']  # Low extraversion
+        agreeableness_words = ['kind', 'cooperative', 'trusting', 'empathetic', 'compassionate']
+        neuroticism_words = ['anxious', 'worried', 'stressed', 'emotional', 'sensitive']
+        
+        # Due to randomness, test that at least some personality traits are included
+        all_possible_words = openness_words + conscientiousness_words + extraversion_words + agreeableness_words + neuroticism_words
+        assert any(adj in result for adj in all_possible_words), f"Expected personality adjectives in: {result}"
         assert any(goal in result for goal in sample_character.get('goals', []))
     
     def test_build_prompt_nsfw_mode_explicit(self, prompt_builder, sample_character):
@@ -127,7 +135,7 @@ class TestPromptBuilder:
             base_prompt="Tell me your desires"
         )
         
-        assert '[NSFW:explicit]' in result
+        assert '<nsfw_explicit>' in result
     
     def test_build_prompt_nsfw_mode_kink(self, prompt_builder, sample_character):
         """Test building NSFW prompt with kink style tag"""
@@ -138,7 +146,7 @@ class TestPromptBuilder:
             base_prompt="What are your hidden fantasies?"
         )
         
-        assert '[NSFW:kink]' in result
+        assert '<nsfw_kink>' in result
     
     def test_build_prompt_qa_mode(self, prompt_builder, sample_character):
         """Test building QA mode prompt for factual questioning"""
@@ -153,7 +161,7 @@ class TestPromptBuilder:
         assert any(goal in result for goal in sample_character['goals'])
         
         # Should NOT contain NSFW tags in QA mode
-        assert '[NSFW:' not in result
+        assert '<nsfw_' not in result
     
     def test_build_prompt_missing_elements(self, prompt_builder):
         """Test graceful handling when character is missing elements"""

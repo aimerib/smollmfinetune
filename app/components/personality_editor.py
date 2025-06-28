@@ -15,7 +15,12 @@ import asyncio
 import logging
 from datetime import datetime
 from typing import Optional, Dict, Any
-from app.utils.character.models import CharacterCore, Personality, llm_estimate_big5
+try:
+    # Try relative import (when running from within app)
+    from utils.character.models import CharacterCore, Personality, llm_estimate_big5
+except ImportError:
+    # Try absolute import (when running tests from project root)
+    from app.utils.character.models import CharacterCore, Personality, llm_estimate_big5
 
 logger = logging.getLogger(__name__)
 

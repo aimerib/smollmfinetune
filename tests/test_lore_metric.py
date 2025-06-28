@@ -187,12 +187,20 @@ class TestLoreMetric(unittest.TestCase):
         mock_tracker = Mock()
         mock_lore_facts = ["Test lore fact"]
         
-        # Mock the tracker's log_lore_adherence method
-        with patch('app.utils.evaluation.lore_metric.calculate_lore_adherence', return_value=0.8):
+        # Mock the OpenAI client properly to return expected score
+        mock_response = Mock()
+        mock_response.choices = [Mock()]
+        mock_response.choices[0].message.content = '{"lore_score": 0.8, "reasoning": "Response correctly incorporates lore"}'
+        
+        with patch('app.utils.evaluation.lore_metric.get_client') as mock_get_client:
+            mock_client = Mock()
+            mock_client.chat.completions.create.return_value = mock_response
+            mock_get_client.return_value = mock_client
+            
             # Simulate how the training pipeline would use this
             score = calculate_lore_adherence("Test response", "Test lore fact")
             
-            # Verify the score would be logged correctly
+            # Verify the score is calculated correctly
             self.assertEqual(score, 0.8)
             # Additional integration testing will be added when TrainingQualityTracker is enhanced
 

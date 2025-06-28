@@ -12,8 +12,12 @@ import plotly.express as px
 from typing import Dict, Any, Optional
 import logging
 
-from utils.character.character_intelligence import CharacterIntelligenceService, CharacterSynthesis
-from utils.character.models import CharacterCore, Personality
+try:
+    from utils.character.character_intelligence import CharacterIntelligenceService, CharacterSynthesis
+    from utils.character.models import CharacterCore, Personality
+except ImportError:
+    from app.utils.character.character_intelligence import CharacterIntelligenceService, CharacterSynthesis
+    from app.utils.character.models import CharacterCore, Personality
 
 logger = logging.getLogger(__name__)
 

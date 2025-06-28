@@ -1365,7 +1365,17 @@ def render_toolbar(core: CharacterCore):
 
     with col4:
         if st.button("🚀 Test Chat", key="test_btn", use_container_width=True):
-            st.info("Would open character testing interface")
+            # Switch to Character Chat page with this character selected
+            st.session_state.page = "Character Chat"
+            # Pre-select this character if it has been trained
+            character_name = core.name
+            if hasattr(st.session_state, 'inference_manager'):
+                models = st.session_state.inference_manager.get_available_models()
+                for model in models:
+                    if model.startswith("LoRA:") and character_name in model:
+                        st.session_state.selected_character_chat = model
+                        break
+            st.rerun()
 
     # Show unsaved changes indicator if needed
     if has_changes:
