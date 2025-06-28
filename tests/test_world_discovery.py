@@ -11,8 +11,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
-from app.utils.world_discovery import WorldDiscoveryManager, WorldDiscoveryResult, PublishResult
-from app.utils.auth.auth_manager import AuthManager
+from app.utils.world_discovery import WorldDiscoveryManager, PublishResult
 from app.utils.auth.models import User, UserRole
 from app.utils.world import WorldManager, WorldLore
 
@@ -37,10 +36,7 @@ def temp_worlds_dir():
         yield temp_dir
 
 
-@pytest.fixture
-def auth_manager(temp_db):
-    """Create AuthManager with test database"""
-    return AuthManager(db_path=temp_db)
+
 
 
 @pytest.fixture
@@ -56,15 +52,28 @@ def discovery_manager(temp_db, temp_worlds_dir):
 
 
 @pytest.fixture
-def sample_user(auth_manager):
+def sample_user(discovery_manager):
     """Create a sample user for testing"""
-    result = auth_manager.register_user(
-        email="creator@test.com",
+    # Create a user directly in the database since WorldDiscoveryManager 
+    # creates its own simple users table
+    import sqlite3
+    
+    with sqlite3.connect(discovery_manager.db_path) as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT OR IGNORE INTO users (id, username, email, created_at)
+            VALUES (1, 'creator', 'creator@test.com', '2024-01-01T00:00:00Z')
+        """)
+        conn.commit()
+    
+    # Return a simple User object for testing
+    return User(
+        id=1,
         username="creator",
-        password="password123",
-        role=UserRole.CREATOR
+        email="creator@test.com",
+        role=UserRole.CREATOR,
+        is_active=True
     )
-    return result.user
 
 
 @pytest.fixture

@@ -71,3 +71,4 @@ profiles/
 datasets/
 
 .pytest_cache/
+*.db

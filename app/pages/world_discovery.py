@@ -128,15 +128,25 @@ def handle_enter_world(world: Dict[str, Any]):
     
     if result.success:
         st.success(f"🎉 Welcome to {world['name']}!")
-        st.info("Redirecting to character selection...")
-        # In a real app, this would redirect to character selection page
-        # For now, we'll show session details
-        st.json({
-            "session_id": result.session_id,
-            "world_name": world['name'],
-            "session_name": session_name,
-            "next_step": "Character Selection"
-        })
+        
+        # Store session info for character selection
+        st.session_state.current_session_id = result.session_id
+        st.session_state.current_world_info = world
+        
+        st.info("🎭 Time to choose your companions! Redirecting to character selection...")
+        
+        # Create a button to go to character selection
+        if st.button("🚀 Choose Your Characters", type="primary", use_container_width=True):
+            st.switch_page("app/pages/character_selection.py")
+        
+        # Show session details for reference
+        with st.expander("📋 Session Details"):
+            st.json({
+                "session_id": result.session_id,
+                "world_name": world['name'],
+                "session_name": session_name,
+                "status": "Ready for character selection"
+            })
     else:
         st.error(f"Failed to create session: {result.error_message}")
 

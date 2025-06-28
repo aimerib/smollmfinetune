@@ -394,6 +394,7 @@ def render_sidebar(pg):
             ("Authentication", auth_pages),
             ("Platform", [
                 ("🌍 Discover Worlds", "pages/world_discovery.py"),
+                ("🎭 Character Selection", "pages/character_selection.py"),
             ]),
             ("Character Studio", [
                 ("📁 Character Upload", "pages/character_upload.py"),
