@@ -27,3 +27,7 @@ sentencepiece
 # GPU optimizations
 xformers
 trl
+
+# Authentication dependencies
+pyjwt
+bcrypt

@@ -106,6 +106,15 @@ def set_current_character(character):
 
 
 def init_session_state():
+    # Initialize authentication manager first
+    if 'auth_manager' not in st.session_state:
+        try:
+            from utils.auth import AuthManager
+            st.session_state.auth_manager = AuthManager()
+            logger.info("✅ AuthManager initialized successfully")
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize AuthManager: {e}")
+    
     # Initialize OpenAI client first (before other managers that might use it)
     if 'openai_client_initialized' not in st.session_state:
         # Get OpenAI configuration from environment
@@ -343,7 +352,7 @@ def render_header():
 
 # Render the sidebar navigation
 def render_sidebar(pg):
-    """Render the modern navigation sidebar"""
+    """Render the modern navigation sidebar with authentication"""
     with st.sidebar:
         # App branding
         st.markdown(f"""
@@ -359,6 +368,9 @@ def render_sidebar(pg):
             </div>
         """, unsafe_allow_html=True)
         
+        # Authentication section
+        render_auth_section()
+        
         # Get current page info first
         current_page_title = pg.title if hasattr(pg, 'title') else "Unknown"
         
@@ -366,8 +378,16 @@ def render_sidebar(pg):
         page_mapping = {}
         page_options = []
         
+        # Add authentication pages to navigation
+        auth_pages = [
+            ("🔐 Login", "pages/login.py"),
+            ("📝 Register", "pages/register.py"),
+            ("👤 Profile", "pages/profile.py"),
+        ]
+        
         # Flatten the pages structure for the option menu
         for section, section_pages in [
+            ("Authentication", auth_pages),
             ("Character Studio", [
                 ("📁 Character Upload", "pages/character_upload.py"),
                 ("🗨️ Conversational Builder", "pages/character_builder.py"),
@@ -525,6 +545,74 @@ def render_sidebar(pg):
                         else:
                             st.info("No checkpoints found to export.")
 
+
+def render_auth_section():
+    """Render authentication section in sidebar"""
+    try:
+        # Check if authenticated
+        authenticated = st.session_state.get('authenticated', False)
+        
+        if authenticated:
+            # Show user info
+            current_user = st.session_state.get('current_user')
+            if current_user:
+                st.markdown(f"""
+                    <div class="metric-card">
+                        <div style="display: flex; align-items: center; justify-content: space-between;">
+                            <div>
+                                <h4 style="margin: 0 0 0.25rem 0;">👤 {current_user.username}</h4>
+                                <p style="margin: 0; color: #64748b; font-size: 0.85rem;">{current_user.role.value.title()}</p>
+                            </div>
+                        </div>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Quick auth actions
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("👤", help="Profile", use_container_width=True):
+                        st.switch_page("pages/profile.py")
+                with col2:
+                    if st.button("🚪", help="Logout", use_container_width=True):
+                        logout_user_simple()
+                        st.rerun()
+        else:
+            # Show login/register buttons for unauthenticated users
+            st.markdown("**🔐 Authentication**")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🔐 Login", use_container_width=True):
+                    st.switch_page("pages/login.py")
+            with col2:
+                if st.button("📝 Register", use_container_width=True):
+                    st.switch_page("pages/register.py")
+                    
+    except Exception as e:
+        logger.error(f"Auth section error: {e}")
+        # Fallback to basic auth buttons
+        st.markdown("**🔐 Authentication**")
+        if st.button("🔐 Login"):
+            st.switch_page("pages/login.py")
+
+
+def logout_user_simple():
+    """Simple logout function for sidebar"""
+    try:
+        # Clear authentication state
+        auth_keys = ['authenticated', 'current_user', 'access_token', 'refresh_token']
+        for key in auth_keys:
+            if key in st.session_state:
+                del st.session_state[key]
+        
+        logger.info("User logged out from sidebar")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Logout error: {e}")
+        return False
+
+
 # Main app function
 def main():
     """Main app function"""
@@ -545,6 +633,11 @@ def main():
 
     # Configure pages for modern navigation
     pages = {
+        "Authentication": [
+            st.Page("pages/login.py", title="🔐 Login", icon="🔐"),
+            st.Page("pages/register.py", title="📝 Register", icon="📝"),
+            st.Page("pages/profile.py", title="👤 Profile", icon="👤"),
+        ],
         "Character Studio": [
             st.Page("pages/character_upload.py", title="📁 Character Upload", icon="📁"),
             st.Page("pages/character_builder.py", title="🗨️ Conversational Builder", icon="🗨️"),
@@ -569,7 +662,7 @@ def main():
 
     render_header()
     
-    # Render custom sidebar with navigation
+    # Render custom sidebar with navigation and authentication
     render_sidebar(pg)
     
     # Run the selected page
