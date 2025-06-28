@@ -40,3 +40,4 @@ sentencepiece  # needed for translation models
 
 wandb
 tensorboard
+trl

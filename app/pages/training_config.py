@@ -185,6 +185,138 @@ def page_training_config():
             
             st.success(f"✅ Base model: {selected_base_model}")
         
+        # RLHF Section - R1-11 Implementation
+        st.markdown("### 🧠 Reinforcement Learning Fine-Tuning")
+        
+        # Check if character has sufficient preference data
+        current_character = st.session_state.get('current_character_core') or st.session_state.get('current_character')
+        char_name = "unknown"
+        if hasattr(current_character, 'name'):
+            char_name = current_character.name
+        elif isinstance(current_character, dict):
+            char_name = current_character.get("name", "unknown")
+        
+        # Check for preference data
+        has_preferences = False
+        preference_count = 0
+        try:
+            from utils.rlhf_trainer import has_sufficient_preferences
+            has_preferences = st.session_state.training_manager.has_preference_data(char_name, min_preferences=10)
+            
+            # Count actual preferences for display
+            from pathlib import Path
+            pref_path = Path(f"content/worlds/Default World/characters/{char_name}/preference_logs.ndjson")
+            if pref_path.exists():
+                with open(pref_path, 'r') as f:
+                    preference_count = sum(1 for line in f if line.strip())
+        except Exception as e:
+            st.debug(f"Error checking preferences: {e}")
+        
+        # RLHF UI based on preference availability
+        with st.expander("🎯 Preference-Based Fine-Tuning (GRPO/PPO)", expanded=has_preferences):
+            if has_preferences:
+                st.success(f"✅ Found {preference_count} preference pairs - RLHF training available!")
+                
+                # Enable RLHF checkbox
+                enable_rlhf = st.checkbox(
+                    "Enable RL Fine-Tuning",
+                    value=defaults.get("enable_rlhf", False),
+                    help="Run GRPO or PPO training after SFT using collected preference data"
+                )
+                
+                if enable_rlhf:
+                    # Algorithm selection
+                    rlhf_algorithm = st.selectbox(
+                        "Algorithm",
+                        ["GRPO", "PPO"],
+                        index=0,  # GRPO default
+                        help="GRPO is more sample-efficient and stable for preference data"
+                    )
+                    
+                    # Store RLHF config
+                    rlhf_config = {
+                        "enable_rlhf": enable_rlhf,
+                        "algorithm": rlhf_algorithm.lower(),
+                        "preference_count": preference_count
+                    }
+                    
+                    # Advanced RLHF settings
+                    with st.expander("⚙️ Advanced RLHF Settings"):
+                        col_rlhf1, col_rlhf2 = st.columns(2)
+                        
+                        with col_rlhf1:
+                            rlhf_learning_rate = st.number_input(
+                                "RLHF Learning Rate",
+                                min_value=1e-6,
+                                max_value=1e-4,
+                                value=defaults.get("rlhf_learning_rate", 5e-6),
+                                format="%.0e",
+                                help="Conservative rate for RLHF to avoid divergence"
+                            )
+                            
+                            rlhf_max_steps = st.slider(
+                                "Max RLHF Steps",
+                                min_value=100,
+                                max_value=2000,
+                                value=defaults.get("rlhf_max_steps", 500),
+                                help="Number of RLHF training steps"
+                            )
+                        
+                        with col_rlhf2:
+                            if rlhf_algorithm == "GRPO":
+                                beta_kl = st.slider(
+                                    "Beta (KL Penalty)",
+                                    min_value=0.0,
+                                    max_value=1.0,
+                                    value=defaults.get("rlhf_beta", 0.0),
+                                    step=0.1,
+                                    help="0.0 = no reference model (memory efficient)"
+                                )
+                                
+                                num_generations = st.slider(
+                                    "Number of Generations",
+                                    min_value=2,
+                                    max_value=12,
+                                    value=defaults.get("rlhf_num_generations", 6),
+                                    help="Generations for group-relative scoring"
+                                )
+                            else:  # PPO
+                                beta_kl = st.slider(
+                                    "KL Penalty",
+                                    min_value=0.0,
+                                    max_value=1.0,
+                                    value=defaults.get("rlhf_kl_penalty", 0.1),
+                                    step=0.01,
+                                    help="KL divergence penalty for PPO"
+                                )
+                                
+                                num_generations = 1  # PPO doesn't use multiple generations
+                        
+                        # Update RLHF config with advanced settings
+                        rlhf_config.update({
+                            "learning_rate": rlhf_learning_rate,
+                            "max_steps": rlhf_max_steps,
+                            "beta": beta_kl,
+                            "num_generations": num_generations,
+                        })
+                    
+                    st.info(f"💡 RLHF will run automatically after SFT training completes using {rlhf_algorithm}")
+                else:
+                    rlhf_config = {"enable_rlhf": False}
+                    
+            else:
+                st.warning(f"⚠️ No preference data found ({preference_count} pairs available)")
+                st.info("💡 To enable RLHF training, collect preference data by:")
+                st.markdown("""
+                - Using the Dataset Studio with multiple assistant options
+                - Selecting preferred responses during generation
+                - Building up preference pairs in your character directory
+                """)
+                rlhf_config = {"enable_rlhf": False}
+            
+            # Store RLHF config in session state
+            st.session_state.rlhf_config = rlhf_config
+        
         st.markdown("### Hyperparameter Configuration")
         
         # Select fine-tuning method outside the form to allow UI updates
@@ -622,6 +754,12 @@ def page_training_config():
             'lr_scheduler_type': 'cosine',
             'warmup_ratio': 0.05
         }
+        
+        # Add RLHF configuration if available
+        rlhf_config = st.session_state.get('rlhf_config', {})
+        if rlhf_config.get('enable_rlhf', False):
+            config.update(rlhf_config)
+            st.info(f"🧠 RLHF training will run after SFT using {rlhf_config.get('algorithm', 'grpo').upper()}")
         
         try:
             # Configure advanced features

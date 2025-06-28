@@ -498,6 +498,76 @@ class TrainingManager:
     def set_base_model(self, model_name: str):
         """Update the base model for training"""
         self.base_model = model_name
+    
+    def has_preference_data(self, character_name: str, min_preferences: int = 100) -> bool:
+        """
+        Check if a character has sufficient preference data for RLHF.
+        
+        Args:
+            character_name: Name of the character
+            min_preferences: Minimum number of preference pairs required
+            
+        Returns:
+            True if sufficient preferences exist
+        """
+        from .rlhf_trainer import has_sufficient_preferences
+        return has_sufficient_preferences(character_name, min_preferences)
+    
+    def run_rlhf_training(self, character_name: str, sft_adapter_path: str, 
+                         algorithm: str = "grpo", config: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """
+        Run RLHF training on top of an SFT adapter.
+        
+        Args:
+            character_name: Name of the character
+            sft_adapter_path: Path to the SFT adapter
+            algorithm: RLHF algorithm ("grpo" or "ppo")
+            config: Optional RLHF configuration
+            
+        Returns:
+            Path to RLHF adapter or None if failed
+        """
+        from .rlhf_trainer import run_rlhf, prepare_preference_dataset, RLHFConfig
+        from pathlib import Path
+        
+        # Look for preference logs
+        pref_path = Path(f"content/worlds/Default World/characters/{character_name}/preference_logs.ndjson")
+        
+        if not pref_path.exists():
+            logger.error(f"No preference data found for {character_name}")
+            return None
+        
+        try:
+            # Prepare preference dataset
+            pref_dataset = prepare_preference_dataset(pref_path)
+            logger.info(f"Loaded {len(pref_dataset)} preference pairs for RLHF")
+            
+            # Create RLHF config
+            if config is None:
+                config = {}
+            
+            rlhf_config = RLHFConfig(
+                algorithm=algorithm.lower(),
+                output_dir=str(self._adapter_dir(character_name) / "rlhf_output"),
+                **config
+            )
+            
+            # Run RLHF training
+            logger.info(f"Starting {algorithm.upper()} training for {character_name}")
+            rlhf_adapter_path = run_rlhf(
+                model_path=sft_adapter_path,
+                pref_dataset=pref_dataset,
+                config=rlhf_config
+            )
+            
+            logger.info(f"RLHF training complete. Adapter saved to: {rlhf_adapter_path}")
+            return rlhf_adapter_path
+            
+        except Exception as e:
+            logger.error(f"RLHF training failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
         logger.info(f"Base model updated to: {model_name}")
     
     def _load_base_model(self):
@@ -987,10 +1057,46 @@ class TrainingManager:
             with summary_path.open('w') as f:
                 json.dump(final_metrics_to_save, f, indent=4)
             
+            # Check if RLHF should be run after SFT
+            if config.get('enable_rlhf', False) and self.has_preference_data(character_name):
+                print("🧠 Starting RLHF phase...")
+                self.status_queue.put({
+                    'type': 'rlhf_starting',
+                    'message': 'Starting RLHF training phase'
+                })
+                
+                # Get RLHF configuration
+                rlhf_algorithm = config.get('rlhf_algorithm', 'grpo')
+                rlhf_config = config.get('rlhf_config', {})
+                
+                # Run RLHF training
+                rlhf_adapter_path = self.run_rlhf_training(
+                    character_name=character_name,
+                    sft_adapter_path=str(output_dir),
+                    algorithm=rlhf_algorithm,
+                    config=rlhf_config
+                )
+                
+                if rlhf_adapter_path:
+                    print(f"✅ RLHF training complete! Adapter saved to: {rlhf_adapter_path}")
+                    self.status_queue.put({
+                        'type': 'rlhf_complete',
+                        'rlhf_adapter_path': rlhf_adapter_path
+                    })
+                    # Update final output directory to RLHF adapter
+                    final_output_dir = rlhf_adapter_path
+                else:
+                    print("⚠️ RLHF training failed, using SFT adapter only")
+                    final_output_dir = str(output_dir)
+            else:
+                final_output_dir = str(output_dir)
+            
             self.status_queue.put({
                 'type': 'training_complete',
-                'output_dir': str(output_dir),
-                'final_metrics': self.current_metrics.copy()
+                'output_dir': final_output_dir,
+                'final_metrics': self.current_metrics.copy(),
+                'sft_adapter_path': str(output_dir),
+                'rlhf_adapter_path': rlhf_adapter_path if config.get('enable_rlhf', False) else None
             })
             
             print("🎉 Training completed successfully!")
