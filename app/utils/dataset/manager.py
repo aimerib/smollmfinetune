@@ -165,8 +165,13 @@ class DatasetManager:
                                top_p: float = 0.9, progress_callback: Optional[Callable] = None,
                                append_to_existing: bool = True, custom_system_prompt: Optional[str] = None,
                                extra_quality: bool = False, quality_level: QualityLevel = QualityLevel.COMPREHENSIVE,
+                               turns: int = 1, assistant_options: int = 1,
                                **sampling_kwargs) -> List[Dict[str, Any]]:
         """Generate synthetic dataset for character using efficient batching"""
+        # Log multi-turn parameters for implementation tracking
+        if turns > 1:
+            logger.info(f"🔄 Multi-turn generation: {turns} turns, {assistant_options} options per turn")
+        
         # ✅ FIX: Better error handling to prevent silent crashes
         try:
             # Suppress coroutine warnings in Streamlit environment

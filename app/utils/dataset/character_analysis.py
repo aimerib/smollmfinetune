@@ -143,8 +143,47 @@ class CharacterKnowledge(BaseModel):
     world_info: List[str] = []
     kinks: Dict[str, List[str]] = {'likes': [], 'limits': []}
 
-async def extract_character_knowledge(client,character: Dict[str, Any]) -> Dict[str, Any]:
-    """Extract structured knowledge from character card for better prompt generation"""
+def extract_character_knowledge(character: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract structured knowledge from character card for better prompt generation (sync version)"""
+    char_name = character.get('name', 'Assistant')
+    description = character.get('description', '')
+    personality = character.get('personality', '')
+    scenario = character.get('scenario', '')
+    
+    # Simple synchronous extraction for testing
+    knowledge = {
+        'name': char_name,
+        'traits': personality.split(',') if personality else [],
+        'skills': [],
+        'relationships': character.get('relationships', []),
+        'backstory_elements': [],
+        'goals': character.get('goals', []),
+        'fears': [],
+        'likes': [],
+        'dislikes': [],
+        'speech_patterns': [],
+        'emotional_triggers': [],
+        'mannerisms': [],
+        'locations': [],
+        'occupation': None,
+        'species': None,
+        'appearance': [],
+        'equipment': [],
+        'known_spells': [],
+        'current_situation': None,
+        'world_info': [],
+        'kinks': {'likes': [], 'limits': []}
+    }
+    
+    return knowledge
+
+
+async def extract_character_knowledge_async(character: Dict[str, Any], client=None) -> Dict[str, Any]:
+    """Extract structured knowledge from character card for better prompt generation (async version)"""
+    if client is None:
+        # Fallback to sync version
+        return extract_character_knowledge(character)
+        
     char_name = character.get('name', 'Assistant')
     description = character.get('description', '')
     personality = character.get('personality', '')
@@ -153,38 +192,6 @@ async def extract_character_knowledge(client,character: Dict[str, Any]) -> Dict[
     first_mes = character.get('first_mes', '')
     alternate_greetings = character.get('alternate_greetings', [])
     
-    # knowledge = {
-    #     'name': char_name,
-    #     'traits': [],
-    #     'skills': [],
-    #     'relationships': [],
-    #     'backstory_elements': [],
-    #     'goals': [],
-    #     'fears': [],
-    #     'likes': [],
-    #     'dislikes': [],
-    #     'speech_patterns': [],
-    #     'emotional_triggers': [],
-    #     'mannerisms': [],
-    #     'locations': [],
-    #     'occupation': None,
-    #     'species': None,
-    #     'appearance': [],
-    #     'equipment': [],
-    #     'known_spells': [],
-    #     'current_situation': None,
-    #     'world_info': [],
-    #     'kinks': {'likes': [], 'limits': []}
-    # }
-    
-    # # Parse structured format (Type:, Species:, etc.)
-    # structured_info = _parse_structured_format(description)
-    # knowledge.update(structured_info)
-    
-    # Combine all text for additional analysis
-    # full_text = f"{description} {personality} {scenario}".lower()
-    
-    # Extract kinks from character description and personality
     prompt = f"""
     Extract the following information from the character description and personality:
     Description: {description}
@@ -210,107 +217,12 @@ async def extract_character_knowledge(client,character: Dict[str, Any]) -> Dict[
         kink_text = f"{description} {personality}"
         extracted_kinks = extract_kinks(kink_text)
         knowledge['kinks'] = extracted_kinks
-    
-    # # Extract from structured fields if not already found
-    # if not knowledge['occupation']:
-    #     occ_match = re.search(r'occupation:\s*([^,\n]+)', full_text, re.IGNORECASE)
-    #     if occ_match:
-    #         knowledge['occupation'] = occ_match.group(1).strip()
-    
-    # # Extract personality traits more comprehensively
-    # if 'personality:' in full_text:
-    #     pers_match = re.search(r'personality:\s*([^,\n]+(?:,\s*[^,\n]+)*)', full_text, re.IGNORECASE)
-    #     if pers_match:
-    #         traits = [t.strip() for t in pers_match.group(1).split(',')]
-    #         knowledge['traits'].extend(traits)
-    
-    # # Extract skills and abilities
-    # skill_patterns = [
-    #     r'(?:skills?|abilities):\s*([^,\n]+(?:,\s*[^,\n]+)*)',
-    #     r'(?:skilled\s+in|expert\s+at|master\s+of|proficient\s+in)\s+([^.,]+)',
-    #     r'(?:can|able\s+to|capable\s+of)\s+([^.,]+)',
-    # ]
-    
-    # for pattern in skill_patterns:
-    #     matches = re.findall(pattern, full_text, re.IGNORECASE)
-    #     for match in matches:
-    #         if ',' in match:
-    #             skills = [s.strip() for s in match.split(',')]
-    #             knowledge['skills'].extend(skills)
-    #         else:
-    #             knowledge['skills'].append(match.strip())
-    
-    # # Extract goals
-    # goal_patterns = [
-    #     r'goal:\s*([^,\n]+)',
-    #     r'(?:wants\s+to|seeks\s+to|aims\s+to|desires\s+to)\s+([^.,]+)',
-    #     r'(?:determined\s+to|passionate\s+about)\s+([^.,]+)',
-    # ]
-    
-    # for pattern in goal_patterns:
-    #     matches = re.findall(pattern, full_text, re.IGNORECASE)
-    #     knowledge['goals'].extend([m.strip() for m in matches])
-    
-    # # Extract backstory elements
-    # backstory_keywords = ['born in', 'grew up', 'childhood', 'expelled', 'survived', 'refugee', 
-    #                       'moved to', 'rejected', 'army', 'academy', 'war', 'crash']
-    # backstory_sentences = []
-    # for sentence in full_text.split('.'):
-    #     if any(keyword in sentence for keyword in backstory_keywords):
-    #         backstory_sentences.append(sentence.strip())
-    # knowledge['backstory_elements'] = backstory_sentences[:5]  # Top 5 most relevant
-    
-    # # Extract from first message for current situation
-    # if first_mes:
-    #     knowledge['current_situation'] = _extract_situation_from_greeting(first_mes)
-    #     # Extract locations mentioned
-    #     location_patterns = [r'\b(?:at|in|on)\s+(?:the\s+)?([A-Z][a-z]+(?:\s+[A-Z]?[a-z]+)*)', 
-    #                         r'(?:warehouse|tavern|guild|shop|city|street|room|office|desk|door)']
-    #     for pattern in location_patterns:
-    #         locs = re.findall(pattern, first_mes)
-    #         knowledge['locations'].extend([l for l in locs if isinstance(l, str)])
-    
-    # # Enhanced speech pattern extraction from mes_example
-    # if mes_example:
-    #     knowledge['speech_patterns'] = _extract_speech_patterns(mes_example, char_name)
-    #     knowledge['mannerisms'] = _extract_mannerisms(mes_example, char_name)
         
-    #     # Extract intimate speech patterns if relevant
-    #     if any(word in full_text for word in ['romantic', 'lover', 'passionate', 'sensual', 'intimate']):
-    #         intimate_patterns = extract_intimate_speech_patterns(mes_example, char_name)
-    #         knowledge['intimate_speech'] = intimate_patterns
-    
-    # # Process alternate greetings for variety
-    # if alternate_greetings:
-    #     for greeting in alternate_greetings[:3]:  # Process up to 3
-    #         if greeting:
-    #             # Extract emotional states and scenarios
-    #             if 'screwed' in greeting or 'desperate' in greeting:
-    #                 knowledge['emotional_triggers'].append('financial_stress')
-    #             if 'celebrate' in greeting or 'cheers' in greeting:
-    #                 knowledge['emotional_triggers'].append('success_celebration')
-    
-    # # Extract character book / world info if present
-    # char_book = character.get('character_book', {})
-    # if char_book and 'entries' in char_book:
-    #     for entry in char_book.get('entries', []):
-    #         if entry.get('enabled', True):
-    #             knowledge['world_info'].append({
-    #                 'name': entry.get('name', 'Unknown'),
-    #                 'content': entry.get('content', ''),
-    #                 'keys': entry.get('keys', [])
-    #             })
-    
-    # # Remove duplicates and empty entries
-    # for key in knowledge:
-    #     if isinstance(knowledge[key], list):
-    #         knowledge[key] = list(set([item for item in knowledge[key] if item]))
-    
         return knowledge
     except Exception as e:
         traceback.print_exc()
         logger.error(f"Error extracting character knowledge: {e}")
-        return None
+        return extract_character_knowledge(character)  # Fallback to sync version
 
 
 def _parse_structured_format(text: str) -> Dict[str, Any]:

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List
 import logging
 
-from utils.openai_client import get_client
+from ..openai_client import get_client
 
 # from utils.openai_client import OpenAIClient
 
