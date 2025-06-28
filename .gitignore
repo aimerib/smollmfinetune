@@ -61,11 +61,13 @@ checkpoints/
 adapters/
 
 # Character cards (might contain sensitive data)
-*.json
 character_cards/
+content/
 
 # Jupyter notebooks (if any)
 .ipynb_checkpoints/ 
 wandb/
 profiles/
 datasets/
+
+.pytest_cache/
