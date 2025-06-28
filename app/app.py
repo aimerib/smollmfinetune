@@ -135,6 +135,10 @@ def init_session_state():
     if 'world_manager' not in st.session_state:
         st.session_state.world_manager = WorldManager()
 
+    if 'world_discovery_manager' not in st.session_state:
+        from utils.world_discovery import WorldDiscoveryManager
+        st.session_state.world_discovery_manager = WorldDiscoveryManager()
+
     if 'character_manager' not in st.session_state:
         st.session_state.character_manager = CharacterManager(world_manager=st.session_state.world_manager, client=get_client())
 
@@ -388,6 +392,9 @@ def render_sidebar(pg):
         # Flatten the pages structure for the option menu
         for section, section_pages in [
             ("Authentication", auth_pages),
+            ("Platform", [
+                ("🌍 Discover Worlds", "pages/world_discovery.py"),
+            ]),
             ("Character Studio", [
                 ("📁 Character Upload", "pages/character_upload.py"),
                 ("🗨️ Conversational Builder", "pages/character_builder.py"),
@@ -637,6 +644,9 @@ def main():
             st.Page("pages/login.py", title="🔐 Login", icon="🔐"),
             st.Page("pages/register.py", title="📝 Register", icon="📝"),
             st.Page("pages/profile.py", title="👤 Profile", icon="👤"),
+        ],
+        "Platform": [
+            st.Page("pages/world_discovery.py", title="🌍 Discover Worlds", icon="🌍"),
         ],
         "Character Studio": [
             st.Page("pages/character_upload.py", title="📁 Character Upload", icon="📁"),
