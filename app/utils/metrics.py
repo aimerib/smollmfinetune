@@ -1,8 +1,15 @@
 import re
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 import torch
 from collections import defaultdict
+
+# Import wandb conditionally to handle cases where it's not installed
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +248,7 @@ class TrainingQualityTracker:
     def __init__(self):
         self.character_metrics = CharacterConsistencyMetrics()
         self.history = defaultdict(list)
+        self.personality_alignment_scores = []
         self.warning_thresholds = {
             'loss_plateau_steps': 50,
             'min_consistency_score': 0.3,
@@ -259,6 +267,52 @@ class TrainingQualityTracker:
             
             self.history['consistency'].append(avg_consistency)
             self.history['meta_commentary'].append(avg_meta)
+    
+    def add_personality_alignment_score(self, score: float):
+        """Add a personality alignment score from the Big-Five evaluation"""
+        self.personality_alignment_scores.append(score)
+        self.history['personality_alignment'].append(score)
+    
+    def get_wandb_metrics(self) -> Dict[str, float]:
+        """Get metrics formatted for WandB logging"""
+        metrics = {}
+        
+        # Basic metrics from history
+        if self.history['loss']:
+            metrics['loss'] = self.history['loss'][-1]
+        
+        if self.history['consistency']:
+            metrics['avg_consistency'] = sum(self.history['consistency'][-10:]) / min(10, len(self.history['consistency']))
+        
+        if self.history['meta_commentary']:
+            metrics['avg_meta_commentary'] = sum(self.history['meta_commentary'][-10:]) / min(10, len(self.history['meta_commentary']))
+        
+        # Personality alignment metrics
+        if self.personality_alignment_scores:
+            metrics['avg_personality_alignment'] = sum(self.personality_alignment_scores) / len(self.personality_alignment_scores)
+            
+            # Recent personality alignment (last 10 scores)
+            recent_scores = self.personality_alignment_scores[-10:]
+            if recent_scores:
+                metrics['recent_personality_alignment'] = sum(recent_scores) / len(recent_scores)
+        
+        return metrics
+    
+    def log_to_wandb(self, step: int, additional_metrics: Optional[Dict[str, Any]] = None):
+        """Log current metrics to WandB if available"""
+        if not WANDB_AVAILABLE:
+            logger.warning("WandB not available, skipping logging")
+            return
+        
+        metrics = self.get_wandb_metrics()
+        metrics['step'] = step
+        
+        # Add any additional metrics
+        if additional_metrics:
+            metrics.update(additional_metrics)
+        
+        # Log to WandB
+        wandb.log(metrics, step=step)
     
     def get_training_health(self) -> Dict[str, Any]:
         """Get overall training health indicators"""
@@ -300,6 +354,14 @@ class TrainingQualityTracker:
                 warnings.append("Model generating meta-commentary - possible training issues")
                 recommendations.append("check_dataset_format")
         
+        # Check personality alignment
+        if self.personality_alignment_scores:
+            recent_alignment = self.personality_alignment_scores[-10:]
+            avg_alignment = sum(recent_alignment) / len(recent_alignment)
+            if avg_alignment < 0.5:  # Threshold for personality alignment
+                warnings.append("Personality alignment is low - responses don't match Big-Five profile")
+                recommendations.append("review_personality_training")
+        
         # Overall status
         if not warnings:
             status = 'healthy'
@@ -314,5 +376,6 @@ class TrainingQualityTracker:
             'recommendations': recommendations,
             'current_loss': self.history['loss'][-1] if self.history['loss'] else 0,
             'avg_consistency': sum(self.history['consistency'][-10:]) / min(10, len(self.history['consistency'])) if self.history['consistency'] else 0,
+            'avg_personality_alignment': sum(self.personality_alignment_scores[-10:]) / min(10, len(self.personality_alignment_scores)) if self.personality_alignment_scores else 0,
             'steps_trained': len(self.history['loss'])
         } 

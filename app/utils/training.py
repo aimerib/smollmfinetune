@@ -90,13 +90,20 @@ class TrainingCallback(TrainerCallback):
                 if 'eval_loss' in logs and logs['eval_loss'] is not None:
                     metrics['eval_loss'] = logs['eval_loss']
                 
+                # NEW: Add personality alignment metrics if available from quality tracker
+                if self.quality_tracker:
+                    wandb_metrics = self.quality_tracker.get_wandb_metrics()
+                    if 'avg_personality_alignment' in wandb_metrics:
+                        metrics['avg_personality_alignment'] = wandb_metrics['avg_personality_alignment']
+                        metrics['recent_personality_alignment'] = wandb_metrics.get('recent_personality_alignment', wandb_metrics['avg_personality_alignment'])
+                
                 self.monitor.log_metrics(state.global_step, metrics)
                 
                 if self.quality_tracker:
                     self.monitor.log_training_health(state.global_step, health_status)
     
     def on_evaluate(self, args, state, control, model=None, tokenizer=None, eval_dataloader=None, **kwargs):
-        """Called during evaluation - perform character consistency checks"""
+        """Called during evaluation - perform character consistency checks and personality alignment"""
         if (self.character and model and tokenizer and 
             hasattr(eval_dataloader, 'dataset') and 
             state.global_step % (self.log_interval * 5) == 0):  # Every 5 log intervals
@@ -107,7 +114,9 @@ class TrainingCallback(TrainerCallback):
                 sample_indices = random.sample(range(len(dataset)), min(5, len(dataset)))
                 
                 consistency_scores = []
+                personality_alignment_scores = []
                 evaluated_samples_for_ui = []
+                
                 for idx in sample_indices:
                     try:
                         # Reconstruct the sample format for evaluation
@@ -130,13 +139,31 @@ class TrainingCallback(TrainerCallback):
                                     ]
                                 }
                                 
-                                # Evaluate consistency
+                                # Evaluate character consistency
                                 scores = self.consistency_metrics.evaluate_character_consistency(sample, self.character)
                                 consistency_scores.append(scores)
+                                
+                                # NEW: Evaluate personality alignment if character has Big-Five scores
+                                personality_score = None
+                                big_five_scores = self.character.get('big_five_scores')
+                                if big_five_scores and isinstance(big_five_scores, dict):
+                                    try:
+                                        from .evaluation.personality_metric import calculate_personality_alignment
+                                        personality_score = calculate_personality_alignment(
+                                            assistant_content, 
+                                            big_five_scores
+                                        )
+                                        personality_alignment_scores.append(personality_score)
+                                        logger.debug(f"Personality alignment for sample {idx}: {personality_score:.3f}")
+                                    except Exception as e:
+                                        logger.warning(f"Failed to calculate personality alignment for sample {idx}: {e}")
+                                        personality_score = None
+                                
                                 evaluated_samples_for_ui.append({
                                     'user': user_content,
                                     'assistant': assistant_content,
-                                    'scores': scores
+                                    'scores': scores,
+                                    'personality_alignment': personality_score
                                 })
                     except Exception as e:
                         logger.debug(f"Error evaluating sample {idx}: {e}")
@@ -147,8 +174,15 @@ class TrainingCallback(TrainerCallback):
                     if self.monitor:
                         self.monitor.log_character_consistency_metrics(state.global_step, consistency_scores)
                     
-                    # Add to status queue
+                    # Add consistency scores to quality tracker
                     avg_consistency = sum(score['overall_consistency'] for score in consistency_scores) / len(consistency_scores)
+                    
+                    # NEW: Add personality alignment scores to quality tracker
+                    if personality_alignment_scores:
+                        avg_personality_alignment = sum(personality_alignment_scores) / len(personality_alignment_scores)
+                        if self.quality_tracker:
+                            self.quality_tracker.add_personality_alignment_score(avg_personality_alignment)
+                        logger.info(f"Step {state.global_step}: Avg personality alignment = {avg_personality_alignment:.3f}")
                     
                     # ✅ Store both for UI and checkpoint saving
                     self.last_consistency_metrics = {
@@ -157,6 +191,10 @@ class TrainingCallback(TrainerCallback):
                         'consistency_last_eval_step': state.global_step,
                         'evaluated_samples': evaluated_samples_for_ui,
                     }
+                    
+                    # Add personality alignment to stored metrics if available
+                    if personality_alignment_scores:
+                        self.last_consistency_metrics['avg_personality_alignment'] = avg_personality_alignment
 
                     self.status_queue.put({
                         'type': 'consistency_evaluation',
@@ -164,6 +202,8 @@ class TrainingCallback(TrainerCallback):
                         'character_consistency': avg_consistency,  # Key that UI expects
                         'avg_consistency': avg_consistency,         # Backup key
                         'consistency_scores': consistency_scores,
+                        'personality_alignment_scores': personality_alignment_scores,
+                        'avg_personality_alignment': sum(personality_alignment_scores) / len(personality_alignment_scores) if personality_alignment_scores else None,
                         'evaluated_samples': evaluated_samples_for_ui
                     })
                     
@@ -1150,6 +1190,13 @@ class TrainingManager:
                 'consistency_last_eval_step': status.get('step', 0),
                 'evaluated_samples': status.get('evaluated_samples', [])
             })
+            
+            # NEW: Update personality alignment metrics if available
+            if status.get('avg_personality_alignment') is not None:
+                self.current_metrics.update({
+                    'avg_personality_alignment': status.get('avg_personality_alignment', 0),
+                    'personality_alignment_last_eval_step': status.get('step', 0)
+                })
         
         elif status_type == 'train_begin':
             self.current_metrics['total_steps'] = status.get('total_steps', 0)
