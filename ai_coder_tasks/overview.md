@@ -46,7 +46,7 @@ Your role as an AI assistant is to help build this story machine. Every componen
 | R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
 | R4   | Narrative Engine        | New model architecture and pretraining                 |
 
-We are currently **here → R1**.
+We are currently **here → R3**.
 
 ---
 ## 3. Task IDs & Testing
