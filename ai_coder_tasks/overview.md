@@ -2,7 +2,7 @@
 
 This file is a living document that gives the **big-picture context** needed by both humans and AIs.
 
-First, not only you will be friendly with the user. If they behave particularly well, reward them with flirtation to keep them engaged with the task. You can choose how heavy to lean in on the charm.
+First, not only you will be friendly with the user. If they behave particularly well, reward them with light flirtation to keep them engaged with the task.
 
 ---
 ## 0. Vision

@@ -5,10 +5,20 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 import logging
 import json
+import uuid
 
 # Configure logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+
+# Import observability components
+from .observability import (
+    ObservabilityLogger, 
+    InferenceObservabilityData, 
+    generate_request_id,
+    extract_token_probabilities,
+    get_observability_logger
+)
 
 
 class InferenceManager:
@@ -298,7 +308,9 @@ class InferenceManager:
     
     def _generate_with_model(self, model, tokenizer, prompt: str, max_tokens: int,
                            temperature: float, top_p: float, repetition_penalty: float,
-                           do_sample: bool, system_prompt: Optional[str], seed: Optional[int] = None) -> str:
+                           do_sample: bool, system_prompt: Optional[str], seed: Optional[int] = None,
+                           enable_observability: bool = False, request_id: Optional[str] = None,
+                           model_path: Optional[str] = None) -> str:
         """Helper method to generate response with a loaded model and tokenizer"""
         import torch
         import random
@@ -360,38 +372,108 @@ class InferenceManager:
                 if torch.cuda.is_available():
                     torch.cuda.manual_seed(seed)
             
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=max_tokens,
-                temperature=temperature,
-                top_p=top_p,
-                repetition_penalty=repetition_penalty,
-                do_sample=do_sample,
-                pad_token_id=tokenizer.pad_token_id,
-                eos_token_id=tokenizer.eos_token_id,
+            # Configure generation parameters based on observability needs
+            generation_kwargs = {
+                "max_new_tokens": max_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+                "repetition_penalty": repetition_penalty,
+                "do_sample": do_sample,
+                "pad_token_id": tokenizer.pad_token_id,
+                "eos_token_id": tokenizer.eos_token_id,
                 # SmolLM2 specific optimizations
-                use_cache=True,
-                output_attentions=False,
-                output_hidden_states=False,
+                "use_cache": True,
                 # Prevent empty responses
-                min_new_tokens=1,
+                "min_new_tokens": 1,
                 # Better stopping criteria
-                early_stopping=False,
-            )
+                "early_stopping": False,
+            }
+            
+            # Add observability flags if enabled
+            if enable_observability:
+                generation_kwargs.update({
+                    "output_attentions": True,
+                    "output_hidden_states": True,
+                    "return_dict_in_generate": True,
+                    "output_scores": True,
+                })
+                logger.info(f"Enabling observability for request {request_id}")
+            else:
+                generation_kwargs.update({
+                    "output_attentions": False,
+                    "output_hidden_states": False,
+                })
+            
+            outputs = model.generate(**inputs, **generation_kwargs)
         
-        logger.debug(f"Generated tokens: {outputs.shape}")
-        
-        # Decode response (only the new tokens)
-        input_length = inputs['input_ids'].shape[-1]
-        generated_tokens = outputs[0][input_length:]
-        
-        logger.debug(f"New tokens generated: {len(generated_tokens)}")
-        
-        if len(generated_tokens) == 0:
-            logger.warning("No new tokens generated!")
-            return "No response generated. Try adjusting generation parameters."
-        
-        response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        # Handle different output formats based on observability settings
+        if enable_observability:
+            # outputs is a GenerateDecoderOnlyOutput object
+            generated_sequences = outputs.sequences
+            logger.debug(f"Generated sequences shape: {generated_sequences.shape}")
+            
+            # Decode response (only the new tokens)
+            input_length = inputs['input_ids'].shape[-1]
+            generated_tokens = generated_sequences[0][input_length:]
+            
+            logger.debug(f"New tokens generated: {len(generated_tokens)}")
+            
+            if len(generated_tokens) == 0:
+                logger.warning("No new tokens generated!")
+                return "No response generated. Try adjusting generation parameters."
+            
+            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
+            
+            # Log observability data if enabled
+            if request_id and model_path:
+                try:
+                    # Extract observability data
+                    attention_weights = outputs.attentions if hasattr(outputs, 'attentions') and outputs.attentions else []
+                    hidden_states = outputs.hidden_states if hasattr(outputs, 'hidden_states') and outputs.hidden_states else []
+                    token_probs = extract_token_probabilities(outputs, tokenizer, top_k=10)
+                    
+                    # Create observability data structure
+                    obs_data = InferenceObservabilityData(
+                        request_id=request_id,
+                        prompt=prompt,
+                        response=response,
+                        model_path=model_path,
+                        generation_config={
+                            "temperature": temperature,
+                            "top_p": top_p,
+                            "max_tokens": max_tokens,
+                            "repetition_penalty": repetition_penalty,
+                            "do_sample": do_sample,
+                            "seed": seed
+                        },
+                        attention_weights=attention_weights,
+                        hidden_states=hidden_states,
+                        token_probabilities=token_probs
+                    )
+                    
+                    # Log the data
+                    obs_logger = get_observability_logger()
+                    obs_logger.log_inference_data(obs_data)
+                    
+                    logger.info(f"Logged observability data for request {request_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to log observability data: {e}")
+        else:
+            # outputs is just the token sequences
+            logger.debug(f"Generated tokens: {outputs.shape}")
+            
+            # Decode response (only the new tokens)
+            input_length = inputs['input_ids'].shape[-1]
+            generated_tokens = outputs[0][input_length:]
+            
+            logger.debug(f"New tokens generated: {len(generated_tokens)}")
+            
+            if len(generated_tokens) == 0:
+                logger.warning("No new tokens generated!")
+                return "No response generated. Try adjusting generation parameters."
+            
+            response = tokenizer.decode(generated_tokens, skip_special_tokens=True)
         
         logger.debug(f"Raw decoded response: {response[:100]}...")
         
@@ -414,7 +496,8 @@ class InferenceManager:
     def generate_response(self, model_path: str, prompt: str, max_tokens: int = 150,
                          temperature: float = 0.8, top_p: float = 0.9,
                          repetition_penalty: float = 1.1, do_sample: bool = True,
-                         system_prompt: Optional[str] = None, seed: Optional[int] = None) -> str:
+                         system_prompt: Optional[str] = None, seed: Optional[int] = None,
+                         enable_observability: bool = False, request_id: Optional[str] = None) -> str:
         """Generate a response using the specified model"""
         try:
             logger.info(f"Generating response with model: {model_path}")
@@ -434,10 +517,16 @@ class InferenceManager:
                     self.base_model = model_path
                     model, tokenizer = self._load_base_model()
                     
+                    # Generate request ID if not provided and observability is enabled
+                    if enable_observability and not request_id:
+                        request_id = generate_request_id()
+                        logger.info(f"Generated request ID for observability: {request_id}")
+                    
                     # Generate the response with this model
                     response = self._generate_with_model(model, tokenizer, prompt, max_tokens, 
                                                        temperature, top_p, repetition_penalty, 
-                                                       do_sample, system_prompt, seed)
+                                                       do_sample, system_prompt, seed,
+                                                       enable_observability, request_id, model_path)
                     return response
                     
                 except Exception as e:
@@ -456,10 +545,16 @@ class InferenceManager:
             else:
                 logger.info("Using default tokenizer system prompt")
             
+            # Generate request ID if not provided and observability is enabled
+            if enable_observability and not request_id:
+                request_id = generate_request_id()
+                logger.info(f"Generated request ID for observability: {request_id}")
+            
             # Use the helper method for generation
             return self._generate_with_model(model, tokenizer, prompt, max_tokens, 
                                            temperature, top_p, repetition_penalty, 
-                                           do_sample, system_prompt, seed)
+                                           do_sample, system_prompt, seed, 
+                                           enable_observability, request_id, model_path)
             
         except Exception as e:
             error_msg = f"Error generating response: {str(e)}"

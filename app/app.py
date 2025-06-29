@@ -437,6 +437,7 @@ def render_sidebar(pg):
                 ("💬 Character Chat", "pages/character_chat.py"),
                 ("🧪 Model Testing", "pages/model_testing.py"),
                 ("⚔️ Model Comparison", "pages/model_comparison.py"),
+                ("🔍 Inference Inspector", "pages/inference_inspector.py"),
                 ("🔧 Model Management", "pages/model_management.py"),
             ]),
         ]:
@@ -697,6 +698,7 @@ def main():
             st.Page("pages/character_chat.py", title="💬 Character Chat", icon="💬"),
             st.Page("pages/model_testing.py", title="🧪 Model Testing", icon="🧪"),
             st.Page("pages/model_comparison.py", title="⚔️ Model Comparison", icon="⚔️"),
+            st.Page("pages/inference_inspector.py", title="🔍 Inference Inspector", icon="🔍"),
             st.Page("pages/model_management.py", title="🔧 Model Management", icon="🔧"),
         ],
     }
