@@ -26,7 +26,8 @@ sys.path.append('..')
 
 # Import our existing infrastructure
 from app.utils.training import TrainingManager, TrainingCallback
-from narrative_engine.model import CLARALoopSmolLM, CLARALoopConfig, create_clara_loop_model
+from narrative_engine.model import NarrativeLLM, create_narrative_model
+from narrative_engine.config import NarrativeLLMConfig
 
 logger = logging.getLogger(__name__)
 
@@ -270,18 +271,18 @@ class CLARALoopTrainingManager(TrainingManager):
         
         return labels
     
-    def _create_clara_model(self, config: Dict[str, Any]) -> CLARALoopSmolLM:
+    def _create_clara_model(self, config: Dict[str, Any]) -> NarrativeLLM:
         """Create C.L.A.R.A. Loop model instead of standard model"""
-        clara_config = CLARALoopConfig(
+        clara_config = NarrativeLLMConfig(
             base_model_name=self.base_model,
             control_head_dim=config.get('control_head_dim', 256),
             **config
         )
         
-        model = CLARALoopSmolLM(clara_config)
+        model = NarrativeLLM(clara_config)
         return model
     
-    def _setup_clara_lora_model(self, model: CLARALoopSmolLM, config: Dict[str, Any], 
+    def _setup_clara_lora_model(self, model: NarrativeLLM, config: Dict[str, Any], 
                               character: Dict[str, Any] = None, dataset_size: int = 0):
         """Setup LoRA for C.L.A.R.A. Loop model (only on base model, not control head)"""
         
@@ -445,7 +446,7 @@ class CLARALoopTrainingManager(TrainingManager):
         finally:
             self.is_training = False
     
-    def evaluate_clara_loop(self, model: CLARALoopSmolLM, test_conversations: List[Dict[str, Any]]) -> Dict[str, float]:
+    def evaluate_clara_loop(self, model: NarrativeLLM, test_conversations: List[Dict[str, Any]]) -> Dict[str, float]:
         """
         Evaluate C.L.A.R.A. Loop emotional consistency and recirculation effectiveness.
         

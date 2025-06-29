@@ -7,6 +7,9 @@ class NarrativeLLMConfig:
     Configuration for the Narrative-LLM.
     This dataclass is the single source of truth for all model hyperparameters.
     """
+    # --- Base Model ---
+    base_model_name: str = "HuggingFaceTB/SmolLM2-135M-Instruct"
+    
     # --- Vocabulary and Embedding ---
     vocab_size: int = 32000  # Size of the tokenizer vocabulary
     token_dim: int = 4096  # Dimensionality of token embeddings (d_model)
@@ -34,6 +37,14 @@ class NarrativeLLMConfig:
     # Allows the model to attend to information from a vector database.
     memory_key_value_dim: int = 1024 # Dimensionality of keys/values from external memory
     num_memory_attention_heads: int = 8 # Number of heads for cross-attention
+    
+    # --- C.L.A.R.A. Loop Features ---
+    # Dual-head architecture and emotional recirculation
+    control_head_dim: int = 256  # Dimensionality of control token head
+    control_vocab_size: int = 64  # Max control tokens
+    recirculation_layers: int = 2  # Layers for emotional context injection
+    surprise_threshold: float = 0.7  # Threshold for surprise detection
+    decay_steps: int = 4  # How many turns to track emotional momentum
     
     # --- Adapters (LoRA/DoRA) ---
     # Configuration for dynamically loaded persona adapters.

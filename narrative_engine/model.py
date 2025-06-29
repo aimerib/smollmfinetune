@@ -9,35 +9,15 @@ import json
 from pathlib import Path
 import logging
 
+from .config import NarrativeLLMConfig
+
 logger = logging.getLogger(__name__)
-
-
-class CLARALoopConfig:
-    """Configuration for C.L.A.R.A. Loop dual-head architecture"""
-    
-    def __init__(
-        self,
-        base_model_name: str = "HuggingFaceTB/SmolLM2-135M-Instruct",
-        control_head_dim: int = 256,
-        control_vocab_size: int = 64,  # Max control tokens
-        recirculation_layers: int = 2,
-        surprise_threshold: float = 0.7,
-        decay_steps: int = 4,  # How many turns to track emotional momentum
-        **kwargs
-    ):
-        self.base_model_name = base_model_name
-        self.control_head_dim = control_head_dim
-        self.control_vocab_size = control_vocab_size
-        self.recirculation_layers = recirculation_layers
-        self.surprise_threshold = surprise_threshold
-        self.decay_steps = decay_steps
-        self.__dict__.update(kwargs)
 
 
 class EmotionalMomentumTracker:
     """Tracks emotional state persistence with surprise-weighted decay"""
     
-    def __init__(self, config: CLARALoopConfig):
+    def __init__(self, config: NarrativeLLMConfig):
         self.config = config
         self.emotional_state = {}  # token -> {strength, decay_rate, turns_remaining}
         self.surprise_detector = SurpriseDetector()
@@ -182,18 +162,19 @@ class SurpriseDetector:
         return min(intensity_change * 0.2, 0.5)
 
 
-class CLARALoopSmolLM(nn.Module):
+class NarrativeLLM(nn.Module):
     """
-    C.L.A.R.A. Loop implementation with SmolLM2 backbone.
+    Narrative-LLM implementation with SmolLM2 backbone and C.L.A.R.A. Loop features.
     
     Features:
     - Dual-head architecture (generation + control)
     - Emotional momentum tracking with surprise weighting
     - Recirculation mechanism for turn-to-turn emotional state
     - Living interface integration
+    - Session-aware conversational context
     """
     
-    def __init__(self, config: CLARALoopConfig, control_tokens_path: Optional[str] = None):
+    def __init__(self, config: 'NarrativeLLMConfig', control_tokens_path: Optional[str] = None):
         super().__init__()
         self.config = config
         
@@ -234,6 +215,8 @@ class CLARALoopSmolLM(nn.Module):
         self,
         input_ids: torch.Tensor,
         attention_mask: Optional[torch.Tensor] = None,
+        session_id: Optional[torch.Tensor] = None,
+        external_memory_states: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         control_labels: Optional[torch.Tensor] = None,
         recirculation_tokens: Optional[List[str]] = None,
@@ -245,12 +228,14 @@ class CLARALoopSmolLM(nn.Module):
         Args:
             input_ids: Token IDs for input text
             attention_mask: Attention mask
+            session_id: Session identifier for stateful context
+            external_memory_states: External memory for cross-attention
             labels: Target tokens for generation head
             control_labels: Target control tokens (multi-hot encoded)
             recirculation_tokens: Control tokens from previous turn
             
         Returns:
-            Dictionary with generation_logits, control_logits, and losses
+            Dictionary with text_logits, action_logits, and losses
         """
         
         # Inject recirculation context if provided
@@ -302,8 +287,10 @@ class CLARALoopSmolLM(nn.Module):
             losses['total_loss'] = total_loss
         
         return {
-            'generation_logits': generation_logits,
-            'control_logits': control_logits,
+            'text_logits': generation_logits,  # Standard language modeling output
+            'action_logits': control_logits,   # Control token output (C.L.A.R.A. Loop)
+            'generation_logits': generation_logits,  # Legacy alias
+            'control_logits': control_logits,        # Legacy alias
             'hidden_states': hidden_states,
             'losses': losses
         }
@@ -434,19 +421,19 @@ class CLARALoopSmolLM(nn.Module):
         }
 
 
-def create_clara_loop_model(
+def create_narrative_model(
     base_model_name: str = "HuggingFaceTB/SmolLM2-135M-Instruct",
     control_tokens_path: Optional[str] = None,
     **config_kwargs
-) -> CLARALoopSmolLM:
-    """Factory function to create C.L.A.R.A. Loop model"""
+) -> NarrativeLLM:
+    """Factory function to create Narrative-LLM model"""
     
-    config = CLARALoopConfig(
+    config = NarrativeLLMConfig(
         base_model_name=base_model_name,
         **config_kwargs
     )
     
-    model = CLARALoopSmolLM(config, control_tokens_path)
+    model = NarrativeLLM(config, control_tokens_path)
     
     return model
 
@@ -454,7 +441,7 @@ def create_clara_loop_model(
 # Example usage and testing
 if __name__ == "__main__":
     # Create model
-    model = create_clara_loop_model()
+    model = create_narrative_model()
     
     # Test forward pass
     input_ids = torch.randint(0, 1000, (1, 20))

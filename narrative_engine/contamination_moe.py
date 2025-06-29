@@ -15,12 +15,13 @@ import numpy as np
 import re
 import logging
 
-from narrative_engine.model import CLARALoopSmolLM, CLARALoopConfig
+from narrative_engine.model import NarrativeLLM
+from narrative_engine.config import NarrativeLLMConfig
 
 logger = logging.getLogger(__name__)
 
 
-class ContaminationMoEConfig(CLARALoopConfig):
+class ContaminationMoEConfig(NarrativeLLMConfig):
     """Configuration for Contamination-Isolation MoE"""
     
     def __init__(self, num_experts: int = 4, routing_temperature: float = 1.0, 
@@ -170,7 +171,7 @@ class ContaminationMoELayer(nn.Module):
         }
 
 
-class ContaminationIsolationMoE(CLARALoopSmolLM):
+class ContaminationIsolationMoE(NarrativeLLM):
     """Complete Contamination-Isolation MoE model extending C.L.A.R.A. Loop"""
     
     def __init__(self, config: ContaminationMoEConfig, control_tokens_path: Optional[str] = None):
