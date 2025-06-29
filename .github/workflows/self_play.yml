@@ -1,0 +1,340 @@
+name: 🎭 Self-Play Data Faucet
+
+on:
+  schedule:
+    # Run nightly at 03:00 UTC (optimal time for low GitHub Actions usage)
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    # Allow manual triggering for testing
+    inputs:
+      world_name:
+        description: 'World name to use for self-play'
+        required: false
+        default: 'Default World'
+      char_a:
+        description: 'First character name'
+        required: false
+        default: 'Alice'
+      char_b:
+        description: 'Second character name'
+        required: false
+        default: 'Bob'
+      turns:
+        description: 'Number of dialogue turns'
+        required: false
+        default: '20'
+
+env:
+  PYTHONUNBUFFERED: 1
+  WANDB_API_KEY: ${{ secrets.WANDB_API_KEY }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  self-play-generation:
+    name: Generate Self-Play Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # Need full history for DVC
+        token: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: 🐍 Set up Python 3.11
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+        # Install additional dependencies for self-play
+        pip install wandb transformers torch --index-url https://download.pytorch.org/whl/cpu
+        pip install datasets pydantic
+    
+    - name: 🔧 Configure Git for DVC
+      run: |
+        git config --global user.name "Self-Play Bot"
+        git config --global user.email "self-play-bot@github.com"
+    
+    - name: 📊 Setup DVC (Data Version Control)
+      run: |
+        pip install dvc[s3]
+        # Initialize DVC if not already done (idempotent)
+        dvc init --no-scm || true
+    
+    - name: 🎭 Create Test Characters (if needed)
+      run: |
+        python -c "
+        import os
+        from pathlib import Path
+        
+        # Create test world and characters if they don't exist
+        world_dir = Path('content/worlds/Default World')
+        world_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Create minimal world lore
+        world_lore = {
+            'meta': {'version': 1},
+            'facts': {'The world is a fantasy realm with magic and wonder.': True},
+            'timeline': [],
+            'factions': [],
+            'places': []
+        }
+        
+        import json
+        with open(world_dir / 'world_lore.json', 'w') as f:
+            json.dump(world_lore, f, indent=2)
+        
+        # Create test characters
+        alice_dir = world_dir / 'characters' / 'Alice'
+        alice_dir.mkdir(parents=True, exist_ok=True)
+        
+        alice_char = {
+            'name': 'Alice',
+            'description': 'A brilliant mage from the capital city, known for her wisdom and helpful nature.',
+            'personality': 'confident, intelligent, helpful, curious',
+            'scenario': 'Alice is exploring the world, meeting new people and learning about different cultures.',
+            'first_mes': 'Hello there! I\'m Alice, a mage from the capital. It\'s wonderful to meet you!',
+            'big_five_scores': {
+                'openness': 0.8,
+                'conscientiousness': 0.7,
+                'extraversion': 0.6,
+                'agreeableness': 0.8,
+                'neuroticism': 0.3
+            }
+        }
+        
+        with open(alice_dir / 'character_core.json', 'w') as f:
+            json.dump(alice_char, f, indent=2)
+        
+        bob_dir = world_dir / 'characters' / 'Bob'
+        bob_dir.mkdir(parents=True, exist_ok=True)
+        
+        bob_char = {
+            'name': 'Bob',
+            'description': 'A mysterious wanderer with deep philosophical insights and a cautious nature.',
+            'personality': 'cautious, wise, philosophical, thoughtful',
+            'scenario': 'Bob travels the world seeking knowledge and understanding, often offering guidance to those he meets.',
+            'first_mes': 'Greetings, traveler. I am Bob, a seeker of wisdom. What brings you to these lands?',
+            'big_five_scores': {
+                'openness': 0.9,
+                'conscientiousness': 0.8,
+                'extraversion': 0.4,
+                'agreeableness': 0.7,
+                'neuroticism': 0.2
+            }
+        }
+        
+        with open(bob_dir / 'character_core.json', 'w') as f:
+            json.dump(bob_char, f, indent=2)
+        
+        # Create minimal tokens file
+        tokens = [
+            {'token': '<scene_night>', 'category': 'scene', 'description': 'Evening or nighttime setting'},
+            {'token': '<scene_tavern>', 'category': 'scene', 'description': 'Inn or tavern setting'},
+            {'token': '<scene_outdoor>', 'category': 'scene', 'description': 'Outdoor natural setting'},
+            {'token': '<scene_private>', 'category': 'scene', 'description': 'Private or intimate setting'}
+        ]
+        
+        with open(world_dir / 'tokens.json', 'w') as f:
+            json.dump(tokens, f, indent=2)
+        
+        print('✅ Test world and characters created')
+        "
+    
+    - name: 🏃‍♂️ Run Self-Play Generation
+      id: self_play
+      run: |
+        # Set up parameters (use workflow inputs or defaults)
+        WORLD_NAME="${{ github.event.inputs.world_name || 'Default World' }}"
+        CHAR_A="${{ github.event.inputs.char_a || 'Alice' }}"
+        CHAR_B="${{ github.event.inputs.char_b || 'Bob' }}"
+        TURNS="${{ github.event.inputs.turns || '20' }}"
+        
+        echo "🎭 Starting self-play generation:"
+        echo "   World: $WORLD_NAME"
+        echo "   Characters: $CHAR_A ↔ $CHAR_B"
+        echo "   Turns: $TURNS"
+        
+        # Create output directory
+        mkdir -p datasets/self_play
+        
+        # Run the self-play script with CPU inference
+        python scripts/run_self_play_cron.py \
+          --world "$WORLD_NAME" \
+          --charA "$CHAR_A" \
+          --charB "$CHAR_B" \
+          --turns "$TURNS" \
+          --output-dir "datasets/self_play" \
+          --verbose
+        
+        # Capture results for next steps
+        GENERATED_FILES=$(ls datasets/self_play/nightly_*.jsonl 2>/dev/null | head -1 || echo "")
+        echo "generated_file=$GENERATED_FILES" >> $GITHUB_OUTPUT
+        
+        if [ ! -z "$GENERATED_FILES" ]; then
+          echo "✅ Generated file: $GENERATED_FILES"
+          # Count samples
+          SAMPLE_COUNT=$(wc -l < "$GENERATED_FILES" 2>/dev/null || echo "0")
+          echo "sample_count=$SAMPLE_COUNT" >> $GITHUB_OUTPUT
+          echo "📊 Generated $SAMPLE_COUNT samples"
+        else
+          echo "❌ No output file generated"
+          exit 1
+        fi
+    
+    - name: 🔍 Validate Generated Data
+      if: steps.self_play.outputs.generated_file
+      run: |
+        python -c "
+        import json
+        import sys
+        from pathlib import Path
+        
+        # Import validation schema
+        sys.path.append('.')
+        from narrative_engine.data_schema import DatasetSample
+        
+        file_path = '${{ steps.self_play.outputs.generated_file }}'
+        
+        if not file_path or not Path(file_path).exists():
+            print('❌ No valid file to validate')
+            sys.exit(1)
+        
+        print(f'🔍 Validating {file_path}...')
+        
+        valid_samples = 0
+        total_samples = 0
+        errors = []
+        
+        with open(file_path, 'r') as f:
+            for line_num, line in enumerate(f, 1):
+                if not line.strip():
+                    continue
+                    
+                total_samples += 1
+                try:
+                    sample_data = json.loads(line)
+                    # Validate using Pydantic schema
+                    DatasetSample(**sample_data)
+                    valid_samples += 1
+                except Exception as e:
+                    errors.append(f'Line {line_num}: {str(e)}')
+                    if len(errors) < 5:  # Only show first 5 errors
+                        print(f'⚠️  Validation error on line {line_num}: {e}')
+        
+        print(f'📊 Validation results:')
+        print(f'   Total samples: {total_samples}')
+        print(f'   Valid samples: {valid_samples}')
+        print(f'   Success rate: {valid_samples/total_samples*100:.1f}%' if total_samples > 0 else '   Success rate: 0%')
+        
+        if valid_samples == 0:
+            print('❌ No valid samples generated')
+            sys.exit(1)
+        elif valid_samples < total_samples * 0.8:  # Require at least 80% valid
+            print(f'⚠️  Low validation rate: {valid_samples}/{total_samples}')
+            sys.exit(1)
+        else:
+            print('✅ Validation passed')
+        "
+    
+    - name: 📦 Add to DVC and Commit
+      if: steps.self_play.outputs.generated_file
+      run: |
+        GENERATED_FILE="${{ steps.self_play.outputs.generated_file }}"
+        SAMPLE_COUNT="${{ steps.self_play.outputs.sample_count }}"
+        DATE=$(date +%Y-%m-%d)
+        
+        # Add file to DVC tracking
+        dvc add "$GENERATED_FILE"
+        
+        # Commit the .dvc file and updated .gitignore
+        git add "${GENERATED_FILE}.dvc" datasets/.gitignore
+        
+        # Create meaningful commit message
+        COMMIT_MSG="🎭 Self-play data: ${SAMPLE_COUNT} samples generated on ${DATE}
+        
+        Generated via nightly self-play between Alice and Bob in Default World.
+        File: ${GENERATED_FILE}
+        Samples: ${SAMPLE_COUNT}
+        Quality: Passed validation
+        
+        [skip ci]"
+        
+        git commit -m "$COMMIT_MSG" || echo "No changes to commit"
+        
+        # Push changes
+        git push origin || echo "Failed to push - continuing anyway"
+        
+        echo "✅ Data committed to repository"
+    
+    - name: 📈 Report Results
+      if: always()
+      run: |
+        echo "🎭 Self-Play Data Faucet Results:"
+        
+        if [ "${{ steps.self_play.outcome }}" = "success" ]; then
+          echo "✅ Generation: SUCCESS"
+          echo "   File: ${{ steps.self_play.outputs.generated_file }}"
+          echo "   Samples: ${{ steps.self_play.outputs.sample_count }}"
+        else
+          echo "❌ Generation: FAILED"
+        fi
+        
+        # Calculate rough token estimate (assuming ~10 tokens per turn)
+        if [ ! -z "${{ steps.self_play.outputs.sample_count }}" ]; then
+          ESTIMATED_TOKENS=$(( ${{ steps.self_play.outputs.sample_count }} * 20 * 10 ))
+          echo "   Estimated tokens: ~${ESTIMATED_TOKENS}"
+        fi
+        
+        echo ""
+        echo "🔗 View WandB metrics: https://wandb.ai/project/self_play_faucet"
+        echo "📊 Data location: datasets/self_play/"
+        
+        # Create summary for GitHub
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        # 🎭 Self-Play Data Faucet Summary
+        
+        ## Results
+        - **Status**: ${{ steps.self_play.outcome == 'success' && '✅ Success' || '❌ Failed' }}
+        - **Generated File**: \`${{ steps.self_play.outputs.generated_file }}\`
+        - **Sample Count**: ${{ steps.self_play.outputs.sample_count || 'N/A' }}
+        - **Estimated Tokens**: ~$(( ${{ steps.self_play.outputs.sample_count || 0 }} * 200 ))
+        
+        ## Characters
+        - **World**: ${{ github.event.inputs.world_name || 'Default World' }}
+        - **Character A**: ${{ github.event.inputs.char_a || 'Alice' }}
+        - **Character B**: ${{ github.event.inputs.char_b || 'Bob' }}
+        - **Dialogue Turns**: ${{ github.event.inputs.turns || '20' }}
+        
+        ## Next Steps
+        - View detailed metrics in [WandB](https://wandb.ai/project/self_play_faucet)
+        - Generated data is available in \`datasets/self_play/\` directory
+        - Data is versioned with DVC for reproducible experiments
+        EOF
+
+  # Cleanup job to manage disk space
+  cleanup:
+    name: Cleanup Old Data
+    runs-on: ubuntu-latest
+    needs: self-play-generation
+    if: always()
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+    
+    - name: 🧹 Cleanup Old Self-Play Data
+      run: |
+        # Keep only last 7 days of self-play data to manage storage
+        find datasets/self_play/ -name "nightly_*.jsonl" -type f -mtime +7 -delete 2>/dev/null || true
+        
+        # Remove any empty directories
+        find datasets/self_play/ -type d -empty -delete 2>/dev/null || true
+        
+        echo "✅ Cleanup completed" 
