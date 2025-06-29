@@ -72,3 +72,5 @@ datasets/
 
 .pytest_cache/
 *.db
+*.db-*
+.coverage

@@ -440,7 +440,7 @@ class TestDatabaseMigrator:
         mock_world_manager.return_value = mock_manager
         
         # Test dry run migration
-        migrator = DatabaseMigrator(dry_run=True)
+        migrator = DatabaseMigrator(dry_run=True, session_manager=temp_database)
         count = migrator.migrate_worlds(test_user.id)
         
         # Should return count but not create database records
@@ -488,7 +488,7 @@ class TestDatabaseMigrator:
         mock_world_manager.return_value = mock_manager
         
         # Test actual migration
-        migrator = DatabaseMigrator(dry_run=False)
+        migrator = DatabaseMigrator(dry_run=False, session_manager=temp_database)
         count = migrator.migrate_worlds(test_user.id)
         
         assert count == 1
@@ -539,8 +539,9 @@ class TestDatabaseMigrator:
         
         # Create temporary file structure
         with tempfile.TemporaryDirectory() as temp_dir:
-            world_path = Path(temp_dir) / "Test World"
-            char_path = world_path / "characters" / "Zara the Wise"
+            # Create the expected directory structure: content_path/worlds/World Name/characters/Character Name/
+            worlds_path = Path(temp_dir) / "worlds" / "Test World"
+            char_path = worlds_path / "characters" / "Zara the Wise"
             char_path.mkdir(parents=True)
             
             # Create character_core.json file
@@ -548,38 +549,34 @@ class TestDatabaseMigrator:
             with open(core_file, 'wb') as f:
                 f.write(orjson.dumps(sample_character_data))
             
-            # Patch the content path
-            with patch('app.utils.database.migration.Path') as mock_path:
-                mock_path.return_value = Path(temp_dir)
+            # Test character migration with custom content path and session manager
+            migrator = DatabaseMigrator(dry_run=False, session_manager=temp_database, content_path=temp_dir)
+            count = migrator.migrate_characters(test_user.id)
+            
+            assert count == 1
+            
+            # Verify character was created in database
+            with temp_database.session_scope() as session:
+                character = session.query(Character).filter_by(name="Zara the Wise").first()
+                assert character is not None
+                assert character.description == sample_character_data["description"]
+                assert character.openness == 0.8
+                assert character.conscientiousness == 0.7
                 
-                # Test character migration
-                migrator = DatabaseMigrator(dry_run=False)
-                count = migrator.migrate_characters(test_user.id)
+                # Check relationships
+                assert len(character.relationships) == 2
+                relationship_names = {rel.name for rel in character.relationships}
+                assert "Kael" in relationship_names
+                assert "Lord Darkbane" in relationship_names
                 
-                assert count == 1
+                # Check goals
+                assert len(character.goals) == 3
                 
-                # Verify character was created in database
-                with temp_database.session_scope() as session:
-                    character = session.query(Character).filter_by(name="Zara the Wise").first()
-                    assert character is not None
-                    assert character.description == sample_character_data["description"]
-                    assert character.openness == 0.8
-                    assert character.conscientiousness == 0.7
-                    
-                    # Check relationships
-                    assert len(character.relationships) == 2
-                    relationship_names = {rel.name for rel in character.relationships}
-                    assert "Kael" in relationship_names
-                    assert "Lord Darkbane" in relationship_names
-                    
-                    # Check goals
-                    assert len(character.goals) == 3
-                    
-                    # Check tags
-                    assert len(character.tags) == 4
-                    tag_values = {tag.tag for tag in character.tags}
-                    assert "mage" in tag_values
-                    assert "wise" in tag_values
+                # Check tags
+                assert len(character.tags) == 4
+                tag_values = {tag.tag for tag in character.tags}
+                assert "mage" in tag_values
+                assert "wise" in tag_values
     
     def test_migrate_preference_data_with_temporary_files(self, temp_database, test_user):
         """Test preference data migration using temporary files"""
@@ -596,11 +593,15 @@ class TestDatabaseMigrator:
             )
             session.add(character)
             session.commit()
+            
+            # Get the character ID while still in session
+            character_id = character.id
         
         # Create temporary preference file
         with tempfile.TemporaryDirectory() as temp_dir:
-            world_path = Path(temp_dir) / "Test World"
-            char_path = world_path / "characters" / "Test Character"
+            # Create the expected directory structure: content_path/worlds/World Name/characters/Character Name/
+            worlds_path = Path(temp_dir) / "worlds" / "Test World"
+            char_path = worlds_path / "characters" / "Test Character"
             char_path.mkdir(parents=True)
             
             # Create preference logs file
@@ -619,26 +620,22 @@ class TestDatabaseMigrator:
                 f.write(json.dumps(pref1) + '\n')
                 f.write(json.dumps(pref2) + '\n')
             
-            # Patch the content path
-            with patch('app.utils.database.migration.Path') as mock_path:
-                mock_path.return_value = Path(temp_dir)
+            # Test preference migration with custom content path and session manager
+            migrator = DatabaseMigrator(dry_run=False, session_manager=temp_database, content_path=temp_dir)
+            count = migrator.migrate_preference_data()
+            
+            assert count == 2
+            
+            # Verify preferences were created in database
+            with temp_database.session_scope() as session:
+                preferences = session.query(PreferencePair).filter_by(
+                    character_id=character_id
+                ).all()
+                assert len(preferences) == 2
                 
-                # Test preference migration
-                migrator = DatabaseMigrator(dry_run=False)
-                count = migrator.migrate_preference_data()
-                
-                assert count == 2
-                
-                # Verify preferences were created in database
-                with temp_database.session_scope() as session:
-                    preferences = session.query(PreferencePair).filter_by(
-                        character_id=character.id
-                    ).all()
-                    assert len(preferences) == 2
-                    
-                    prompts = {pref.prompt_text for pref in preferences}
-                    assert "Hello, how are you?" in prompts
-                    assert "What's your favorite color?" in prompts
+                prompts = {pref.prompt_text for pref in preferences}
+                assert "Hello, how are you?" in prompts
+                assert "What's your favorite color?" in prompts
     
     def test_full_migration_integration(self, temp_database, test_user):
         """Test complete migration workflow with all components"""
@@ -653,7 +650,7 @@ class TestDatabaseMigrator:
         
     def test_record_migration_version(self, temp_database):
         """Test recording migration versions"""
-        migrator = DatabaseMigrator(dry_run=False)
+        migrator = DatabaseMigrator(dry_run=False, session_manager=temp_database)
         
         # Record a migration version
         migrator.record_migration_version("1.0.0", "Initial migration")

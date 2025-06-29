@@ -451,13 +451,13 @@ def page_training_dashboard():
                     )
             
             # Secondary metrics row (if validation is enabled)
-            if 'eval_loss' in metrics or 'character_consistency' in metrics or 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:
+            if 'eval_loss' in training_metrics or 'character_consistency' in training_metrics or 'avg_personality_alignment' in training_metrics or 'avg_lore_adherence' in training_metrics:
                 st.markdown("---")
                 col5, col6, col7, col8 = st.columns(4)
                 
                 with col5:
-                    if 'eval_loss' in metrics:
-                        eval_loss = metrics['eval_loss']
+                    if 'eval_loss' in training_metrics:
+                        eval_loss = training_metrics['eval_loss']
                         st.metric(
                             "Validation Loss",
                             f"{eval_loss:.4f}" if isinstance(eval_loss, (int, float)) else str(eval_loss),
@@ -465,9 +465,9 @@ def page_training_dashboard():
                         )
                 
                 with col6:
-                    if 'character_consistency' in metrics:
+                    if 'character_consistency' in training_metrics:
                         # Use the new deep-dive renderer
-                        render_consistency_deep_dive(metrics)
+                        render_consistency_deep_dive(training_metrics)
                     else:
                         st.metric(
                             "Character Consistency",
@@ -476,8 +476,8 @@ def page_training_dashboard():
                         )
                 
                 with col7:
-                    if 'avg_consistency' in metrics:
-                        avg_consistency = metrics['avg_consistency']
+                    if 'avg_consistency' in training_metrics:
+                        avg_consistency = training_metrics['avg_consistency']
                         st.metric(
                             "Avg Consistency",
                             f"{avg_consistency:.2f}" if isinstance(avg_consistency, (int, float)) else str(avg_consistency),
@@ -485,7 +485,7 @@ def page_training_dashboard():
                         )
                 
                 with col8:
-                    training_health = metrics.get('training_health_status', 'unknown').title()
+                    training_health = training_metrics.get('training_health_status', 'unknown').title()
                     health_color = {"Healthy": "normal", "Warning": "inverse", "Critical": "off"}.get(training_health, "normal")
                     st.metric(
                         "Training Health",
@@ -543,16 +543,16 @@ def page_training_dashboard():
                     st.warning("⚠️ **CONTAMINATION RESISTANCE NEEDS WORK** Consider adjusting routing threshold or training longer")
             
             # ✨ NEW: Advanced Metrics Row (R1-9) 
-            if 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:
+            if 'avg_personality_alignment' in training_metrics or 'avg_lore_adherence' in training_metrics:
                 st.markdown("---")
                 st.markdown("### 🎭 Advanced Character Metrics")
                 
                 adv_col1, adv_col2, adv_col3, adv_col4 = st.columns(4)
                 
                 with adv_col1:
-                    if 'avg_personality_alignment' in metrics:
-                        personality_score = metrics['avg_personality_alignment']
-                        personality_delta = metrics.get('personality_alignment_delta', 0)
+                    if 'avg_personality_alignment' in training_metrics:
+                        personality_score = training_metrics['avg_personality_alignment']
+                        personality_delta = training_metrics.get('personality_alignment_delta', 0)
                         delta_color = "normal" if abs(personality_delta) < 0.05 else ("normal" if personality_delta > 0 else "inverse")
                         
                         st.metric(
@@ -564,9 +564,9 @@ def page_training_dashboard():
                         )
                 
                 with adv_col2:
-                    if 'avg_lore_adherence' in metrics:
-                        lore_score = metrics['avg_lore_adherence']
-                        lore_delta = metrics.get('lore_adherence_delta', 0)
+                    if 'avg_lore_adherence' in training_metrics:
+                        lore_score = training_metrics['avg_lore_adherence']
+                        lore_delta = training_metrics.get('lore_adherence_delta', 0)
                         delta_color = "normal" if abs(lore_delta) < 0.05 else ("normal" if lore_delta > 0 else "inverse")
                         
                         st.metric(
@@ -579,15 +579,15 @@ def page_training_dashboard():
                 
                 with adv_col3:
                     # Combined quality score
-                    if 'avg_personality_alignment' in metrics and 'avg_lore_adherence' in metrics:
-                        combined_score = (metrics['avg_personality_alignment'] + metrics['avg_lore_adherence']) / 2
+                    if 'avg_personality_alignment' in training_metrics and 'avg_lore_adherence' in training_metrics:
+                        combined_score = (training_metrics['avg_personality_alignment'] + training_metrics['avg_lore_adherence']) / 2
                         st.metric(
                             "🎯 Overall Quality",
                             f"{combined_score:.3f}",
                             help="Combined personality alignment and lore adherence score"
                         )
-                    elif 'character_consistency' in metrics:
-                        consistency = metrics['character_consistency']
+                    elif 'character_consistency' in training_metrics:
+                        consistency = training_metrics['character_consistency']
                         st.metric(
                             "🎭 Character Quality",
                             f"{consistency:.3f}" if isinstance(consistency, (int, float)) else str(consistency),
@@ -596,8 +596,8 @@ def page_training_dashboard():
                 
                 with adv_col4:
                     # Performance indicator
-                    if 'avg_personality_alignment' in metrics:
-                        personality_score = metrics['avg_personality_alignment']
+                    if 'avg_personality_alignment' in training_metrics:
+                        personality_score = training_metrics['avg_personality_alignment']
                         if personality_score > 0.8:
                             performance = "Excellent"
                             performance_color = "#10b981"
@@ -617,7 +617,7 @@ def page_training_dashboard():
                         """, unsafe_allow_html=True)
         
         # Enhanced loss curve with multiple metrics
-        if 'loss_history' in metrics and metrics['loss_history']:
+        if 'loss_history' in training_metrics and training_metrics['loss_history']:
             with chart_placeholder.container():
                 # Use columns to place an info icon next to the title
                 col_title, col_info = st.columns([0.95, 0.05])
@@ -642,12 +642,12 @@ def page_training_dashboard():
                         """)
                 
                 # Create enhanced visualization
-                steps = list(range(len(metrics['loss_history'])))
+                steps = list(range(len(training_metrics['loss_history'])))
                 
                 # Build chart data
                 chart_data = pd.DataFrame({
                     'Step': steps,
-                    'Training Loss': metrics['loss_history']
+                    'Training Loss': training_metrics['loss_history']
                 })
                 
                 # Create figure with secondary y-axis for character consistency
@@ -658,9 +658,9 @@ def page_training_dashboard():
                 )
                 
                 # Add validation loss if available
-                if 'eval_loss' in metrics:
+                if 'eval_loss' in training_metrics:
                     # Try to get eval history from metrics first, then from training manager
-                    eval_history = metrics.get('eval_loss_history', [])
+                    eval_history = training_metrics.get('eval_loss_history', [])
                     if not eval_history and hasattr(st.session_state.training_manager, 'eval_loss_history'):
                         eval_history = getattr(st.session_state.training_manager, 'eval_loss_history', [])
                     if eval_history and len(eval_history) > 0:
@@ -694,8 +694,8 @@ def page_training_dashboard():
                 )
                 
                 # Add training health indicators
-                if 'health_warnings' in metrics and metrics['health_warnings']:
-                    warning_step = metrics.get('current_step', len(steps))
+                if 'health_warnings' in training_metrics and training_metrics['health_warnings']:
+                    warning_step = training_metrics.get('current_step', len(steps))
                     fig.add_vline(
                         x=warning_step,
                         line_dash="dot",
@@ -711,11 +711,11 @@ def page_training_dashboard():
                     render_healthy_run_example()
                 
                 # Character consistency chart (if available)
-                if 'character_consistency' in metrics:
+                if 'character_consistency' in training_metrics:
                     st.markdown("### Character Consistency")
                     
                     # Create a simple consistency indicator
-                    consistency_score = metrics['character_consistency']
+                    consistency_score = training_metrics['character_consistency']
                     
                     col_chart1, col_chart2 = st.columns([1, 2])
                     
@@ -734,7 +734,7 @@ def page_training_dashboard():
                     
                     with col_chart2:
                         # Show consistency evaluation details if available
-                        last_eval_step = metrics.get('consistency_last_eval_step', 0)
+                        last_eval_step = training_metrics.get('consistency_last_eval_step', 0)
                         if last_eval_step > 0:
                             st.info(f"Last consistency evaluation at step {last_eval_step}")
                         

@@ -41,15 +41,18 @@ class DatabaseMigrator:
     and training outputs to database records while preserving data integrity.
     """
     
-    def __init__(self, dry_run: bool = False):
+    def __init__(self, dry_run: bool = False, session_manager=None, content_path: str = "content"):
         """
         Initialize the database migrator.
         
         Args:
             dry_run: If True, only simulate migration without making changes
+            session_manager: Optional session manager to use (for testing)
+            content_path: Base path for content files (default: "content")
         """
         self.dry_run = dry_run
-        self.session_manager = get_session_manager()
+        self.session_manager = session_manager or get_session_manager()
+        self.content_path = Path(content_path)
         
         # Statistics
         self.stats = {
@@ -60,7 +63,7 @@ class DatabaseMigrator:
             'errors': []
         }
         
-        logger.info(f"Database migrator initialized (dry_run={dry_run})")
+        logger.info(f"Database migrator initialized (dry_run={dry_run}, content_path={content_path})")
     
     def migrate_all(self, user_id: int = 1) -> Dict[str, Any]:
         """
@@ -122,7 +125,7 @@ class DatabaseMigrator:
         
         migrated_count = 0
         
-        with session_scope() as session:
+        with self.session_manager.session_scope() as session:
             for world_name in world_names:
                 try:
                     # Check if world already exists in database
@@ -243,14 +246,14 @@ class DatabaseMigrator:
         
         migrated_count = 0
         
-        with session_scope() as session:
+        with self.session_manager.session_scope() as session:
             # Get all worlds from database
             worlds = session.query(World).filter_by(owner_id=user_id).all()
             
             for world in worlds:
                 try:
                     # Find character directories for this world
-                    world_path = Path("content/worlds") / world.name
+                    world_path = self.content_path / "worlds" / world.name
                     characters_path = world_path / "characters"
                     
                     if not characters_path.exists():
@@ -362,7 +365,7 @@ class DatabaseMigrator:
         
         migrated_count = 0
         
-        with session_scope() as session:
+        with self.session_manager.session_scope() as session:
             # Find all character training directories
             for char_dir in training_output_path.iterdir():
                 if not char_dir.is_dir():
@@ -449,14 +452,14 @@ class DatabaseMigrator:
         
         migrated_count = 0
         
-        with session_scope() as session:
+        with self.session_manager.session_scope() as session:
             # Find all characters with preference logs
             characters = session.query(Character).all()
             
             for character in characters:
                 try:
                     # Find preference logs file
-                    world_path = Path("content/worlds") / character.world.name
+                    world_path = self.content_path / "worlds" / character.world.name
                     char_path = world_path / "characters" / character.name
                     pref_file = char_path / "preference_logs.ndjson"
                     
@@ -528,7 +531,7 @@ class DatabaseMigrator:
             logger.info(f"Would record migration version: {version}")
             return
         
-        with session_scope() as session:
+        with self.session_manager.session_scope() as session:
             try:
                 # Check if version already exists
                 existing = session.query(DatabaseVersion).filter_by(version=version).first()

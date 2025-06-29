@@ -32,7 +32,8 @@ _metrics_buffer: List[Dict[str, Any]] = []
 
 
 def init(run_name: str, cfg: Dict[str, Any], 
-         backends: List[str] = ['sqlite', 'wandb'], 
+         backends: List[str] = ['sqlite', 'wandb'],
+         dataset_paths: Optional[List[str]] = None,
          **backend_kwargs) -> str:
     """
     Initialize telemetry tracking for an experiment run.
@@ -41,6 +42,7 @@ def init(run_name: str, cfg: Dict[str, Any],
         run_name: Human-readable name for this run
         cfg: Configuration dictionary to log
         backends: List of backend names to use ['sqlite', 'wandb', 'csv']
+        dataset_paths: Optional list of dataset paths to attach to this run
         **backend_kwargs: Backend-specific configuration
         
     Returns:
@@ -93,6 +95,13 @@ def init(run_name: str, cfg: Dict[str, Any],
     # Register cleanup on exit
     atexit.register(_flush_metrics_on_exit)
     
+    # Attach dataset manifests if provided
+    if dataset_paths:
+        try:
+            attach_datasets(dataset_paths)
+        except Exception as e:
+            logger.warning(f"Failed to attach datasets to telemetry: {e}")
+    
     logger.info(f"Telemetry initialized for run: {_current_run_id}")
     return _current_run_id
 
@@ -131,6 +140,34 @@ def log(metrics: Dict[str, Union[float, int, str]], step: Optional[int] = None) 
             logger.error(f"Failed to log to backend {backend.__class__.__name__}: {e}")
 
 
+def attach_datasets(dataset_paths: List[str]) -> None:
+    """
+    Attach dataset manifests to the current telemetry run.
+    
+    Args:
+        dataset_paths: List of dataset paths to attach to current run
+    """
+    try:
+        from ..dataset_versioning import get_dataset_manifest_for_run
+        
+        manifests = get_dataset_manifest_for_run(dataset_paths)
+        
+        # Log dataset information to telemetry
+        log({
+            "datasets": manifests,
+            "dataset_count": len(manifests),
+            "dataset_attachment_timestamp": _get_current_timestamp()
+        })
+        
+        logger.info(f"Attached {len(manifests)} dataset manifests to telemetry")
+        
+    except ImportError as e:
+        logger.warning(f"Dataset versioning not available: {e}")
+    except Exception as e:
+        logger.error(f"Failed to attach datasets to telemetry: {e}")
+        raise
+
+
 def capture_cfg(func):
     """
     Decorator to automatically capture and log function configuration.
@@ -157,6 +194,12 @@ def capture_cfg(func):
         return func(*args, **kwargs)
     
     return wrapper
+
+
+def _get_current_timestamp() -> str:
+    """Get current timestamp in ISO format."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _capture_environment_metadata() -> Dict[str, Any]:

@@ -100,19 +100,26 @@ def test_training_dashboard_page_initialization():
     # Create mock session state with required components
     mock_session_state = MockSessionState({
         'training_manager': Mock(),
-        'training_status': 'idle'
+        'training_status': 'idle',
+        'current_user_id': 1
     })
     
     # Configure training manager
     mock_session_state.training_manager.get_metrics.return_value = {}
     mock_session_state.training_manager.get_training_status.return_value = 'idle'
     
+    # Mock the async training service
+    mock_async_service = Mock()
+    mock_async_service.get_user_training_runs.return_value = []
+    
     # Create streamlit component mocks
-    with patch('streamlit.markdown') as mock_markdown, \
-         patch('streamlit.info') as mock_info, \
-         patch('streamlit.session_state', mock_session_state):
+    with patch('app.pages.training_dashboard.st.markdown') as mock_markdown, \
+         patch('app.pages.training_dashboard.st.info') as mock_info, \
+         patch('app.pages.training_dashboard.st.session_state', mock_session_state), \
+         patch('app.pages.training_dashboard.st.expander', return_value=MockContextManager()), \
+         patch('app.pages.training_dashboard.async_training_service', mock_async_service):
         
-        from pages.training_dashboard import page_training_dashboard
+        from app.pages.training_dashboard import page_training_dashboard
         
         # Should run without errors
         page_training_dashboard()
@@ -124,7 +131,7 @@ def test_training_dashboard_page_initialization():
 def test_training_dashboard_with_active_training():
     """Test training dashboard with active training session."""
     
-    # Mock session state with active training
+    # Mock session state with active training and required IDs
     mock_training_manager = Mock()
     mock_metrics = {
         'current_loss': 1.5,
@@ -141,6 +148,8 @@ def test_training_dashboard_with_active_training():
     mock_session_state = MockSessionState({
         'training_manager': mock_training_manager,
         'training_status': 'training',
+        'current_training_run_id': 'test-run-123',  # Required to prevent early return
+        'current_user_id': 1,
         'advanced_training_config': {
             'enable_wandb': False,
             'enable_tensorboard': False
@@ -164,42 +173,40 @@ def test_training_dashboard_with_active_training():
     mock_training_manager.resume_training = Mock()
     mock_training_manager.stop_training = Mock()
     
-    # Mock pandas DataFrame for charts
-    mock_pandas = Mock()
-    mock_df = Mock()
-    mock_pandas.DataFrame.return_value = mock_df
+    # Mock the async training service
+    mock_async_service = Mock()
+    mock_async_service.get_user_training_runs.return_value = []
+    mock_async_service.get_training_status.return_value = {
+        'status': 'processing',
+        'character_name': 'Test Character',
+        'base_model': 'test-model',
+        'config': {},
+        'metrics': mock_metrics,
+        'started_at': '2023-01-01T10:00:00Z'
+    }
     
-    # Mock plotly
-    mock_px = Mock()
-    mock_fig = Mock()
-    mock_px.line.return_value = mock_fig
-    mock_fig.update_layout = Mock()
-    mock_fig.add_scatter = Mock()
-    mock_fig.add_vline = Mock()
-    
-    with patch('streamlit.session_state', mock_session_state), \
-         patch('streamlit.button', return_value=False) as mock_button, \
-         patch('streamlit.metric') as mock_metric, \
-         patch('streamlit.columns', side_effect=create_dynamic_columns_mock()), \
-         patch('streamlit.plotly_chart') as mock_plotly_chart, \
-         patch('pages.training_dashboard.pd', mock_pandas), \
-         patch('pages.training_dashboard.px', mock_px), \
-         patch('pages.training_dashboard.time'):
+    # Patch the page's streamlit import and async service
+    with patch('app.pages.training_dashboard.st.session_state', mock_session_state), \
+         patch('app.pages.training_dashboard.st.button', return_value=False) as mock_button, \
+         patch('app.pages.training_dashboard.st.metric') as mock_metric, \
+         patch('app.pages.training_dashboard.st.columns', side_effect=create_dynamic_columns_mock()), \
+         patch('app.pages.training_dashboard.st.expander', return_value=MockContextManager()), \
+         patch('app.pages.training_dashboard.st.markdown'), \
+         patch('app.pages.training_dashboard.st.info'), \
+         patch('app.pages.training_dashboard.st.rerun'), \
+         patch('app.pages.training_dashboard.time.sleep'), \
+         patch('app.pages.training_dashboard.async_training_service', mock_async_service):
         
-        from pages.training_dashboard import page_training_dashboard
+        from app.pages.training_dashboard import page_training_dashboard
         
         # Should run without errors
         page_training_dashboard()
         
         # Verify training controls were rendered
-        assert mock_button.call_count >= 4  # Pause, Resume, Test, Stop buttons
+        assert mock_button.call_count >= 4  # Refresh, Cancel, Test, Open Results buttons
         
         # Verify metrics were displayed
         mock_metric.assert_called()
-        
-        # Verify chart was created
-        mock_pandas.DataFrame.assert_called()
-        mock_px.line.assert_called()
 
 def test_training_dashboard_with_validation_metrics():
     """Test training dashboard with validation metrics."""
@@ -225,6 +232,8 @@ def test_training_dashboard_with_validation_metrics():
     mock_session_state = MockSessionState({
         'training_manager': mock_training_manager,
         'training_status': 'training',
+        'current_training_run_id': 'test-run-validation-123',
+        'current_user_id': 1,
         'advanced_training_config': {
             'enable_wandb': False,
             'enable_tensorboard': True
@@ -249,43 +258,36 @@ def test_training_dashboard_with_validation_metrics():
     mock_training_manager.resume_training = Mock()
     mock_training_manager.stop_training = Mock()
     
-    # Mock pandas and plotly
-    mock_pandas = Mock()
-    mock_df = Mock()
-    mock_pandas.DataFrame.return_value = mock_df
+    # Mock the async training service
+    mock_async_service = Mock()
+    mock_async_service.get_user_training_runs.return_value = []
+    mock_async_service.get_training_status.return_value = {
+        'status': 'processing',
+        'character_name': 'Test Character',
+        'base_model': 'test-model',
+        'config': {},
+        'metrics': mock_metrics,
+        'started_at': '2023-01-01T10:00:00Z'
+    }
     
-    mock_px = Mock()
-    mock_fig = Mock()
-    mock_px.line.return_value = mock_fig
-    mock_fig.update_layout = Mock()
-    mock_fig.add_scatter = Mock()
-    mock_fig.add_vline = Mock()
-    
-    mock_go = Mock()
-    mock_go_fig = Mock()
-    mock_go.Figure.return_value = mock_go_fig
-    mock_go_fig.add_trace = Mock()
-    mock_go_fig.update_layout = Mock()
-    
-    with patch('streamlit.session_state', mock_session_state), \
-         patch('streamlit.metric') as mock_metric, \
-         patch('streamlit.columns', side_effect=create_dynamic_columns_mock()), \
-         patch('streamlit.plotly_chart') as mock_plotly_chart, \
-         patch('pages.training_dashboard.pd', mock_pandas), \
-         patch('pages.training_dashboard.px', mock_px), \
-         patch('pages.training_dashboard.go', mock_go), \
-         patch('pages.training_dashboard.time'):
+    with patch('app.pages.training_dashboard.st.session_state', mock_session_state), \
+         patch('app.pages.training_dashboard.st.metric') as mock_metric, \
+         patch('app.pages.training_dashboard.st.columns', side_effect=create_dynamic_columns_mock()), \
+         patch('app.pages.training_dashboard.st.expander', return_value=MockContextManager()), \
+         patch('app.pages.training_dashboard.st.markdown'), \
+         patch('app.pages.training_dashboard.st.info'), \
+         patch('app.pages.training_dashboard.st.button'), \
+         patch('app.pages.training_dashboard.st.rerun'), \
+         patch('app.pages.training_dashboard.time.sleep'), \
+         patch('app.pages.training_dashboard.async_training_service', mock_async_service):
         
-        from pages.training_dashboard import page_training_dashboard
+        from app.pages.training_dashboard import page_training_dashboard
         
         # Should run without errors
         page_training_dashboard()
         
         # Verify validation metrics were displayed
         mock_metric.assert_called()
-        
-        # Verify charts were created
-        mock_pandas.DataFrame.assert_called()
 
 def test_training_dashboard_health_warnings():
     """Test training dashboard with health warnings."""
@@ -307,6 +309,8 @@ def test_training_dashboard_health_warnings():
     mock_session_state = MockSessionState({
         'training_manager': mock_training_manager,
         'training_status': 'training',
+        'current_training_run_id': 'test-run-warning-123',
+        'current_user_id': 1,
         'advanced_training_config': {
             'enable_wandb': False,
             'enable_tensorboard': False
@@ -327,25 +331,33 @@ def test_training_dashboard_health_warnings():
     mock_training_manager.get_metrics.return_value = mock_metrics
     mock_training_manager.get_training_status.return_value = 'training'
     
-    # Mock pandas and plotly
-    mock_pandas = Mock()
-    mock_df = Mock()
-    mock_pandas.DataFrame.return_value = mock_df
+    # Mock the async training service
+    mock_async_service = Mock()
+    mock_async_service.get_user_training_runs.return_value = []
+    mock_async_service.get_training_status.return_value = {
+        'status': 'processing',
+        'character_name': 'Test Character',
+        'base_model': 'test-model',
+        'config': {},
+        'metrics': mock_metrics,
+        'started_at': '2023-01-01T10:00:00Z'
+    }
     
-    mock_px = Mock()
-    mock_fig = Mock()
-    mock_px.line.return_value = mock_fig
-    mock_fig.update_layout = Mock()
-    
-    with patch('streamlit.session_state', mock_session_state), \
-         patch('streamlit.warning') as mock_warning, \
-         patch('streamlit.columns', side_effect=create_dynamic_columns_mock()), \
-         patch('streamlit.plotly_chart') as mock_plotly_chart, \
-         patch('pages.training_dashboard.pd', mock_pandas), \
-         patch('pages.training_dashboard.px', mock_px), \
-         patch('pages.training_dashboard.time'):
+    with patch('app.pages.training_dashboard.st.session_state', mock_session_state), \
+         patch('app.pages.training_dashboard.st.warning') as mock_warning, \
+         patch('app.pages.training_dashboard.st.columns', side_effect=create_dynamic_columns_mock()), \
+         patch('app.pages.training_dashboard.st.expander', return_value=MockContextManager()), \
+         patch('app.pages.training_dashboard.st.markdown'), \
+         patch('app.pages.training_dashboard.st.info'), \
+         patch('app.pages.training_dashboard.st.button'), \
+         patch('app.pages.training_dashboard.st.metric'), \
+         patch('app.pages.training_dashboard.st.success'), \
+         patch('app.pages.training_dashboard.st.error'), \
+         patch('app.pages.training_dashboard.st.rerun'), \
+         patch('app.pages.training_dashboard.time.sleep'), \
+         patch('app.pages.training_dashboard.async_training_service', mock_async_service):
         
-        from pages.training_dashboard import page_training_dashboard
+        from app.pages.training_dashboard import page_training_dashboard
         
         # Should run without errors
         page_training_dashboard()
