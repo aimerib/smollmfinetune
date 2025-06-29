@@ -24,6 +24,8 @@ from utils.training import TrainingManager
 from utils.inference import InferenceManager
 from utils.comparison import ComparisonManager
 from utils.world import WorldManager
+from utils.health import get_health_checker
+from utils.error_handling import setup_global_error_handling, streamlit_error_boundary
 
 # Configure logging for debugging
 import logging
@@ -32,9 +34,12 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     handlers=[
         logging.StreamHandler(),  # Console output
-        logging.FileHandler('app.log')  # File output
+        logging.FileHandler('logs/app.log') if Path('logs').exists() else logging.NullHandler()
     ]
 )
+
+# Setup global error handling
+setup_global_error_handling()
 
 # ✅ FIX: Global singleton to prevent DatasetManager re-initialization
 _GLOBAL_DATASET_MANAGER = None
@@ -55,6 +60,27 @@ def get_or_create_dataset_manager(api_key: Optional[str] = None, base_url: Optio
         logger.error(f"❌ Failed to create DatasetManager: {e}")
         # Don't cache failed instances
         return None
+
+def health_endpoint():
+    """Health check endpoint for production monitoring"""
+    health_checker = get_health_checker()
+    redis_url = os.getenv('REDIS_URL')
+    
+    health_status = health_checker.get_comprehensive_health(redis_url)
+    
+    # Return appropriate HTTP status based on health
+    if health_status["status"] == "healthy":
+        st.success("✅ System Healthy")
+    elif health_status["status"] == "warning":
+        st.warning("⚠️ System Warning")
+    else:
+        st.error("❌ System Unhealthy")
+    
+    # Display health details in JSON format
+    st.json(health_status)
+    
+    # Stop execution here for health check
+    st.stop()
 
 
 def get_current_character_safely():
@@ -622,8 +648,15 @@ def logout_user_simple():
 
 
 # Main app function
+@streamlit_error_boundary
 def main():
     """Main app function"""
+    # Handle health check endpoint
+    query_params = st.query_params
+    if 'health' in query_params:
+        health_endpoint()
+        return
+    
     init_session_state()
 
     # Handle TensorBoard launch request

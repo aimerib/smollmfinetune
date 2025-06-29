@@ -10,10 +10,10 @@ Refactor the model training process to run asynchronously in a background worker
 
 ## Acceptance Criteria
 
-### 1. Infrastructure Setup
-- [ ] Add `celery` and `redis` to the project's `requirements.txt`.
+### 1. Infrastructure Setup ✅ COMPLETED IN R3-1.5
+- [x] Add `celery` and `redis` to the project's `requirements-prod.txt`. ✅ DONE
 - [ ] Create a `worker.py` at the root level to define the Celery application instance and its tasks.
-- [ ] A `docker-compose.yml` should be updated or created to include a Redis service and a Celery worker service.
+- [x] A `docker-compose.prod.yml` includes Redis service and Celery worker service. ✅ DONE
 
 ### 2. Task Implementation
 - [ ] Define a Celery task `tasks.run_training(training_run_id: int)`.
@@ -48,5 +48,6 @@ Refactor the model training process to run asynchronously in a background worker
 9. UI poll sees the "complete" status and displays the final results.
 
 ## References
-- Depends entirely on `R3-1` (Database Backend).
+- Depends entirely on `R3-1` (Database Backend). ✅ COMPLETED
+- ✅ **R3-1.5 Infrastructure Ready**: Redis, Celery, Docker Compose all implemented
 - Celery and Redis documentation. 

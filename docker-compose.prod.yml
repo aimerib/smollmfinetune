@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+    networks:
+      - app_network
+
+  app:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///data/platform.db
+      - PYTHONUNBUFFERED=1
+      - STREAMLIT_SERVER_FILE_WATCHER_TYPE=none
+      - INFERENCE_ENGINE=vllm
+      - VLLM_GPU_MEMORY_UTILIZATION=0.85
+      - VLLM_MAX_MODEL_LEN=4096
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - app_data:/app/data
+      - training_output:/app/training_output
+      - ./app:/app/config:ro  # Mount config files read-only
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8888/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  # Celery worker for async training jobs (when R3-2 is implemented)
+  worker:
+    build:
+      context: ./app
+      dockerfile: Dockerfile.prod
+    restart: unless-stopped
+    command: ["celery", "worker", "-A", "worker", "--loglevel=info", "--concurrency=2"]
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DATABASE_URL=sqlite:///data/platform.db
+      - PYTHONUNBUFFERED=1
+      - CUDA_VISIBLE_DEVICES=0
+    volumes:
+      - app_data:/app/data
+      - training_output:/app/training_output
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app_network
+    deploy:
+      resources:
+        limits:
+          memory: 6G
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+networks:
+  app_network:
+    driver: bridge
+
+volumes:
+  redis_data:
+    driver: local
+  app_data:
+    driver: local
+  training_output:
+    driver: local 

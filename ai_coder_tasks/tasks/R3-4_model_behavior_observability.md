@@ -27,8 +27,10 @@ When a character says something brilliant or something bizarre, "I don't know" i
     -   This requires modifying the generation call to output hidden states, attention weights, and token probabilities (`output_hidden_states=True`, `output_attentions=True`).
     -   **Performance Warning:** This should be an opt-in feature, controlled by a debug flag, as it adds performance overhead.
 
-2.  **Create a Log Storage Strategy:**
+2.  **Create a Log Storage Strategy:** ⚡ ENHANCED BY R3-1.5 INFRASTRUCTURE
     -   Define a schema for storing this rich observability data.
+    -   ✅ **Structured logging system ready** from R3-1.5 error handling infrastructure
+    -   ✅ **Health monitoring framework** can track observability system performance
     -   This could be as simple as structured JSON files saved to a specific directory, linked by a request ID, or a more robust solution using a dedicated logging database (e.g., Elasticsearch, Loki).
 
 3.  **Build an "Inference Inspector" Page:**
@@ -36,10 +38,12 @@ When a character says something brilliant or something bizarre, "I don't know" i
     -   This page will allow a developer to enter a request ID from a past interaction.
     -   It will fetch the corresponding observability logs.
 
-4.  **Develop Visualization Components:**
+4.  **Develop Visualization Components:** ⚡ ENHANCED BY R3-1.5 INFRASTRUCTURE
     -   Within the inspector page, create components to visualize the data:
         -   **Attention Visualizer:** Use a library like `bertviz` or a custom `matplotlib`/`plotly` solution to create heatmaps showing attention from each token to every other token, layer by layer. This helps answer "What part of the prompt was the model looking at?".
         -   **Token Probability Viewer:** For a given position, show a bar chart of the top-K token probabilities. This helps understand the model's certainty and what other choices it considered.
+        -   ✅ **Progress indicators ready** for long visualization operations
+        -   ✅ **Error boundaries** will handle visualization failures gracefully
 
 ---
 
