@@ -373,7 +373,7 @@ def test_render_consistency_deep_dive():
         mock_exp_ctx = MockContextManager()
         mock_expander.return_value = mock_exp_ctx
         
-        from pages.training_dashboard import render_consistency_deep_dive
+        from app.pages.training_dashboard import render_consistency_deep_dive
         
         # Test with sample metrics
         metrics = {
@@ -394,7 +394,7 @@ def test_render_healthy_run_example():
     with patch('streamlit.markdown') as mock_markdown, \
          patch('streamlit.code') as mock_code:
         
-        from pages.training_dashboard import render_healthy_run_example
+        from app.pages.training_dashboard import render_healthy_run_example
         
         # Should run without errors
         render_healthy_run_example()
