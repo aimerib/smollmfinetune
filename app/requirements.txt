@@ -6,6 +6,7 @@ datasets
 accelerate
 peft
 bitsandbytes
+fastapi
 
 # Data processing and visualization
 pandas
@@ -17,9 +18,12 @@ streamlit-option-menu
 aiohttp
 requests
 
-# Optional monitoring dependencies (install separately if needed)
-# tensorboard>=2.13.0
-# wandb>=0.15.0
+# FastAPI microservice dependencies
+fastapi
+uvicorn
+httpx
+sqlalchemy
+
 
 # Enhanced visualization
 matplotlib
@@ -29,9 +33,6 @@ python-dotenv
 pytest
 pytest-asyncio
 
-# Optional inference engines (install based on deployment target)
-# For high-performance GPU deployment:
-vllm; sys_platform != "darwin"
 
 # For CPU deployment or as fallback:
 llama-cpp-python

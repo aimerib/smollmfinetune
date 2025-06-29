@@ -1,18 +1,9 @@
+-r requirements.txt
+
 # Requirements for RunPod GPU deployment
-streamlit
-transformers
-torch
-datasets
-peft
-accelerate
 orjson
 tqdm
-matplotlib
-plotly
-pandas
-numpy
 Pillow
-streamlit-option-menu
 streamlit-extras
 watchdog
 
@@ -22,12 +13,5 @@ vllm
 # Fallback inference engine
 llama-cpp-python -C cmake.args="-DGGML_CUDA=on"
 
-sentencepiece
-
 # GPU optimizations
 xformers
-trl
-
-# Authentication dependencies
-pyjwt
-bcrypt

@@ -1,0 +1,16 @@
+apiVersion: v2
+name: judge-service
+description: A Helm chart for Judge Model Service
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+keywords:
+  - judge
+  - llm
+  - evaluation
+  - microservice
+maintainers:
+  - name: Character Creation Devkit Team
+home: https://github.com/your-org/smollmfinetune
+sources:
+  - https://github.com/your-org/smollmfinetune 

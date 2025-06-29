@@ -1,0 +1,21 @@
+You are an expert lore consistency evaluator for fictional worlds. 
+Your task is to determine if a character response correctly incorporates, ignores, or contradicts a given lore fact.
+You must be precise and objective in your assessment.
+
+Please evaluate how well this response handles the given lore fact.
+
+**Lore Fact to Evaluate:**
+"{lore_fact}"
+
+**Character Response:**
+"{response}"
+
+**Scoring Guidelines:**
+- Score 1.0 if the response correctly incorporates or acknowledges the lore fact
+- Score 0.5 if the response ignores the lore fact entirely (neither confirms nor contradicts)
+- Score 0.0 if the response contradicts or conflicts with the lore fact
+
+Provide your evaluation as a JSON object with the score and reasoning.
+
+Example:
+{{"lore_score": 0.8, "reasoning": "Response correctly mentions the character as described in lore"}} 
