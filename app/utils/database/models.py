@@ -30,6 +30,7 @@ class User(Base):
     last_login = Column(DateTime(timezone=True), nullable=True)
     is_active = Column(Boolean, default=True, nullable=False)
     email_verified = Column(Boolean, default=False, nullable=False)
+    profile_json = Column(JSON, nullable=True)  # User profile data including data collection consent
     
     # Relationships
     worlds = relationship("World", back_populates="owner", cascade="all, delete-orphan")
@@ -216,6 +217,7 @@ class Character(Base):
     scenario = Column(Text, nullable=True)
     backstory = Column(Text, nullable=True)
     appearance = Column(Text, nullable=True)
+    first_message = Column(Text, nullable=True)  # Character's first message/greeting
     
     # Personality traits (Big Five)
     openness = Column(Float, default=0.5, nullable=False)
@@ -223,6 +225,7 @@ class Character(Base):
     extraversion = Column(Float, default=0.5, nullable=False)
     agreeableness = Column(Float, default=0.5, nullable=False)
     neuroticism = Column(Float, default=0.5, nullable=False)
+    personality_json = Column(JSON, nullable=True)  # Additional personality data and traits
     
     # Metadata and imports
     core_data_json = Column(JSON, nullable=True)  # Full CharacterCore data
@@ -528,6 +531,47 @@ class ConversationMessage(Base):
     
     def __repr__(self):
         return f"<ConversationMessage(id={self.id}, session_id={self.session_id}, role='{self.role}')>"
+
+
+class ConversationLog(Base):
+    """Conversation logs for data collection and training (R3-2.5)"""
+    __tablename__ = 'conversation_logs'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey('users.id'), nullable=False, index=True)
+    character_id = Column(Integer, ForeignKey('characters.id'), nullable=False, index=True)
+    
+    # Conversation data
+    conversation_data = Column(JSON, nullable=False)  # Full conversation data (PII scrubbed)
+    quality_score = Column(Float, nullable=False, default=3.0)  # 0-5 quality rating
+    
+    # Processing flags
+    processed_for_training = Column(Boolean, default=False, nullable=False)
+    nsfw_flagged = Column(Boolean, default=False, nullable=False)
+    
+    # Metadata
+    conversation_length = Column(Integer, nullable=True)  # Number of messages
+    user_satisfaction = Column(Integer, nullable=True)  # Optional user rating 1-5
+    source = Column(String(50), nullable=False, default='platform')  # platform, api, import
+    
+    # Timestamps
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    processed_at = Column(DateTime(timezone=True), nullable=True)
+    
+    # Relationships
+    user = relationship("User")
+    character = relationship("Character")
+    
+    # Constraints
+    __table_args__ = (
+        Index('idx_conversation_log_quality', 'quality_score'),
+        Index('idx_conversation_log_processed', 'processed_for_training'),
+        Index('idx_conversation_log_character_date', 'character_id', 'created_at'),
+        CheckConstraint('quality_score >= 0 AND quality_score <= 5', name='ck_quality_score_range'),
+    )
+    
+    def __repr__(self):
+        return f"<ConversationLog(id={self.id}, user_id={self.user_id}, character_id={self.character_id}, quality={self.quality_score})>"
 
 
 class SystemConfig(Base):

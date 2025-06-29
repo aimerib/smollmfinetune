@@ -15,6 +15,7 @@ import streamlit as st
 import json
 import traceback
 from pathlib import Path
+from utils.async_training import async_training_service
 
 def page_training_config():
     """Enhanced training configuration page with advanced features"""
@@ -835,18 +836,39 @@ def page_training_config():
             if enabled_features:
                 st.info("🚀 **Enhanced Features Active:**\n\n" + "\n".join([f"• {feature}" for feature in enabled_features]))
             
-            # Start enhanced training
-            st.session_state.training_manager.start_training(
+            # Add base model to config for the worker
+            config['base_model'] = selected_base_model
+            
+            # Queue async training job
+            user_id = st.session_state.get('current_user_id', 1)  # Default user for now
+            training_run_id = async_training_service.start_training(
                 st.session_state.current_character,
                 st.session_state.dataset_preview,
-                config
+                config,
+                user_id
             )
             
-            # Update status
-            st.session_state.training_status = 'training'
-            
-            st.success("🚀 Enhanced training started! Switch to the Training Dashboard to monitor progress.")
-            st.rerun()
+            if training_run_id:
+                # Store training run ID in session state
+                st.session_state.current_training_run_id = training_run_id
+                st.session_state.training_status = 'queued'
+                
+                st.success(f"🚀 Training job queued successfully! (Run ID: {training_run_id})")
+                st.info("💡 Your training is now running in the background. Switch to the Training Dashboard to monitor progress.")
+                
+                # Show immediate feedback about job status
+                with st.expander("📋 Job Details", expanded=True):
+                    st.write(f"**Training Run ID:** {training_run_id}")
+                    st.write(f"**Character:** {st.session_state.current_character.get('name', 'Unknown')}")
+                    st.write(f"**Base Model:** {selected_base_model}")
+                    st.write(f"**Method:** {config.get('finetune_method', 'lora').upper()}")
+                    st.write(f"**Dataset Size:** {len(st.session_state.dataset_preview)} samples")
+                    st.write(f"**Status:** Queued for processing")
+                
+                st.rerun()
+            else:
+                st.error("❌ Failed to queue training job. Please check your configuration and try again.")
+                st.error("💡 Make sure Redis and Celery workers are running for async training.")
             
         except Exception as e:
             st.error(f"❌ Failed to start training: {str(e)}")

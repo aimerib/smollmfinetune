@@ -7,13 +7,16 @@ test their trained characters using the RuntimePromptConstructor and InferenceMa
 
 import streamlit as st
 import asyncio
+import pandas as pd
 from typing import Optional, Dict, Any, List
 import logging
 from pathlib import Path
+from datetime import datetime
 
 # Import our runtime components
 from utils.runtime.prompt_constructor import RuntimePromptConstructor
 from utils.inference import InferenceManager
+from utils.async_training import data_collection_service
 
 logger = logging.getLogger(__name__)
 
@@ -106,6 +109,9 @@ def render_character_chat_interface(character_identifier: str):
     
     # Display character info
     render_character_summary(character_info, runtime_constructor)
+    
+    # Data collection consent notice
+    render_data_collection_consent()
     
     # Create two columns for controls and chat
     col1, col2 = st.columns([1, 2])
@@ -414,6 +420,14 @@ def render_chat_interface(runtime_constructor: RuntimePromptConstructor, charact
                     "content": response
                 })
                 
+                # Collect conversation data for training (R3-2.5)
+                collect_conversation_data_if_consented(
+                    runtime_constructor,
+                    character_identifier,
+                    user_message,
+                    response
+                )
+                
             except Exception as e:
                 st.error(f"❌ Failed to generate response: {str(e)}")
                 logger.error(f"Chat response generation failed: {e}")
@@ -476,6 +490,106 @@ def generate_character_response(runtime_constructor: RuntimePromptConstructor,
     except Exception as e:
         logger.error(f"Failed to generate character response: {e}")
         raise RuntimeError(f"Response generation failed: {str(e)}")
+
+
+def render_data_collection_consent():
+    """Render data collection consent UI"""
+    
+    # Initialize consent state if not present
+    if 'data_collection_consent' not in st.session_state:
+        st.session_state.data_collection_consent = False
+    
+    # Consent notice
+    with st.expander("📊 Data Collection for Model Improvement", expanded=not st.session_state.data_collection_consent):
+        st.markdown("""
+        **Help Improve Character Training! 🚀**
+        
+        Your conversations can help create better training data for character models. When enabled:
+        
+        - ✅ **What's collected:** Chat messages, character responses, and interaction quality
+        - ✅ **Privacy:** All personally identifiable information is automatically removed
+        - ✅ **Voluntary:** You can opt-out anytime and your data can be deleted
+        - ✅ **Purpose:** Only used to improve character consistency and training
+        
+        **Your data helps make characters more engaging for everyone!**
+        """)
+        
+        # Consent checkbox
+        consent = st.checkbox(
+            "🤝 I consent to contribute my conversations for model improvement",
+            value=st.session_state.data_collection_consent,
+            key="consent_checkbox",
+            help="This helps improve training data quality for all users"
+        )
+        
+        # Update session state
+        st.session_state.data_collection_consent = consent
+        
+        if consent:
+            st.success("✅ Thank you for contributing to better AI characters!")
+            st.info("💡 Your conversations will be anonymized and used to improve character training.")
+        else:
+            st.info("ℹ️ No data will be collected. You can enable this anytime to help improve the platform.")
+
+
+def collect_conversation_data_if_consented(runtime_constructor: RuntimePromptConstructor,
+                                         character_identifier: str, 
+                                         user_message: str, 
+                                         character_response: str):
+    """Collect conversation data if user has consented"""
+    
+    # Check consent
+    if not st.session_state.get('data_collection_consent', False):
+        return
+    
+    try:
+        # Get user and character IDs (mock for now)
+        user_id = st.session_state.get('current_user_id', 1)
+        
+        # Extract character name for database lookup
+        character_name = runtime_constructor.get_character_name()
+        
+        # For now, use a mock character ID (in production, we'd look this up in database)
+        character_id = hash(character_name) % 1000000  # Simple hash-based ID
+        
+        # Create conversation messages
+        messages = [
+            {
+                "role": "user",
+                "content": user_message,
+                "timestamp": st.session_state.get('last_message_time', 'unknown')
+            },
+            {
+                "role": "assistant", 
+                "content": character_response,
+                "timestamp": str(pd.Timestamp.now())
+            }
+        ]
+        
+        # Add metadata about the conversation context
+        metadata = {
+            "character_source": character_identifier,
+            "dynamic_state": st.session_state.get('chat_dynamic_state', {}),
+            "conversation_length": len(st.session_state.chat_history),
+            "platform_version": "R3-2.5"
+        }
+        
+        # Queue for data collection
+        success = data_collection_service.collect_conversation(
+            user_id=user_id,
+            character_id=character_id, 
+            messages=messages,
+            metadata=metadata
+        )
+        
+        if success:
+            logger.info(f"✅ Conversation data queued for collection: user={user_id}, character={character_name}")
+        else:
+            logger.warning("⚠️ Failed to queue conversation data for collection")
+            
+    except Exception as e:
+        logger.error(f"❌ Error collecting conversation data: {e}")
+        # Don't show error to user - data collection should be invisible
 
 
 if __name__ == "__main__":

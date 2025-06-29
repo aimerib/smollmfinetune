@@ -18,6 +18,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from typing import Dict, Any
+from utils.async_training import async_training_service
 
 def render_consistency_deep_dive(metrics: Dict[str, Any]):
     """Renders the expandable deep-dive for character consistency."""
@@ -160,38 +161,116 @@ A healthy run shows loss decreasing and stabilizing.
     """)
 
 def page_training_dashboard():
-    """Real-time training dashboard"""
+    """Async training dashboard with real-time monitoring"""
     st.markdown('<h2 class="gradient-text">📊 Training Dashboard</h2>', unsafe_allow_html=True)
     
-    if st.session_state.training_status == 'idle':
-        st.info("ℹ️ No training in progress. Configure and start training first.")
+    # Get current training run ID from session state
+    current_training_run_id = st.session_state.get('current_training_run_id')
+    user_id = st.session_state.get('current_user_id', 1)
+    
+    # Show recent training runs
+    with st.expander("📋 Recent Training Runs", expanded=bool(not current_training_run_id)):
+        recent_runs = async_training_service.get_user_training_runs(user_id, limit=5)
+        
+        if recent_runs:
+            for run in recent_runs:
+                with st.container():
+                    col_info, col_status, col_action = st.columns([3, 1, 1])
+                    
+                    with col_info:
+                        st.write(f"**{run['character_name']}** ({run['training_method'].upper()})")
+                        st.caption(f"Created: {run['created_at'][:19].replace('T', ' ')}")
+                    
+                    with col_status:
+                        status = run['status']
+                        status_colors = {
+                            'queued': '🟡',
+                            'processing': '🔵', 
+                            'completed': '🟢',
+                            'failed': '🔴',
+                            'cancelled': '⚫'
+                        }
+                        st.write(f"{status_colors.get(status, '⚪')} {status.title()}")
+                    
+                    with col_action:
+                        if st.button("📊 Monitor", key=f"monitor_{run['training_run_id']}"):
+                            st.session_state.current_training_run_id = run['training_run_id']
+                            st.rerun()
+                    
+                    st.divider()
+        else:
+            st.info("No training runs found. Start a training job first!")
+    
+    # If no active training run, prompt user to start one
+    if not current_training_run_id:
+        st.info("ℹ️ Select a training run above to monitor, or configure and start a new training job.")
         return
     
-    # Training controls
+    # Get current training status
+    training_status = async_training_service.get_training_status(current_training_run_id)
+    
+    if training_status['status'] == 'not_found':
+        st.error("❌ Training run not found. Please select a different run.")
+        if st.button("🔄 Refresh Training Runs"):
+            st.session_state.current_training_run_id = None
+            st.rerun()
+        return
+    
+    # Display current training run info
+    st.markdown(f"### 🎯 Monitoring Training Run #{current_training_run_id}")
+    
+    # Training run details
+    col_char, col_model, col_status = st.columns(3)
+    
+    with col_char:
+        st.metric("Character", training_status['character_name'])
+    
+    with col_model:
+        st.metric("Base Model", training_status['base_model'].split('/')[-1])
+    
+    with col_status:
+        status = training_status['status']
+        status_colors = {
+            'queued': ('🟡', 'warning'),
+            'processing': ('🔵', 'info'), 
+            'completed': ('🟢', 'success'),
+            'failed': ('🔴', 'error'),
+            'cancelled': ('⚫', 'info')
+        }
+        icon, color = status_colors.get(status, ('⚪', 'info'))
+        st.metric("Status", f"{icon} {status.title()}")
+    
+    # Training controls (limited for async)
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        if st.button("⏸️ Pause Training", disabled=st.session_state.training_status != 'training'):
-            st.session_state.training_manager.pause_training()
-            st.session_state.training_status = 'paused'
+        if st.button("🔄 Refresh Status", use_container_width=True):
             st.rerun()
     
     with col2:
-        if st.button("▶️ Resume Training", disabled=st.session_state.training_status != 'paused'):
-            st.session_state.training_manager.resume_training()
-            st.session_state.training_status = 'training'
-            st.rerun()
+        if st.button("🛑 Cancel Training", 
+                    disabled=status not in ['queued', 'processing'],
+                    use_container_width=True):
+            if async_training_service.cancel_training(current_training_run_id, user_id):
+                st.success("✅ Training cancelled successfully")
+                st.rerun()
+            else:
+                st.error("❌ Failed to cancel training")
     
     with col3:
-        if st.button("🧪 Test Current Model", disabled=st.session_state.training_status == 'idle'):
-            # Implement quick testing
-            st.info("Testing current checkpoint...")
+        if st.button("🧪 Test Model", 
+                    disabled=status not in ['completed'],
+                    use_container_width=True):
+            st.info("🚧 Model testing coming soon!")
     
     with col4:
-        if st.button("🛑 Stop Training", disabled=st.session_state.training_status not in ['training', 'paused']):
-            st.session_state.training_manager.stop_training()
-            st.session_state.training_status = 'complete'
-            st.rerun()
+        if st.button("📂 Open Results", 
+                    disabled=not training_status.get('sft_adapter_path'),
+                    use_container_width=True):
+            if training_status.get('sft_adapter_path'):
+                st.success(f"📁 SFT Adapter: {training_status['sft_adapter_path']}")
+                if training_status.get('rlhf_adapter_path'):
+                    st.success(f"🧠 RLHF Adapter: {training_status['rlhf_adapter_path']}")
     
     # Monitoring Dashboards Section
     advanced_config = st.session_state.get('advanced_training_config', {})
@@ -244,31 +323,41 @@ def page_training_dashboard():
         else:
             st.info("No active training configuration found.")
 
+    # Get training metrics from database
+    training_metrics = training_status.get('metrics', {})
+    
+    # Auto-refresh for active training
+    if status in ['queued', 'processing']:
+        st.markdown("🔄 **Auto-refreshing every 10 seconds...**")
+        time.sleep(10)
+        st.rerun()
+    
     # Enhanced real-time metrics
     metrics_placeholder = st.empty()
     health_placeholder = st.empty()
     chart_placeholder = st.empty()
     
-    # Always get metrics first (this processes status queue)
-    metrics = st.session_state.training_manager.get_metrics()
+    # Display training information based on status
+    if status == 'queued':
+        st.info("⏳ Training job is queued and waiting for a worker...")
+        st.markdown(f"**Dataset Size:** {training_status.get('dataset_size', 'Unknown')} samples")
+        st.markdown(f"**Training Method:** {training_status['training_method'].upper()}")
+        return
+    elif status == 'failed':
+        st.error("❌ Training failed!")
+        if 'error' in training_metrics:
+            st.error(f"**Error:** {training_metrics['error']}")
+        return
+    elif status == 'cancelled':
+        st.warning("⚫ Training was cancelled")
+        return
     
-    # Then check for status changes (critical for completion detection)
-    current_status = st.session_state.training_manager.get_training_status()
-    status_changed = current_status != st.session_state.training_status
-    if status_changed:
-        st.session_state.training_status = current_status
-        
-        # Force immediate refresh when status changes (especially for completion)
-        if current_status in ['complete', 'error']:
-            st.success(f"🎉 Training {current_status}!") if current_status == 'complete' else st.error(f"❌ Training {current_status}")
-            time.sleep(1)  # Brief pause to show the message
-            st.rerun()
-    
-    if metrics:
+    # Show training metrics for active/completed training
+    if training_metrics:
         # Display training health alerts
         with health_placeholder.container():
-            health_status = metrics.get('training_health_status', 'unknown')
-            health_warnings = metrics.get('health_warnings', [])
+            health_status = training_metrics.get('training_health_status', 'unknown')
+            health_warnings = training_metrics.get('health_warnings', [])
             
             if health_status == 'critical':
                 st.error("🚨 **Critical Training Issues Detected:**")
@@ -286,20 +375,20 @@ def page_training_dashboard():
             col1, col2, col3, col4 = st.columns(4)
             
             with col1:
-                current_loss = metrics.get('current_loss', 0)
-                loss_delta = metrics.get('loss_delta', 0)
+                current_loss = training_metrics.get('current_loss', 0)
+                loss_delta = training_metrics.get('loss_delta', 0)
                 delta_color = "normal" if abs(loss_delta) < 0.01 else ("inverse" if loss_delta < 0 else "off")
                 
                 st.metric(
                     "Training Loss",
                     f"{current_loss:.4f}",
-                    delta=f"{loss_delta:.4f}",
+                    delta=f"{loss_delta:.4f}" if loss_delta != 0 else None,
                     delta_color=delta_color
                 )
             
             with col2:
-                current_step = metrics.get('current_step', 0)
-                total_steps = metrics.get('total_steps', 1)
+                current_step = training_metrics.get('current_step', training_status.get('total_steps', 0))
+                total_steps = training_status.get('total_steps', 1)
                 progress_pct = (current_step/total_steps)*100 if total_steps > 0 else 0
                 
                 st.metric(
@@ -309,14 +398,27 @@ def page_training_dashboard():
                 )
             
             with col3:
-                lr = metrics.get('learning_rate', 0)
+                lr = training_metrics.get('learning_rate', 0)
                 st.metric(
                     "Learning Rate",
                     f"{lr:.2e}" if lr > 0 else "N/A"
                 )
             
             with col4:
-                elapsed = int(metrics.get('elapsed_time', 0))
+                # Calculate elapsed time from timestamps
+                if training_status.get('started_at') and status == 'processing':
+                    from datetime import datetime
+                    import dateutil.parser
+                    started = dateutil.parser.parse(training_status['started_at'])
+                    now = datetime.now(started.tzinfo)
+                    elapsed = int((now - started).total_seconds())
+                elif training_status.get('completed_at') and training_status.get('started_at'):
+                    started = dateutil.parser.parse(training_status['started_at'])
+                    completed = dateutil.parser.parse(training_status['completed_at'])
+                    elapsed = int((completed - started).total_seconds())
+                else:
+                    elapsed = int(training_metrics.get('elapsed_time', 0))
+                
                 st.metric(
                     "Elapsed Time",
                     f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
