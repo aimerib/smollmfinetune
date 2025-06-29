@@ -15,7 +15,7 @@ The project is divided into "Concentric Rings," moving from the most critical co
 *   **Ring 4: Narrative Engine** - Custom model architecture with dual-head outputs, external memory, and advanced training techniques.
 *   **Ring 5: Advanced Features** - Director's Chair real-time training, proactive agents, living interfaces, and digital ecology systems.
 
-You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work.
+You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work. At the end of every task, before marking it as completed, ensure that the feature is fully integrated with the wider platform. At this point perform a full code search to ensure you know how to fully integrate the feature. After integration, run a full test suite `python -m pytest tests/ -v` and if the tests come green, mark the task as completed, move it to the completed folder, and make a commit with all files added.
 
 ## The TDD Workflow (Red-Green-Refactor)
 
@@ -95,8 +95,10 @@ For a character personality feature:
 1.  Start with the task provided in context
 2.  Follow the TDD cycle for each acceptance criterion
 3.  Run tests frequently: `pytest` for unit tests, `streamlit run` + manual testing for UI
-4.  Once complete and all criteria met, mark the task as done
-5.  Move the task file to `ai_coder_tasks/tasks/completed/` with a completion summary
+4.  Integrate the feature with the rest of the codebase
+5.  Run full test suite
+6.  Once complete and all criteria met, mark the task as done
+7.  Move the task file to `ai_coder_tasks/tasks/completed/` with a completion summary
 
 ## File Organization
 
