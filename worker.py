@@ -114,10 +114,21 @@ def run_training(self, training_run_id: int) -> Dict[str, Any]:
             logger.info(f"🔧 Method: {training_run.training_method}")
         
         # Initialize training manager with production settings
-        training_manager = TrainingManager(
-            base_model=training_run.base_model,
-            force_gpu=True  # Workers should use GPU
-        )
+        # Check if contamination MoE training is requested
+        use_contamination_moe = config_json.get('use_contamination_moe', False)
+        
+        if use_contamination_moe:
+            logger.info("🔥 Initializing Contamination-Isolation MoE training!")
+            from narrative_engine.contamination_moe_trainer import create_contamination_moe_training_manager
+            training_manager = create_contamination_moe_training_manager(
+                base_model=training_run.base_model,
+                force_gpu=True
+            )
+        else:
+            training_manager = TrainingManager(
+                base_model=training_run.base_model,
+                force_gpu=True  # Workers should use GPU
+            )
         
         # Load character data for training
         character_data = {
@@ -149,7 +160,12 @@ def run_training(self, training_run_id: int) -> Dict[str, Any]:
         
         # Start training process
         logger.info("🏁 Starting training process...")
-        training_manager.start_training(character_data, dataset, config_json)
+        
+        if use_contamination_moe:
+            logger.info("🔥 LAUNCHING CONTAMINATION WARFARE TRAINING!")
+            training_manager.start_contamination_warfare_training(character_data, dataset, config_json)
+        else:
+            training_manager.start_training(character_data, dataset, config_json)
         
         # Monitor training progress
         final_metrics = {}

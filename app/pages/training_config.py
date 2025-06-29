@@ -323,11 +323,11 @@ def page_training_config():
         # Select fine-tuning method outside the form to allow UI updates
         finetune_method = st.radio(
             "Fine-tuning Method",
-            ("LoRA", "RSLoRA", "DoRA"),
+            ("LoRA", "RSLoRA", "DoRA", "🔥 Contamination MoE"),
             horizontal=True,
-            index=["lora", "rslora", "dora"].index(defaults.get("finetune_method", "lora")),
-            help="Choose between LoRA, RSLoRA, and DoRA. RSLoRA uses rank-stabilized scaling. DoRA offers more precise training."
-        ).lower()
+            index=["lora", "rslora", "dora", "contamination_moe"].index(defaults.get("finetune_method", "lora")),
+            help="Choose between LoRA, RSLoRA, DoRA, and revolutionary Contamination-Isolation MoE. Contamination MoE uses expert specialization to eliminate meta-commentary contamination."
+        ).lower().replace("🔥 ", "")
         
         # Store the selected method in session state
         st.session_state.finetune_method = finetune_method
@@ -482,8 +482,65 @@ def page_training_config():
                     help="Speed up DoRA training with temporary VRAM overhead (CUDA only)"
                 )
                 st.info("💡 DoRA works best with low dropout (0.0-0.05) and is optimized for eval mode")
+                # Set contamination MoE specific settings to defaults
+                contamination_threshold = 0.7
+                routing_temperature = 1.0
+                expert_dropout = 0.1
+                routing_loss_weight = 0.5
+            elif finetune_method == "contamination_moe":
+                st.markdown("#### 🔥 Contamination Warfare Settings")
+                st.success("🔥 **CONTAMINATION WARFARE MODE ACTIVATED!**")
+                st.info("💡 Contamination-Isolation MoE uses expert specialization to eliminate constitutional AI contamination while maintaining character purity. This is the first architecture designed specifically for contamination warfare!")
+                
+                col_moe1, col_moe2 = st.columns(2)
+                with col_moe1:
+                    contamination_threshold = st.slider(
+                        "Contamination Detection Threshold",
+                        min_value=0.3,
+                        max_value=0.9,
+                        value=defaults.get("contamination_threshold", 0.7),
+                        step=0.1,
+                        help="Threshold for detecting contaminated content (0.7 = validated optimal)"
+                    )
+                    routing_temperature = st.slider(
+                        "Expert Routing Temperature", 
+                        min_value=0.5,
+                        max_value=2.0,
+                        value=defaults.get("routing_temperature", 1.0),
+                        step=0.1,
+                        help="Temperature for expert routing softmax (1.0 = balanced)"
+                    )
+                with col_moe2:
+                    expert_dropout = st.slider(
+                        "Expert Dropout Rate",
+                        min_value=0.0,
+                        max_value=0.3,
+                        value=defaults.get("expert_dropout", 0.1),
+                        step=0.05,
+                        help="Dropout rate for expert networks (0.1 = recommended)"
+                    )
+                    routing_loss_weight = st.slider(
+                        "Routing Loss Weight",
+                        min_value=0.1,
+                        max_value=1.0,
+                        value=defaults.get("routing_loss_weight", 0.5),
+                        step=0.1,
+                        help="Weight for expert routing loss (0.5 = balanced with generation loss)"
+                    )
+                
+                st.warning("⚠️ **Contamination MoE Training Notes:**\n"
+                          "• Uses smaller batch sizes for MoE stability\n" 
+                          "• Requires C.L.A.R.A. control tokens (auto-loaded)\n"
+                          "• Routing patterns analyzed during training\n"
+                          "• Character expert protected from contamination")
+                ephemeral_gpu_offload = False
             else:
                 ephemeral_gpu_offload = False
+                # Set contamination MoE specific settings to defaults for other methods
+                contamination_threshold = 0.7
+                routing_temperature = 1.0
+                expert_dropout = 0.1
+                routing_loss_weight = 0.5
             # --------------------------------------------------------------
             # Resume-from-checkpoint selection
             # --------------------------------------------------------------
@@ -708,6 +765,11 @@ def page_training_config():
                     'eval_steps': eval_steps,
                     'max_steps_override': int(max_steps_override) if max_steps_override else 0,
                     'ephemeral_gpu_offload': ephemeral_gpu_offload,
+                    # Contamination MoE parameters
+                    'contamination_threshold': contamination_threshold,
+                    'routing_temperature': routing_temperature,
+                    'expert_dropout': expert_dropout,
+                    'routing_loss_weight': routing_loss_weight,
                 }
             }
             
@@ -750,7 +812,13 @@ def page_training_config():
             # Method-specific parameters
             'use_rslora': finetune_method == 'rslora',
             'use_dora': finetune_method == 'dora',
+            'use_contamination_moe': finetune_method == 'contamination_moe',
             'ephemeral_gpu_offload': ephemeral_gpu_offload if finetune_method == 'dora' else False,
+            # Contamination MoE specific parameters
+            'contamination_threshold': contamination_threshold,
+            'routing_temperature': routing_temperature,
+            'expert_dropout': expert_dropout,
+            'routing_loss_weight': routing_loss_weight,
             # Enhanced scheduling options
             'lr_scheduler_type': 'cosine',
             'warmup_ratio': 0.05

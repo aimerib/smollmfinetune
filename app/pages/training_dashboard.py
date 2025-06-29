@@ -219,6 +219,14 @@ def page_training_dashboard():
     # Display current training run info
     st.markdown(f"### 🎯 Monitoring Training Run #{current_training_run_id}")
     
+    # Check if this is contamination MoE training
+    config = training_status.get('config', {})
+    is_contamination_moe = config.get('use_contamination_moe', False)
+    
+    if is_contamination_moe:
+        st.success("🔥 **CONTAMINATION WARFARE TRAINING ACTIVE!**")
+        st.info("Expert specialization eliminating constitutional AI contamination")
+    
     # Training run details
     col_char, col_model, col_status = st.columns(3)
     
@@ -226,7 +234,10 @@ def page_training_dashboard():
         st.metric("Character", training_status['character_name'])
     
     with col_model:
-        st.metric("Base Model", training_status['base_model'].split('/')[-1])
+        model_display = training_status['base_model'].split('/')[-1]
+        if is_contamination_moe:
+            model_display += " (Contamination MoE)"
+        st.metric("Base Model", model_display)
     
     with col_status:
         status = training_status['status']
@@ -372,7 +383,10 @@ def page_training_dashboard():
         
         with metrics_placeholder.container():
             # Primary metrics row
-            col1, col2, col3, col4 = st.columns(4)
+            if is_contamination_moe:
+                col1, col2, col3, col4, col5 = st.columns(5)
+            else:
+                col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 current_loss = training_metrics.get('current_loss', 0)
@@ -424,6 +438,18 @@ def page_training_dashboard():
                     f"{elapsed//3600:02d}:{(elapsed%3600)//60:02d}:{elapsed%60:02d}"
                 )
             
+            # Contamination warfare specific metrics
+            if is_contamination_moe:
+                with col5:
+                    contamination_blocks = training_metrics.get('contamination_blocks_total', 0)
+                    purity_rate = training_metrics.get('character_purity_rate', 0)
+                    st.metric(
+                        "🛡️ Contamination Blocked",
+                        f"{contamination_blocks}",
+                        delta=f"{purity_rate:.1f}% purity" if purity_rate > 0 else None,
+                        help="Total contamination instances isolated by expert routing"
+                    )
+            
             # Secondary metrics row (if validation is enabled)
             if 'eval_loss' in metrics or 'character_consistency' in metrics or 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:
                 st.markdown("---")
@@ -466,6 +492,55 @@ def page_training_dashboard():
                         training_health,
                         delta_color=health_color
                     )
+            
+            # 🔥 CONTAMINATION WARFARE METRICS (R3-5)
+            if is_contamination_moe and training_metrics.get('contamination_report'):
+                st.markdown("---")
+                st.markdown("### 🔥 Contamination Warfare Results")
+                
+                contamination_report = training_metrics['contamination_report']
+                
+                warfare_col1, warfare_col2, warfare_col3, warfare_col4 = st.columns(4)
+                
+                with warfare_col1:
+                    purity_rate = contamination_report.get('character_purity_rate', 0)
+                    st.metric(
+                        "🎭 Character Purity",
+                        f"{purity_rate:.1f}%",
+                        help="Percentage of character responses free from contamination"
+                    )
+                
+                with warfare_col2:
+                    block_rate = contamination_report.get('contamination_block_rate', 0)
+                    st.metric(
+                        "🛡️ Contamination Blocked",
+                        f"{block_rate:.1f}%",
+                        help="Percentage of contaminated inputs successfully isolated"
+                    )
+                
+                with warfare_col3:
+                    success_rate = contamination_report.get('overall_success_rate', 0)
+                    st.metric(
+                        "⚔️ Warfare Success",
+                        f"{success_rate:.1f}%",
+                        help="Overall contamination warfare effectiveness"
+                    )
+                
+                with warfare_col4:
+                    expert_accuracy = contamination_report.get('expert_routing_accuracy', 0)
+                    st.metric(
+                        "🎯 Expert Routing",
+                        f"{expert_accuracy:.1f}%",
+                        help="Accuracy of expert specialization routing"
+                    )
+                
+                # Contamination warfare status
+                if purity_rate >= 95:
+                    st.success("🏆 **CONTAMINATION WARFARE VICTORY!** Character expert successfully isolated from constitutional AI contamination!")
+                elif purity_rate >= 80:
+                    st.info("🔥 **STRONG CONTAMINATION DEFENSE!** Expert specialization working effectively!")
+                else:
+                    st.warning("⚠️ **CONTAMINATION RESISTANCE NEEDS WORK** Consider adjusting routing threshold or training longer")
             
             # ✨ NEW: Advanced Metrics Row (R1-9) 
             if 'avg_personality_alignment' in metrics or 'avg_lore_adherence' in metrics:

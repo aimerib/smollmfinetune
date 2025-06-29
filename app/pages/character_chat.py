@@ -438,7 +438,7 @@ def render_chat_interface(runtime_constructor: RuntimePromptConstructor, charact
 
 def generate_character_response(runtime_constructor: RuntimePromptConstructor, 
                               character_identifier: str, user_message: str) -> str:
-    """Generate character response using RuntimePromptConstructor + InferenceManager"""
+    """Generate character response using RuntimePromptConstructor + InferenceManager with contamination-free support"""
     
     try:
         # Construct the prompt with dynamic state
@@ -476,13 +476,37 @@ def generate_character_response(runtime_constructor: RuntimePromptConstructor,
             # Use the adapter directly
             model_path = character_identifier
         
-        response = st.session_state.inference_manager.generate_response(
-            model_path=model_path,
-            prompt=prompt,
-            max_tokens=200,
-            temperature=0.8,
-            system_prompt=""  # Prompt already contains character context
-        )
+        # 🔥 CONTAMINATION-FREE INFERENCE SUPPORT
+        # Check if this is a contamination MoE model
+        is_contamination_moe = False
+        contamination_moe_path = None
+        
+        if "contamination_moe" in model_path.lower():
+            is_contamination_moe = True
+            contamination_moe_path = _find_contamination_moe_model(character_identifier)
+        
+        if is_contamination_moe and contamination_moe_path:
+            # Use contamination-free generation
+            logger.info("🔥 Using contamination-free inference with MoE architecture!")
+            response = _generate_contamination_free_response(
+                contamination_moe_path,
+                prompt,
+                user_message
+            )
+            
+            # Add contamination isolation status
+            with st.sidebar:
+                st.success("🔥 **CONTAMINATION-FREE RESPONSE**")
+                st.info("✅ Expert specialization active\n✅ Character purity protected")
+        else:
+            # Standard inference
+            response = st.session_state.inference_manager.generate_response(
+                model_path=model_path,
+                prompt=prompt,
+                max_tokens=200,
+                temperature=0.8,
+                system_prompt=""  # Prompt already contains character context
+            )
         
         logger.info(f"Generated response length: {len(response)} characters")
         return response
@@ -490,6 +514,100 @@ def generate_character_response(runtime_constructor: RuntimePromptConstructor,
     except Exception as e:
         logger.error(f"Failed to generate character response: {e}")
         raise RuntimeError(f"Response generation failed: {str(e)}")
+
+
+def _find_contamination_moe_model(character_identifier: str) -> Optional[str]:
+    """Find the contamination MoE model path for a character"""
+    
+    try:
+        # Extract character name
+        if character_identifier.startswith("LoRA:"):
+            character_name = character_identifier.split("/")[0].split(":")[1].strip()
+        else:
+            character_name = character_identifier.split(":")[1].strip()
+        
+        # Look for contamination MoE model
+        adapters_dir = Path("training_output/adapters")
+        
+        for adapter_dir in adapters_dir.iterdir():
+            if (adapter_dir.is_dir() and 
+                "contamination_moe" in adapter_dir.name.lower() and
+                character_name.lower() in adapter_dir.name.lower()):
+                
+                # Check if it has the metadata file
+                metadata_path = adapter_dir / "contamination_moe_metadata.json"
+                if metadata_path.exists():
+                    return str(adapter_dir)
+        
+        return None
+        
+    except Exception as e:
+        logger.warning(f"Could not find contamination MoE model: {e}")
+        return None
+
+
+def _generate_contamination_free_response(model_path: str, prompt: str, user_input: str) -> str:
+    """Generate response using contamination-free MoE inference"""
+    
+    try:
+        # Load contamination MoE model
+        from narrative_engine.contamination_moe import create_contamination_moe_model
+        import torch
+        import json
+        
+        # Load model metadata
+        metadata_path = Path(model_path) / "contamination_moe_metadata.json" 
+        with open(metadata_path, 'r') as f:
+            metadata = json.load(f)
+        
+        # Create model with contamination settings
+        model = create_contamination_moe_model(
+            base_model_name=metadata['base_model'],
+            contamination_threshold=metadata.get('contamination_threshold', 0.7),
+            routing_temperature=metadata.get('routing_temperature', 1.0),
+            expert_dropout=metadata.get('expert_dropout', 0.1)
+        )
+        
+        # Load the trained weights
+        model_state_path = Path(model_path) / "pytorch_model.bin"
+        if model_state_path.exists():
+            state_dict = torch.load(model_state_path, map_location='cpu')
+            model.load_state_dict(state_dict, strict=False)
+        
+        # Tokenize input
+        inputs = model.tokenizer(prompt, return_tensors='pt', truncation=True, max_length=2048)
+        
+        # Generate with contamination isolation
+        with torch.no_grad():
+            outputs = model.generate_contamination_free(
+                input_ids=inputs['input_ids'],
+                input_text=user_input,
+                max_new_tokens=200,
+                temperature=0.8,
+                do_sample=True,
+                force_character_expert=True  # Force pure character responses
+            )
+        
+        response = outputs.get('generated_text', '').strip()
+        
+        # Log contamination analysis
+        if 'contamination_detected' in outputs:
+            if outputs['contamination_detected']:
+                logger.warning(f"🚨 Contamination detected in user input: {user_input[:50]}...")
+            else:
+                logger.info("✅ Clean input detected - routed to character expert")
+        
+        return response
+        
+    except Exception as e:
+        logger.error(f"Contamination-free generation failed: {e}")
+        # Fallback to standard inference
+        return st.session_state.inference_manager.generate_response(
+            model_path=f"Base: {st.session_state.inference_manager.base_model}",
+            prompt=prompt,
+            max_tokens=200,
+            temperature=0.8
+        )
 
 
 def render_data_collection_consent():
