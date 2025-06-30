@@ -209,6 +209,10 @@ class NarrativeLLM(nn.Module):
         # Cache for token metadata
         self.token_metadata = {token['token']: token for token in self.control_tokens}
         
+        # Adapter management
+        self.loaded_adapters = {}  # adapter_name -> adapter_path mapping
+        self.active_adapter = None
+        
         logger.info(f"Initialized C.L.A.R.A. Loop with {len(self.control_tokens)} control tokens")
     
     def forward(
@@ -419,6 +423,67 @@ class NarrativeLLM(nn.Module):
             'recirculation_context': self.momentum_tracker.get_recirculation_context(),
             'surprise_patterns': self.momentum_tracker.surprise_detector.previous_patterns[-3:]
         }
+    
+    def load_adapter(self, adapter_path: str, adapter_name: str) -> None:
+        """
+        Load a LoRA/DoRA adapter from a safetensors file.
+        
+        Args:
+            adapter_path: Path to the adapter weights (.safetensors or adapter directory)
+            adapter_name: Name to identify this adapter for hot-swapping
+        """
+        from peft import PeftModel
+        
+        # Check if we already loaded this adapter
+        if adapter_name in self.loaded_adapters:
+            logger.warning(f"Adapter '{adapter_name}' already loaded. Reloading...")
+            # Unload the existing adapter first
+            if hasattr(self.base_model, 'delete_adapter'):
+                self.base_model.delete_adapter(adapter_name)
+        
+        # Load the adapter
+        try:
+            # If base_model is already a PeftModel, use add_adapter
+            if isinstance(self.base_model, PeftModel):
+                self.base_model.load_adapter(adapter_path, adapter_name)
+            else:
+                # First time loading an adapter - wrap base model with PEFT
+                self.base_model = PeftModel.from_pretrained(
+                    self.base_model, 
+                    adapter_path,
+                    adapter_name=adapter_name
+                )
+            
+            # Track the loaded adapter
+            self.loaded_adapters[adapter_name] = adapter_path
+            
+            # If this is the first adapter, set it as active
+            if self.active_adapter is None:
+                self.set_active_adapter(adapter_name)
+            
+            logger.info(f"Successfully loaded adapter '{adapter_name}' from {adapter_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to load adapter '{adapter_name}' from {adapter_path}: {e}")
+            raise
+    
+    def set_active_adapter(self, adapter_name: str) -> None:
+        """
+        Set the active adapter for generation.
+        
+        Args:
+            adapter_name: Name of the previously loaded adapter to activate
+        """
+        if adapter_name not in self.loaded_adapters:
+            raise ValueError(f"Adapter '{adapter_name}' not loaded. Load it first with load_adapter()")
+        
+        # If base_model is a PeftModel, use its set_adapter method
+        if isinstance(self.base_model, PeftModel):
+            self.base_model.set_adapter(adapter_name)
+            self.active_adapter = adapter_name
+            logger.info(f"Activated adapter '{adapter_name}'")
+        else:
+            logger.warning("Base model is not a PeftModel. Cannot set active adapter.")
 
 
 def create_narrative_model(
