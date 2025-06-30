@@ -52,7 +52,8 @@ User Input ↔ Orchestrator API
 - **NarrativeLLM (model.py)**: The core torch.nn.Module. It is composed of embedding layers, a transformer backbone, a cross-attention memory module, and dual output heads.
 - **NarrativeLLMConfig (config.py)**: A single dataclass holding all hyperparameters, ensuring reproducibility.
 - **DatasetSample (data_schema.py)**: Pydantic models defining the strict schema for all training data.
-- **DualHeadLoss (loss.py)**: A custom loss function that routes gradients to the correct output head based on data tagging.
+- **TripleHeadLoss (loss.py)**: A custom loss function that routes gradients to the correct output head (Generation, Control, or Memory) based on data tagging.
+- **DualHeadLoss (loss.py)**: Legacy dual-head loss function maintained for backward compatibility.
 - **MemoryAPIClient (memory_client.py)**: A client to interact with an external vector database for long-term memory.
 
 ## 4. Training Strategy

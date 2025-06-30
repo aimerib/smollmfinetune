@@ -43,7 +43,7 @@ We follow **Test-Driven Development (TDD)** with a **Concentric Ring** delivery 
 - **Ring 1**: ✅ Structured authoring with Big Five personality traits  
 - **Ring 2**: ✅ Runtime packet export system
 - **Ring 3**: ✅ Multi-user platform with async training
-- **Ring 4**: 🔄 Narrative engine with dual-head architecture
+- **Ring 4**: 🔄 Narrative engine with triple-head architecture (Generation + Control + Memory)
 - **Ring 5**: 📋 Advanced features (real-time training, proactive agents)
 
 ## 🔧 Getting Started

@@ -1,15 +1,15 @@
 """
-Dual-Head Loss Function for Narrative Engine
+Triple-Head Loss Function for Narrative Engine
 
 This module implements the custom loss function that handles the model's
-dual output heads (free-text and action JSON), correctly routing gradients
-based on tagged data spans.
+triple output heads (free-text, action/control tokens, and memory vectors),
+correctly routing gradients based on tagged data spans.
 """
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict
 import logging
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,9 @@ class DualHeadLoss(nn.Module):
     The key innovation is that it knows which parts of the output correspond
     to conversational text and which correspond to structured tool calls,
     enabling the model to be "bilingual" in prose and actions.
+    
+    NOTE: This class is kept for backward compatibility. 
+    Use TripleHeadLoss for new implementations.
     """
     
     def __init__(self, text_weight: float = 1.0, action_weight: float = 1.0, 
@@ -241,4 +244,205 @@ class DualHeadLoss(nn.Module):
             reduction='mean'
         )
         
-        return text_loss, action_loss 
+        return text_loss, action_loss
+
+
+class TripleHeadLoss(nn.Module):
+    """
+    Custom loss function for triple-head Narrative-LLM.
+    
+    This loss function:
+    - Calculates separate losses for text, control, and memory predictions
+    - Uses channel masks to route gradients to the correct head
+    - Applies loss masks to ignore irrelevant tokens (e.g., padding, user turns)
+    - Combines the losses with configurable weights
+    
+    The triple-head architecture supports:
+    1. Generation Head: Standard language modeling (next-token prediction)
+    2. Control Head: Emotional/cognitive control tokens (multi-label classification)
+    3. Memory Head: External memory vectors + metadata (Method B)
+    """
+    
+    def __init__(self, 
+                 text_weight: float = 1.0, 
+                 control_weight: float = 1.0,
+                 memory_weight: float = 1.0,
+                 memory_embedding_weight: float = 0.7,
+                 memory_metadata_weight: float = 0.3,
+                 ignore_index: int = -100):
+        """
+        Initialize the triple-head loss function.
+        
+        Args:
+            text_weight: Weight for text generation loss
+            control_weight: Weight for control token loss
+            memory_weight: Weight for memory head loss
+            memory_embedding_weight: Weight for embedding component within memory loss
+            memory_metadata_weight: Weight for metadata component within memory loss
+            ignore_index: Label value to ignore in loss calculation
+        """
+        super().__init__()
+        self.text_weight = text_weight
+        self.control_weight = control_weight
+        self.memory_weight = memory_weight
+        self.memory_embedding_weight = memory_embedding_weight
+        self.memory_metadata_weight = memory_metadata_weight
+        self.ignore_index = ignore_index
+        
+        # Validate memory component weights sum to 1.0
+        total_memory_weight = memory_embedding_weight + memory_metadata_weight
+        if abs(total_memory_weight - 1.0) > 1e-6:
+            logger.warning(f"Memory component weights sum to {total_memory_weight}, not 1.0. "
+                          f"Consider normalizing them.")
+        
+        logger.info(f"Initialized TripleHeadLoss with text_weight={text_weight}, "
+                   f"control_weight={control_weight}, memory_weight={memory_weight}")
+    
+    def forward(
+        self, 
+        text_logits: torch.Tensor,
+        control_logits: torch.Tensor,
+        memory_embedding: torch.Tensor,
+        memory_metadata: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        control_labels: Optional[torch.Tensor] = None,
+        memory_labels: Optional[torch.Tensor] = None,
+        loss_mask: Optional[torch.Tensor] = None,
+        channel_mask: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Calculate the combined loss for triple-head outputs.
+        
+        Args:
+            text_logits: Logits from text generation head [batch, seq_len, vocab_size]
+            control_logits: Logits from control head [batch, num_control_tokens]
+            memory_embedding: Memory embedding vectors [batch, 768]
+            memory_metadata: Memory metadata values [batch, 4]
+            labels: Ground truth token IDs [batch, seq_len]
+            control_labels: Ground truth control tokens [batch, num_control_tokens]
+            memory_labels: Ground truth memory vectors [batch, 772] (768 + 4)
+            loss_mask: Binary mask for tokens to include in loss [batch, seq_len]
+            channel_mask: Channel indicator (0=text, 1=control, 2=memory) [batch, seq_len]
+            
+        Returns:
+            Dictionary with individual losses and total loss
+        """
+        losses = {}
+        total_loss = torch.tensor(0.0, device=text_logits.device, dtype=torch.float32, requires_grad=True)
+        
+        # 1. Text Generation Loss
+        if labels is not None:
+            if loss_mask is not None and channel_mask is not None:
+                # Use sophisticated masking for text channel only
+                text_mask = (channel_mask == 0).float() * loss_mask
+                text_token_count = (text_mask > 0).sum()
+                
+                if text_token_count > 0:
+                    # Prepare text labels
+                    text_labels = labels.clone()
+                    text_labels[text_mask == 0] = self.ignore_index
+                    
+                    # Compute text loss
+                    text_loss = F.cross_entropy(
+                        text_logits.reshape(-1, text_logits.shape[-1]),
+                        text_labels.reshape(-1),
+                        ignore_index=self.ignore_index,
+                        reduction='mean'
+                    )
+                    losses['text_loss'] = text_loss
+                    total_loss = total_loss + self.text_weight * text_loss
+            else:
+                # Standard next-token prediction loss
+                text_loss = F.cross_entropy(
+                    text_logits.view(-1, text_logits.size(-1)),
+                    labels.view(-1),
+                    ignore_index=self.ignore_index,
+                    reduction='mean'
+                )
+                losses['text_loss'] = text_loss
+                total_loss = total_loss + self.text_weight * text_loss
+        
+        # 2. Control Token Loss
+        if control_labels is not None:
+            # Multi-label binary classification loss
+            control_loss = F.binary_cross_entropy(
+                control_logits,
+                control_labels.float()
+            )
+            losses['control_loss'] = control_loss
+            total_loss = total_loss + self.control_weight * control_loss
+        
+        # 3. Memory Head Loss (Method B)
+        if memory_labels is not None:
+            # Split memory labels: [batch, 772] -> [batch, 768] + [batch, 4]
+            target_embedding = memory_labels[:, :768]
+            target_metadata = memory_labels[:, 768:]
+            
+            # Embedding loss: cosine similarity loss
+            embedding_loss = 1 - F.cosine_similarity(memory_embedding, target_embedding, dim=1).mean()
+            
+            # Metadata loss: MSE loss
+            metadata_loss = F.mse_loss(memory_metadata, target_metadata)
+            
+            # Combined memory loss with component weights
+            memory_loss = (
+                self.memory_embedding_weight * embedding_loss + 
+                self.memory_metadata_weight * metadata_loss
+            )
+            
+            losses['memory_embedding_loss'] = embedding_loss
+            losses['memory_metadata_loss'] = metadata_loss
+            losses['memory_loss'] = memory_loss
+            total_loss = total_loss + self.memory_weight * memory_loss
+        
+        # Store total loss
+        losses['total_loss'] = total_loss
+        
+        # Log loss components for debugging
+        if logger.isEnabledFor(logging.DEBUG):
+            debug_info = []
+            if 'text_loss' in losses:
+                debug_info.append(f"text={losses['text_loss']:.4f}")
+            if 'control_loss' in losses:
+                debug_info.append(f"control={losses['control_loss']:.4f}")
+            if 'memory_loss' in losses:
+                debug_info.append(f"memory={losses['memory_loss']:.4f}")
+            logger.debug(f"TripleHeadLoss: {', '.join(debug_info)}, total={total_loss:.4f}")
+        
+        return losses
+    
+    def compute_per_head_losses(
+        self,
+        text_logits: torch.Tensor,
+        control_logits: torch.Tensor,
+        memory_embedding: torch.Tensor,
+        memory_metadata: torch.Tensor,
+        labels: Optional[torch.Tensor] = None,
+        control_labels: Optional[torch.Tensor] = None,
+        memory_labels: Optional[torch.Tensor] = None,
+        loss_mask: Optional[torch.Tensor] = None,
+        channel_mask: Optional[torch.Tensor] = None
+    ) -> Dict[str, torch.Tensor]:
+        """
+        Compute losses for each head separately.
+        
+        This method is useful for analysis and debugging.
+        
+        Returns:
+            Dictionary with separate losses for each head
+        """
+        return self.forward(
+            text_logits=text_logits,
+            control_logits=control_logits,
+            memory_embedding=memory_embedding,
+            memory_metadata=memory_metadata,
+            labels=labels,
+            control_labels=control_labels,
+            memory_labels=memory_labels,
+            loss_mask=loss_mask,
+            channel_mask=channel_mask
+        )
+
+
+# Alias for backward compatibility
+DualHeadLoss = DualHeadLoss  # Keep original dual-head for backward compatibility 

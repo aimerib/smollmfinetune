@@ -6,10 +6,10 @@ Created: 2025-01-14
 ---
 
 ## Goal
-Build a production-ready inference engine optimized for the Narrative-LLM, with hot-swappable adapters, memory integration, and the performance needed to support R5's real-time features.
+Build a production-ready inference engine optimized for the triple-head Narrative-LLM, with hot-swappable adapters, memory integration, and the performance needed to support R5's real-time features.
 
 ## Context
-R5 features like Director's Chair and Proactive Agents require sub-second inference times and seamless adapter swapping. This infrastructure must be rock-solid before R5's advanced features can be implemented.
+R5 features like Director's Chair and Proactive Agents require sub-second inference times and seamless adapter swapping. This infrastructure must be rock-solid before R5's advanced features can be implemented. The engine must handle all three heads: Generation, Control, and Memory.
 
 ## Acceptance Criteria
 
@@ -19,6 +19,7 @@ R5 features like Director's Chair and Proactive Agents require sub-second infere
 - [ ] Batched inference for multiple concurrent users
 - [ ] Request queueing and load balancing
 - [ ] Health monitoring and automatic recovery
+- [ ] **Triple-head output handling**: Generation text + Control tokens + Memory vectors
 
 ### Adapter Management System
 - [ ] Hot-swappable adapter loading without model restart
@@ -26,6 +27,7 @@ R5 features like Director's Chair and Proactive Agents require sub-second infere
 - [ ] Memory-efficient adapter storage and caching
 - [ ] Multi-adapter inference for character ensembles
 - [ ] Adapter performance monitoring and benchmarking
+- [ ] **Memory head adapter support**: Handle memory-specific fine-tuning
 
 ### Memory Integration Architecture
 - [ ] External memory service with vector search
@@ -33,6 +35,7 @@ R5 features like Director's Chair and Proactive Agents require sub-second infere
 - [ ] Cross-attention memory injection pipeline
 - [ ] Memory persistence and session management
 - [ ] Memory quality scoring and pruning
+- [ ] **Memory head processing**: Real-time memory formation from model outputs
 
 ### Control Token Processing
 - [ ] Real-time control token recognition and handling
@@ -40,6 +43,7 @@ R5 features like Director's Chair and Proactive Agents require sub-second infere
 - [ ] UI manipulation command processing
 - [ ] Narrative flow control mechanisms
 - [ ] Custom tokenizer deployment
+- [ ] **Control head integration**: Process emotional/cognitive state outputs
 
 ### Session Management
 - [ ] Persistent session state across requests
@@ -47,22 +51,27 @@ R5 features like Director's Chair and Proactive Agents require sub-second infere
 - [ ] Multi-character session coordination
 - [ ] Session analytics and optimization
 - [ ] Clean session lifecycle management
+- [ ] **Triple-head state tracking**: Maintain generation, control, and memory state
 
 ## Implementation Notes
 ```text
-• Optimize for <200ms inference time on RTX 4090
+• Optimize for <200ms inference time on RTX 4090 (all three heads)
 • Support 10+ concurrent users per GPU
 • Design for horizontal scaling across multiple GPUs
 • Implement comprehensive monitoring and alerting
 • Prepare infrastructure for R5's real-time features
+• Handle TripleHeadLoss for fine-tuning scenarios
+• Memory head outputs: 768-dim embeddings + 4 metadata values
 ```
 
 ## Performance Targets
-- [ ] <200ms end-to-end inference time
+- [ ] <200ms end-to-end inference time (including memory processing)
 - [ ] 10+ concurrent users per RTX 4090
 - [ ] <1 second adapter swap time
 - [ ] 99.9% uptime reliability
 - [ ] <50MB memory overhead per session
+- [ ] **Memory formation latency**: <50ms for memory head processing
 
 ## References
-Essential foundation for all R5 features. Enables Director's Chair real-time training. 
+Essential foundation for all R5 features. Enables Director's Chair real-time training.
+Triple-head architecture: Generation + Control + Memory heads as implemented in R4-6. 

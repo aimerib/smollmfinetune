@@ -1,27 +1,28 @@
 """
-Narrative Engine Evaluation Harness
+Evaluation harness for Narrative Engine
 
-Provides lightweight evaluation infrastructure for testing model checkpoints
-during training. Focuses on catching obvious failures rather than nuanced quality.
+This module provides evaluation functions for testing model quality,
+training progress, and architectural correctness.
 """
 
 from .eval_basic_generation import BasicGenerationEvaluator
-from .eval_dual_head_sanity import DualHeadSanityEvaluator  
+from .eval_triple_head_sanity import TripleHeadSanityEvaluator, eval_triple_head_sanity
+from .eval_dual_head_sanity import DualHeadSanityEvaluator  # Backward compatibility
 from .eval_training_progress import TrainingProgressEvaluator
-
-import json
-import time
 import logging
-from pathlib import Path
 from typing import Dict, Any, Optional, List
-import torch
+import json
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-# Make evaluators available at package level
-eval_basic_generation = BasicGenerationEvaluator
-eval_dual_head_sanity = DualHeadSanityEvaluator
-eval_training_progress = TrainingProgressEvaluator
+# Create evaluator instances
+eval_basic_generation = BasicGenerationEvaluator()
+eval_triple_head_sanity = TripleHeadSanityEvaluator()
+eval_training_progress = TrainingProgressEvaluator()
+
+# Backward compatibility
+eval_dual_head_sanity = eval_triple_head_sanity
 
 
 def run_evaluation_suite(
@@ -33,135 +34,199 @@ def run_evaluation_suite(
     log_to_wandb: bool = False
 ) -> Dict[str, Any]:
     """
-    Run the complete evaluation suite on a checkpoint.
+    Run comprehensive evaluation suite on a model checkpoint.
     
     Args:
         checkpoint_path: Path to model checkpoint
-        model: Loaded model (if None, will be loaded from checkpoint)
-        tokenizer: Tokenizer instance (if None, will be loaded)
-        training_history: Training metrics history 
-        output_json: Path to save JSON results
-        log_to_wandb: Whether to log results to wandb
+        model: Pre-loaded model (optional)
+        tokenizer: Pre-loaded tokenizer (optional)
+        training_history: Training metrics history
+        output_json: Path to save results JSON
+        log_to_wandb: Whether to log to Weights & Biases
         
     Returns:
-        Dictionary containing evaluation results
+        Dictionary with all evaluation results
     """
-    logger.info(f"Starting evaluation of checkpoint: {checkpoint_path}")
-    start_time = time.time()
+    
+    logger.info(f"🧪 Starting evaluation suite for {checkpoint_path}")
     
     results = {
         'checkpoint_path': checkpoint_path,
-        'timestamp': time.time(),
-        'passed': True,
-        'error': None
+        'passed': False,
+        'evaluations': {}
     }
     
     try:
         # Load model if not provided
         if model is None:
             logger.info("Loading model from checkpoint...")
-            # In production, would load actual model
-            # For now, using mock behavior
-            model = _load_model_from_checkpoint(checkpoint_path)
-            
-        if tokenizer is None:
-            logger.info("Loading tokenizer...")
-            tokenizer = _load_tokenizer()
-            
-        # Put model in eval mode
-        if hasattr(model, 'eval'):
-            model.eval()
+            # Import here to avoid circular imports
+            from ..model import create_narrative_model
+            model = create_narrative_model()
+            # TODO: Load actual checkpoint weights
         
-        # Run basic generation evaluation
+        # Load tokenizer if not provided
+        if tokenizer is None and hasattr(model, 'tokenizer'):
+            tokenizer = model.tokenizer
+        
+        # 1. Basic generation evaluation
         logger.info("Running basic generation evaluation...")
-        gen_evaluator = BasicGenerationEvaluator()
-        gen_results = gen_evaluator.evaluate(model, tokenizer)
-        results['basic_generation'] = gen_results
+        try:
+            gen_results = eval_basic_generation.evaluate(model, tokenizer)
+            results['evaluations']['basic_generation'] = gen_results
+        except Exception as e:
+            logger.error(f"Basic generation evaluation failed: {e}")
+            results['evaluations']['basic_generation'] = {'error': str(e)}
         
-        # Run dual-head sanity check
-        logger.info("Running dual-head sanity evaluation...")
-        dual_evaluator = DualHeadSanityEvaluator()
-        dual_results = dual_evaluator.evaluate(model)
-        results['dual_head_sanity'] = dual_results
+        # 2. Triple-head sanity check
+        logger.info("Running triple-head sanity evaluation...")
+        try:
+            sanity_results = eval_triple_head_sanity.evaluate(model)
+            results['evaluations']['triple_head_sanity'] = sanity_results
+        except Exception as e:
+            logger.error(f"Triple-head sanity evaluation failed: {e}")
+            results['evaluations']['triple_head_sanity'] = {'error': str(e)}
         
-        # Run training progress evaluation
+        # 3. Training progress evaluation
         if training_history:
             logger.info("Running training progress evaluation...")
-            progress_evaluator = TrainingProgressEvaluator()
-            progress_results = progress_evaluator.evaluate(training_history)
-            results['training_progress'] = progress_results
+            try:
+                progress_results = eval_training_progress.evaluate(
+                    model, training_history, checkpoint_path
+                )
+                results['evaluations']['training_progress'] = progress_results
+            except Exception as e:
+                logger.error(f"Training progress evaluation failed: {e}")
+                results['evaluations']['training_progress'] = {'error': str(e)}
         
-        # Determine pass/fail based on thresholds
-        if gen_results.get('generation_success_rate', 0) < 0.5:
-            results['passed'] = False
-            results['failure_reason'] = 'Low generation success rate'
-            
-        if not dual_results.get('both_heads_functional', False):
-            results['passed'] = False
-            results['failure_reason'] = 'Dual heads not functional'
-            
-        if training_history and not progress_results.get('loss_decreasing', False):
-            results['passed'] = False  
-            results['failure_reason'] = 'Loss not decreasing'
-            
+        # Determine if evaluation passed
+        results['passed'] = _determine_evaluation_success(results['evaluations'])
+        
+        # Save results
+        if output_json:
+            logger.info(f"Saving evaluation results to {output_json}")
+            with open(output_json, 'w') as f:
+                json.dump(results, f, indent=2)
+        
+        # Log to wandb if requested
+        if log_to_wandb:
+            try:
+                _log_to_wandb(results)
+            except Exception as e:
+                logger.warning(f"Failed to log to wandb: {e}")
+        
+        logger.info(f"✅ Evaluation suite completed. Passed: {results['passed']}")
+        
     except Exception as e:
-        logger.error(f"Evaluation failed: {str(e)}")
-        results['passed'] = False
+        logger.error(f"❌ Evaluation suite failed: {e}")
         results['error'] = str(e)
-        
-    # Calculate duration
-    results['duration'] = time.time() - start_time
-    logger.info(f"Evaluation completed in {results['duration']:.2f}s")
+        results['passed'] = False
     
-    # Log to wandb if requested
-    if log_to_wandb:
-        _log_to_wandb(results)
-        
-    # Save to JSON if requested
-    if output_json:
-        output_path = Path(output_json)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
-            json.dump(results, f, indent=2)
-        logger.info(f"Results saved to {output_json}")
-        
     return results
 
 
-def _load_model_from_checkpoint(checkpoint_path: str):
-    """Load model from checkpoint (placeholder for actual implementation)"""
-    # In production, this would load the actual model
-    # For now, return a mock
-    logger.info(f"Would load model from {checkpoint_path}")
-    return None
+def _determine_evaluation_success(evaluations: Dict[str, Any]) -> bool:
+    """
+    Determine if evaluation suite passed based on individual results.
+    
+    Args:
+        evaluations: Dictionary of evaluation results
+        
+    Returns:
+        True if all critical evaluations passed
+    """
+    
+    # Check basic generation
+    basic_gen = evaluations.get('basic_generation', {})
+    if basic_gen.get('error'):
+        logger.warning("Basic generation evaluation had errors")
+        return False
+    
+    generation_success_rate = basic_gen.get('generation_success_rate', 0)
+    if generation_success_rate < 0.8:  # 80% success rate required
+        logger.warning(f"Low generation success rate: {generation_success_rate}")
+        return False
+    
+    # Check triple-head sanity
+    sanity = evaluations.get('triple_head_sanity', {})
+    if sanity.get('error'):
+        logger.warning("Triple-head sanity evaluation had errors")
+        return False
+    
+    all_heads_functional = sanity.get('all_heads_functional', False)
+    if not all_heads_functional:
+        logger.warning("Not all heads are functional")
+        return False
+    
+    # Check training progress (if available)
+    progress = evaluations.get('training_progress', {})
+    if progress and not progress.get('error'):
+        loss_decreasing = progress.get('loss_decreasing', False)
+        if not loss_decreasing:
+            logger.warning("Training loss is not decreasing")
+            return False
+    
+    return True
 
 
-def _load_tokenizer():
-    """Load tokenizer (placeholder for actual implementation)"""
-    # In production, this would load the actual tokenizer
-    logger.info("Would load tokenizer")
-    return None
-
-
-def _log_to_wandb(results: Dict[str, Any]):
-    """Log evaluation results to wandb"""
+def _log_to_wandb(results: Dict[str, Any]) -> None:
+    """Log evaluation results to Weights & Biases"""
     try:
         import wandb
         
-        # Flatten results for wandb logging
-        wandb_data = {
-            'eval/basic_generation_score': results.get('basic_generation', {}).get('coherence_score', 0),
-            'eval/generation_success_rate': results.get('basic_generation', {}).get('generation_success_rate', 0),
-            'eval/dual_head_sanity': results.get('dual_head_sanity', {}).get('both_heads_functional', False),
-            'eval/training_progress': results.get('training_progress', {}).get('loss_decreasing', False),
-            'eval/passed': results['passed'],
-            'eval/duration': results['duration']
+        # Extract key metrics
+        metrics = {
+            'eval/checkpoint_path': results['checkpoint_path'],
+            'eval/passed': results['passed']
         }
         
-        wandb.log(wandb_data)
-        logger.info("Results logged to wandb")
+        # Basic generation metrics
+        basic_gen = results.get('evaluations', {}).get('basic_generation', {})
+        if basic_gen and not basic_gen.get('error'):
+            metrics.update({
+                'eval/generation_success_rate': basic_gen.get('generation_success_rate', 0),
+                'eval/avg_generation_length': basic_gen.get('avg_generation_length', 0),
+                'eval/perplexity': basic_gen.get('perplexity', float('inf'))
+            })
+        
+        # Triple-head sanity metrics
+        sanity = results.get('evaluations', {}).get('triple_head_sanity', {})
+        if sanity and not sanity.get('error'):
+            metrics.update({
+                'eval/all_heads_functional': sanity.get('all_heads_functional', False),
+                'eval/generation_head_valid': sanity.get('generation_head_valid', False),
+                'eval/control_head_valid': sanity.get('control_head_valid', False),
+                'eval/memory_head_valid': sanity.get('memory_head_valid', False)
+            })
+        
+        # Training progress metrics
+        progress = results.get('evaluations', {}).get('training_progress', {})
+        if progress and not progress.get('error'):
+            metrics.update({
+                'eval/loss_decreasing': progress.get('loss_decreasing', False),
+                'eval/final_loss': progress.get('final_loss', float('inf')),
+                'eval/loss_improvement': progress.get('loss_improvement', 0)
+            })
+        
+        # Log to wandb
+        wandb.log(metrics)
+        logger.info("✅ Logged evaluation results to wandb")
         
     except ImportError:
-        logger.warning("wandb not available, skipping logging")
+        logger.warning("wandb not available for logging")
     except Exception as e:
-        logger.error(f"Failed to log to wandb: {e}") 
+        logger.error(f"Failed to log to wandb: {e}")
+
+
+# Backward compatibility exports
+__all__ = [
+    'run_evaluation_suite',
+    'eval_basic_generation',
+    'eval_triple_head_sanity',
+    'eval_dual_head_sanity',  # Backward compatibility
+    'eval_training_progress',
+    'BasicGenerationEvaluator',
+    'TripleHeadSanityEvaluator',
+    'DualHeadSanityEvaluator',  # Backward compatibility
+    'TrainingProgressEvaluator'
+] 

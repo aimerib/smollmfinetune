@@ -3,64 +3,108 @@
 Status: **Todo**
 Ring: R5
 Created: 2025-06-19
+Updated: 2025-01-16 (Triple-Head Architecture Integration)
 ---
 
 ## Goal
-Build a production-ready real-time training system that enables creators to improve characters through natural conversation and correction, with invisible background optimization and immediate feedback.
+Build a production-ready real-time training system that enables creators to improve characters through natural conversation and correction, with invisible background optimization and immediate feedback across all three heads: generation quality, emotional control, and memory formation.
 
 ## Context
-Traditional ML training workflows are too complex for content creators. This system provides an intuitive interface where creators simply talk to characters and make corrections, while sophisticated machine learning happens transparently in the background.
+Traditional ML training workflows are too complex for content creators. This system provides an intuitive interface where creators simply talk to characters and make corrections, while sophisticated machine learning happens transparently in the background. With the triple-head architecture, creators can now provide feedback on content quality, emotional appropriateness, and memory consistency simultaneously.
 
 ## Acceptance Criteria
 
-### Production Training Infrastructure:
-- [ ] High-throughput preference pair collection with intelligent batching
-- [ ] GPU-optimized micro-training pipeline with <2 minute cycle times
-- [ ] Atomic model updates with zero-downtime deployment
-- [ ] Training queue management with priority and fairness scheduling
-- [ ] Comprehensive monitoring and alerting for training pipeline health
+### Triple-Head Production Training Infrastructure:
+- [ ] **Multi-Head Preference Collection**: Intelligent batching for generation, control, and memory feedback
+- [ ] **Specialized Training Pipelines**: Separate GPU-optimized micro-training for each head with <2 minute cycle times
+- [ ] **Head-Specific Model Updates**: Atomic updates for individual heads with zero-downtime deployment
+- [ ] **Multi-Head Training Queue**: Priority scheduling for generation, control, and memory improvements
+- [ ] **Comprehensive Triple-Head Monitoring**: Health tracking for all three training pipelines
 
-### Advanced Creator Interface:
-- [ ] **Conversation Studio**: Multi-turn conversation editing with branching
-- [ ] **Performance Analytics**: Real-time character improvement metrics
-- [ ] **Quality Assurance**: Automated validation of character responses
-- [ ] **Version Control**: Character model versioning with rollback capabilities
-- [ ] **Collaboration Tools**: Multi-creator workflows with conflict resolution
+### Advanced Creator Interface with Multi-Head Support:
+- [ ] **Enhanced Conversation Studio**: Multi-turn editing with head-specific correction types
+  - Content corrections → Generation head training
+  - Emotional/mood corrections → Control head training
+  - Memory/consistency corrections → Memory head training
+- [ ] **Triple-Head Performance Analytics**: Real-time metrics for all three aspects of character improvement
+- [ ] **Multi-Dimensional Quality Assurance**: Automated validation across generation, control, and memory outputs
+- [ ] **Head-Aware Version Control**: Character model versioning with per-head rollback capabilities
+- [ ] **Specialized Collaboration Tools**: Multi-creator workflows with head-specific expertise areas
 
-### ML Operations at Scale:
-- [ ] Distributed training across multiple GPUs for faster iteration
-- [ ] Intelligent sample selection for maximum training efficiency
-- [ ] Curriculum learning based on creator expertise and character complexity
-- [ ] A/B testing framework for comparing training approaches
-- [ ] Cost optimization with spot instance usage and smart scheduling
+### ML Operations for Triple-Head Architecture:
+- [ ] **Distributed Multi-Head Training**: Parallel GPU allocation for generation, control, and memory head optimization
+- [ ] **Head-Specific Sample Selection**: Intelligent routing of feedback to appropriate training pipeline
+- [ ] **Triple-Head Curriculum Learning**: Progressive difficulty based on head-specific complexity
+- [ ] **Multi-Dimensional A/B Testing**: Framework for comparing improvements across all three heads
+- [ ] **Head-Aware Cost Optimization**: Smart resource allocation based on training pipeline demands
 
-### User Experience:
-- [ ] Sub-second response time for character interactions
-- [ ] Visual progress indicators for ongoing improvements
-- [ ] Smart suggestions for character enhancement opportunities
-- [ ] Integration with analytics to track creator satisfaction
-- [ ] Mobile-optimized interface for on-the-go character improvement
+### Enhanced User Experience:
+- [ ] **Sub-second Multi-Head Response**: Fast inference across all three heads
+- [ ] **Head-Specific Progress Indicators**: Visual feedback for generation, control, and memory improvements
+- [ ] **Intelligent Correction Suggestions**: Context-aware recommendations for each head type
+- [ ] **Triple-Head Analytics Integration**: Comprehensive tracking of creator satisfaction across all aspects
+- [ ] **Mobile-Optimized Multi-Head Interface**: On-the-go character improvement for all head types
+
+### New: Memory-Specific Features:
+- [ ] **Memory Consistency Tracker**: Visual indicators for character memory accuracy
+- [ ] **Memory Formation Feedback**: Direct correction of character memory formation and recall
+- [ ] **Memory Importance Tuning**: Creator control over what should be remembered vs. forgotten
+- [ ] **Memory Conflict Resolution**: Interface for handling conflicting memories or information
+
+### New: Control Head Features:
+- [ ] **Emotional State Tuning**: Real-time adjustment of character emotional responses
+- [ ] **Mood Consistency Training**: Ensuring character emotions match context and personality
+- [ ] **Control Token Optimization**: Fine-tuning of emotional and behavioral control mechanisms
 
 ## Implementation Notes
 ```text
 • TDD Instructions:
-  - Red (UI): Using AppTest, create a test for director_mode.py. Simulate a conversation. Use the API to find and trigger the edit callback on an assistant message. Mock the handle_live_correction backend function and assert that it was called with the correct (prompt, original, edited) arguments.
-  - Green (UI): Implement the editable chat UI and the callback logic.
-  - Red (Backend): Write a unit test for handle_live_correction. Assert that it correctly formats the preference pair and adds it to a mocked queue.
-  - Green (Backend): Implement the handle_live_correction function.
-  - Red/Green (Worker): Write an integration test for the training worker. Pre-populate the DPO queue with a few dummy preference pairs. Start the worker. Assert that the DPO training script (mocked) is eventually called with the correct arguments (e.g., path to the character's adapter).
+  - Red (Triple-Head UI): Create tests for director_mode.py with multi-head corrections. Simulate conversations where creators correct content (→gen head), emotions (→control head), and memory (→memory head). Assert that corrections are routed to appropriate training pipelines.
+  - Green (Triple-Head UI): Implement head-aware editable chat UI with correction type detection.
+  - Red (Multi-Head Backend): Write unit tests for handle_live_correction with head classification. Assert that generation, control, and memory corrections create appropriate preference pairs for their respective training queues.
+  - Green (Multi-Head Backend): Implement head-specific correction handling and queue routing.
+  - Red (Triple-Head Worker): Write integration tests for all three training workers. Pre-populate DPO queues for each head. Assert that appropriate training scripts are called for generation, control, and memory heads.
+  - Green (Triple-Head Worker): Implement separate training workers for each head with shared coordination.
 ```
 
 ## Checklist / Steps
-1. Create director_mode.py with elegant chat interface
-2. Implement editable assistant messages functionality
-3. Create handle_live_correction backend function
-4. Implement preference pair formatting and queueing
-5. Create real-time training worker process
-6. Integrate with DPO pipeline from R4-8
-7. Add adapter updating and hot-swapping
-8. Write comprehensive tests for live training workflow
-9. Add progress indicators and training status UI
+1. **NEW**: Create head-aware director_mode.py with correction type classification
+2. **NEW**: Implement triple-head editable assistant messages with correction routing
+3. **ENHANCED**: Create handle_live_correction with multi-head support
+4. **NEW**: Implement head-specific preference pair formatting and queue management
+5. **NEW**: Create separate real-time training workers for each head
+6. **ENHANCED**: Integrate with triple-head DPO pipeline from R4-8 and SFT from R4-6
+7. **NEW**: Add head-specific adapter updating and coordinated hot-swapping
+8. **NEW**: Implement memory consistency validation and training
+9. **NEW**: Add control head emotional state training pipeline
+10. **ENHANCED**: Write comprehensive tests for triple-head live training workflow
+11. **NEW**: Add head-specific progress indicators and training status UI
+12. **NEW**: Create memory formation feedback interface
+13. **NEW**: Implement emotional tuning controls for control head
+
+## Head-Specific Training Workflows
+
+### Generation Head Training:
+- Content quality corrections
+- Factual accuracy improvements
+- Writing style consistency
+- Narrative coherence enhancement
+
+### Control Head Training:
+- Emotional appropriateness corrections
+- Mood consistency improvements
+- Behavioral control refinements
+- Personality expression tuning
+
+### Memory Head Training:
+- Memory formation accuracy
+- Information retention priorities
+- Memory retrieval consistency
+- Long-term narrative continuity
 
 ## References
-A radical simplification and enhancement of the entire creator workflow, building on the DPO pipeline from R4-8. 
+A radical enhancement of the creator workflow for triple-head architecture, building on:
+- Triple-head SFT pipeline (R4-6)
+- DPO pipeline (R4-8) 
+- Memory system integration (R4-5)
+- Control token vocabulary (R1-10) 

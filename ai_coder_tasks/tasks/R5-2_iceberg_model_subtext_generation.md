@@ -22,7 +22,7 @@ What a character says is only half the story. What they *think* is where the rea
 
 ## 3. How? (The Implementation)
 
-This feature will be implemented by modifying the `think` step of the `AgenticLoopFramework` and leveraging the dual-head output capability planned in R4-3.
+This feature will be implemented by modifying the `think` step of the `AgenticLoopFramework` and leveraging the triple-head output capability from R4-6.
 
 1.  **Update the `Agent.think()` Method Signature:**
     -   In `narrative_engine/agent.py`, modify the `think` method in the `BaseAgent` interface.
@@ -78,7 +78,7 @@ This feature will be implemented by modifying the `think` step of the `AgenticLo
 
 ## Implementation Notes
 ```text
-• Keep dual-head architecture optional: if model lacks `[SUBTEXT]`, gracefully fallback with empty string.
+• Keep triple-head architecture optional: if model lacks `[SUBTEXT]`, gracefully fallback with empty string.
 • Use pydantic to validate ThinkResult.
 • For existing model weights, insert tagged prompt but rely on model to copy guidance tokens until retrained.
 ```
@@ -92,4 +92,4 @@ This feature will be implemented by modifying the `think` step of the `AgenticLo
 6. Adjust Director's View UI to render subtext.
 
 ## References
-Depends on dual-head capability (R4-3) and feeds R5-3 Living Interface for display. 
+Depends on triple-head capability (R4-6) and feeds R5-3 Living Interface for display. 

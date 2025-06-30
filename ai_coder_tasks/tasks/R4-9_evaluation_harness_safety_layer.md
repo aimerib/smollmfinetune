@@ -17,6 +17,7 @@ Extend the basic evaluation foundation (R4-3.5) with comprehensive quality metri
   - [ ] `eval_json_correctness.py`: Generates prompts requiring tool use and checks if the output is valid JSON.
   - [ ] `eval_coherence.py`: Uses an LLM-as-judge to check for contradictions in long conversations.
   - [ ] `eval_latency.py`: Measures time-to-first-token and per-token generation speed.
+  - [ ] `eval_memory_consistency.py`: Validates memory head outputs and formation accuracy.
 - [ ] A main script `scripts/run_evaluation.py` orchestrates running all evaluations against a specified model checkpoint.
 - [ ] A `SafetyLayer` class is implemented that can be wrapped around the model's generation function to perform input/output filtering based on blocklists.
 
@@ -27,6 +28,7 @@ Extend the basic evaluation foundation (R4-3.5) with comprehensive quality metri
   - Green (Passing Test - JSON Eval): Implement the JSON validation logic.
   - Repeat: Follow this pattern for each evaluation module, writing focused unit tests for the core logic.
   - Safety Layer: Write unit tests for the SafetyLayer, feeding it text that should be blocked and text that should be allowed, and asserting the correct behavior.
+  - Memory Eval: Test memory head outputs for proper embedding normalization and metadata validation.
 ```
 
 ## Checklist / Steps
@@ -34,12 +36,14 @@ Extend the basic evaluation foundation (R4-3.5) with comprehensive quality metri
 2. Implement JSON correctness evaluation module
 3. Implement coherence evaluation with LLM-as-judge
 4. Implement latency measurement module
-5. Create main evaluation orchestration script
-6. Implement SafetyLayer class with filtering logic
-7. Write comprehensive tests for all evaluation components
-8. Add configuration for evaluation thresholds and blocklists
+5. **NEW**: Add memory consistency evaluation for triple-head architecture
+6. Create main evaluation orchestration script
+7. Implement SafetyLayer class with filtering logic
+8. Write comprehensive tests for all evaluation components
+9. Add configuration for evaluation thresholds and blocklists
 
 ## References
 - Depends on: R4-3.5 (Evaluation Foundation)
+- Uses: Triple-head architecture with Generation + Control + Memory heads
 - Proposal §7: Evaluation & Validation
 - Proposal §9: Work-Package Skeleton (Items 8 & 9) 

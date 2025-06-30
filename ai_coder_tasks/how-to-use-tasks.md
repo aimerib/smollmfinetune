@@ -12,7 +12,7 @@ The project is divided into "Concentric Rings," moving from the most critical co
 *   **Ring 1: Devkit 1.0** - Structured world and character authoring with Big Five personality traits, world integration, and comprehensive UI tools.
 *   **Ring 2: Runtime Packet** - Export trained characters as self-contained "cartridges" with prompt factory for external deployment.
 *   **Ring 3: Multi-User Platform** - Database backend, async training jobs, user management, and production infrastructure.
-*   **Ring 4: Narrative Engine** - Custom model architecture with dual-head outputs, external memory, and advanced training techniques.
+*   **Ring 4: Narrative Engine** - Custom model architecture with triple-head outputs (Generation + Control + Memory), external memory, and advanced training techniques.
 *   **Ring 5: Advanced Features** - Director's Chair real-time training, proactive agents, living interfaces, and digital ecology systems.
 
 You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work. At the end of every task, before marking it as completed, ensure that the feature is fully integrated with the wider platform. At this point perform a full code search to ensure you know how to fully integrate the feature. After integration, run a full test suite `python -m pytest tests/ -v` and if the tests come green, mark the task as completed, move it to the completed folder, and make a commit with all files added.
