@@ -10,6 +10,11 @@ from .eval_basic_generation import BasicGenerationEvaluator
 from .eval_triple_head_sanity import TripleHeadSanityEvaluator, eval_triple_head_sanity
 from .eval_dual_head_sanity import DualHeadSanityEvaluator  # Backward compatibility
 from .eval_training_progress import TrainingProgressEvaluator
+from .eval_json_correctness import JSONCorrectnessEvaluator
+from .eval_coherence import CoherenceEvaluator
+from .eval_latency import LatencyEvaluator
+from .eval_memory_consistency import MemoryConsistencyEvaluator
+from .safety_layer import SafetyLayer
 import logging
 from typing import Dict, Any, Optional, List
 import json
@@ -21,6 +26,10 @@ logger = logging.getLogger(__name__)
 eval_basic_generation = BasicGenerationEvaluator()
 eval_triple_head_sanity = TripleHeadSanityEvaluator()
 eval_training_progress = TrainingProgressEvaluator()
+eval_json_correctness = JSONCorrectnessEvaluator()
+eval_coherence = CoherenceEvaluator()
+eval_latency = LatencyEvaluator()
+eval_memory_consistency = MemoryConsistencyEvaluator()
 
 # Backward compatibility
 eval_dual_head_sanity = eval_triple_head_sanity
@@ -233,8 +242,17 @@ __all__ = [
     'eval_triple_head_sanity',
     'eval_dual_head_sanity',  # Backward compatibility
     'eval_training_progress',
+    'eval_json_correctness',
+    'eval_coherence',
+    'eval_latency',
+    'eval_memory_consistency',
     'BasicGenerationEvaluator',
     'TripleHeadSanityEvaluator',
     'DualHeadSanityEvaluator',  # Backward compatibility
-    'TrainingProgressEvaluator'
+    'TrainingProgressEvaluator',
+    'JSONCorrectnessEvaluator',
+    'CoherenceEvaluator', 
+    'LatencyEvaluator',
+    'MemoryConsistencyEvaluator',
+    'SafetyLayer'
 ] 
