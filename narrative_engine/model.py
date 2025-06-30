@@ -197,6 +197,22 @@ class NarrativeLLM(nn.Module):
             nn.Sigmoid()  # Multi-label classification (multiple emotions possible)
         )
         
+        # Memory head - for Method B memory vector generation
+        self.memory_head = nn.Sequential(
+            nn.Linear(self.hidden_size, config.control_head_dim * 2),  # Larger intermediate layer
+            nn.ReLU(),
+            nn.Dropout(0.1),
+            nn.Linear(config.control_head_dim * 2, 768 + 4)  # 768-dim embedding + 4 metadata values
+        )
+        
+        # Memory metadata indices (for the 4 extra dimensions)
+        self.memory_metadata_indices = {
+            'importance': 768,
+            'surprise': 769,
+            'valence': 770,
+            'persistence': 771
+        }
+        
         # Recirculation layers - inject emotional context
         self.recirculation_embedding = nn.Embedding(
             len(self.control_tokens), 
@@ -223,11 +239,12 @@ class NarrativeLLM(nn.Module):
         external_memory_states: Optional[torch.Tensor] = None,
         labels: Optional[torch.Tensor] = None,
         control_labels: Optional[torch.Tensor] = None,
+        memory_labels: Optional[torch.Tensor] = None,  # New: memory training targets
         recirculation_tokens: Optional[List[str]] = None,
         **kwargs
     ) -> Dict[str, torch.Tensor]:
         """
-        Forward pass with dual heads and recirculation.
+        Forward pass with triple heads and recirculation.
         
         Args:
             input_ids: Token IDs for input text
@@ -236,10 +253,11 @@ class NarrativeLLM(nn.Module):
             external_memory_states: External memory for cross-attention
             labels: Target tokens for generation head
             control_labels: Target control tokens (multi-hot encoded)
+            memory_labels: Target memory vectors for memory head (Method B)
             recirculation_tokens: Control tokens from previous turn
             
         Returns:
-            Dictionary with text_logits, action_logits, and losses
+            Dictionary with text_logits, action_logits, memory_output, and losses
         """
         
         # Inject recirculation context if provided
@@ -265,6 +283,19 @@ class NarrativeLLM(nn.Module):
         last_hidden = hidden_states[:, -1, :]  # [batch_size, hidden_size]
         control_logits = self.control_head(last_hidden)  # [batch_size, num_control_tokens]
         
+        # Memory head (memory vector generation - Method B)
+        memory_output = self.memory_head(last_hidden)  # [batch_size, 768 + 4]
+        
+        # Split memory output into embedding and metadata
+        memory_embedding = memory_output[:, :768]  # [batch_size, 768]
+        memory_metadata = memory_output[:, 768:]   # [batch_size, 4]
+        
+        # Normalize memory embedding to unit vector
+        memory_embedding = F.normalize(memory_embedding, p=2, dim=1)
+        
+        # Apply sigmoid to metadata values to bound them
+        memory_metadata = torch.sigmoid(memory_metadata)
+        
         # Calculate losses
         losses = {}
         
@@ -285,14 +316,36 @@ class NarrativeLLM(nn.Module):
             )
             losses['control_loss'] = control_loss
         
+        if memory_labels is not None:
+            # Memory loss (Method B)
+            # Expecting memory_labels to be [batch_size, 772] (768 embedding + 4 metadata)
+            target_embedding = memory_labels[:, :768]
+            target_metadata = memory_labels[:, 768:]
+            
+            # Cosine similarity loss for embeddings
+            embedding_loss = 1 - F.cosine_similarity(memory_embedding, target_embedding).mean()
+            
+            # MSE loss for metadata
+            metadata_loss = F.mse_loss(memory_metadata, target_metadata)
+            
+            # Combined memory loss
+            memory_loss = embedding_loss + metadata_loss
+            losses['memory_loss'] = memory_loss
+        
         # Combined loss
         if losses:
-            total_loss = losses.get('generation_loss', 0) + losses.get('control_loss', 0)
+            total_loss = (
+                losses.get('generation_loss', 0) + 
+                losses.get('control_loss', 0) + 
+                losses.get('memory_loss', 0)
+            )
             losses['total_loss'] = total_loss
         
         return {
             'text_logits': generation_logits,  # Standard language modeling output
             'action_logits': control_logits,   # Control token output (C.L.A.R.A. Loop)
+            'memory_embedding': memory_embedding,  # Memory vector (Method B)
+            'memory_metadata': memory_metadata,    # Memory metadata (Method B)
             'generation_logits': generation_logits,  # Legacy alias
             'control_logits': control_logits,        # Legacy alias
             'hidden_states': hidden_states,
@@ -309,13 +362,14 @@ class NarrativeLLM(nn.Module):
         user_input: str = "",
         previous_context: str = "",
         recirculation_tokens: Optional[List[str]] = None,
+        generate_memory: bool = True,  # New: whether to generate memory
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Generate response with C.L.A.R.A. loop control token emission.
+        Generate response with C.L.A.R.A. loop control token emission and optional memory generation.
         
         Returns:
-            Dictionary with generated_text, control_tokens, and emotional_state
+            Dictionary with generated_text, control_tokens, emotional_state, and memory
         """
         
         # Inject recirculation context
@@ -324,7 +378,7 @@ class NarrativeLLM(nn.Module):
         
         # Generate response
         with torch.no_grad():
-            # Forward pass to get control tokens
+            # Forward pass to get control tokens and memory
             outputs = self.forward(input_ids, attention_mask)
             control_probs = outputs['control_logits'].squeeze(0)  # [num_control_tokens]
             
@@ -334,6 +388,20 @@ class NarrativeLLM(nn.Module):
                 if prob > 0.5:  # Threshold for active tokens
                     token = self.control_id_to_token[i]
                     active_control_tokens.append(token)
+            
+            # Extract memory if requested (Method B)
+            generated_memory = None
+            if generate_memory:
+                memory_embedding = outputs['memory_embedding'].squeeze(0).cpu().numpy()
+                memory_metadata = outputs['memory_metadata'].squeeze(0).cpu().numpy()
+                
+                generated_memory = {
+                    'embedding': memory_embedding.tolist(),
+                    'importance': float(memory_metadata[0]),
+                    'surprise': float(memory_metadata[1]),
+                    'valence': float(memory_metadata[2] * 2 - 1),  # Convert from [0,1] to [-1,1]
+                    'persistence': float(memory_metadata[3]),
+                }
             
             # Generate text using base model
             generated_outputs = self.base_model.generate(
@@ -364,14 +432,18 @@ class NarrativeLLM(nn.Module):
         # Get recirculation tokens for next turn
         next_recirculation = self.momentum_tracker.get_recirculation_context()
         
+        # Calculate surprise score
+        surprise_score = self.momentum_tracker.surprise_detector.calculate_surprise(
+            user_input, previous_context
+        )
+        
         return {
             'generated_text': generated_text,
             'control_tokens': active_control_tokens,
             'emotional_state': emotional_state,
             'next_recirculation': next_recirculation,
-            'surprise_score': self.momentum_tracker.surprise_detector.calculate_surprise(
-                user_input, previous_context
-            )
+            'surprise_score': surprise_score,
+            'generated_memory': generated_memory,  # Method B memory output
         }
     
     def _inject_recirculation_context(self, input_ids: torch.Tensor, recirculation_tokens: List[str]) -> torch.Tensor:

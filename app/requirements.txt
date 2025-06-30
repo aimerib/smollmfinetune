@@ -50,3 +50,11 @@ bcrypt
 # Checkpoint sharding dependencies
 safetensors
 boto3
+
+# Testing
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+
+# Memory Generation
+openai>=1.0.0
+tiktoken>=0.5.0
