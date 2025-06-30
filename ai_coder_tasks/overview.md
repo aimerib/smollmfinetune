@@ -45,8 +45,10 @@ Your role as an AI assistant is to help build this story machine. Every componen
 | R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
 | R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
 | R4   | Narrative Engine        | New model architecture and pretraining                 |
+| R5   | Experience Polish       | The platform evolves around the new model and evovles  |
+|      |                         | new models after it.                                   |
 
-We are currently **here → R3**.
+We are currently **here → R4**.
 
 ---
 ## 3. Task IDs & Testing

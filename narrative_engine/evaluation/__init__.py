@@ -5,6 +5,7 @@ This module provides evaluation functions for testing model quality,
 training progress, and architectural correctness.
 """
 
+from datetime import datetime
 from .eval_basic_generation import BasicGenerationEvaluator
 from .eval_triple_head_sanity import TripleHeadSanityEvaluator, eval_triple_head_sanity
 from .eval_dual_head_sanity import DualHeadSanityEvaluator  # Backward compatibility
@@ -55,6 +56,7 @@ def run_evaluation_suite(
         'passed': False,
         'evaluations': {}
     }
+    start_time = datetime.now()
     
     try:
         # Load model if not provided
@@ -101,7 +103,9 @@ def run_evaluation_suite(
         
         # Determine if evaluation passed
         results['passed'] = _determine_evaluation_success(results['evaluations'])
-        
+        results['timestamp'] = datetime.now().isoformat()
+        results['duration'] = (datetime.now() - start_time).total_seconds()
+
         # Save results
         if output_json:
             logger.info(f"Saving evaluation results to {output_json}")
@@ -116,11 +120,15 @@ def run_evaluation_suite(
                 logger.warning(f"Failed to log to wandb: {e}")
         
         logger.info(f"✅ Evaluation suite completed. Passed: {results['passed']}")
+
         
     except Exception as e:
         logger.error(f"❌ Evaluation suite failed: {e}")
         results['error'] = str(e)
+        results['failure_reason'] = str(e)
         results['passed'] = False
+        results['timestamp'] = datetime.now().isoformat()
+        results['duration'] = (datetime.now() - start_time).total_seconds()
     
     return results
 

@@ -219,11 +219,11 @@ class TestRunBasicEvaluation:
                 results = json.load(f)
             
             # Check for the evaluation harness structure
-            assert "basic_generation" in results, "Should include basic generation results"
+            assert "basic_generation" in results['evaluations'], "Should include basic generation results"
             assert "passed" in results, "Should include overall pass/fail status"
             
             # Check nested metrics
-            gen_results = results.get("basic_generation", {})
+            gen_results = results['evaluations'].get("basic_generation", {})
             assert "generation_success_rate" in gen_results, "Should include generation success rate"
             assert "coherence_score" in gen_results, "Should include coherence score"
             

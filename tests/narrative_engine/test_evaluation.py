@@ -157,9 +157,9 @@ def test_evaluation_suite_integration():
         # Check overall results structure
         assert 'timestamp' in results
         assert 'checkpoint_path' in results
-        assert 'basic_generation' in results
-        assert 'dual_head_sanity' in results
-        assert 'training_progress' in results
+        assert 'basic_generation' in results['evaluations']
+        assert 'triple_head_sanity' in results['evaluations']
+        assert 'training_progress' in results['evaluations']
         assert 'passed' in results
         assert 'duration' in results
 
@@ -186,9 +186,14 @@ def test_wandb_logging_integration():
         
         # Check logged data structure
         logged_data = mock_wandb_log.call_args[0][0]
-        assert 'eval/basic_generation_score' in logged_data
-        assert 'eval/dual_head_sanity' in logged_data
-        assert 'eval/training_progress' in logged_data
+        assert 'eval/generation_success_rate' in logged_data
+        assert 'eval/avg_generation_length' in logged_data
+        assert 'eval/perplexity' in logged_data
+        assert 'eval/all_heads_functional' in logged_data
+        assert 'eval/generation_head_valid' in logged_data
+        assert 'eval/control_head_valid' in logged_data
+        assert 'eval/memory_head_valid' in logged_data
+
 
 
 def test_json_output_format():
@@ -219,7 +224,7 @@ def test_json_output_format():
         
         assert loaded_results['checkpoint_path'] == "/path/to/checkpoint"
         assert 'timestamp' in loaded_results
-        assert 'basic_generation' in loaded_results
+        assert 'basic_generation' in loaded_results['evaluations']
 
 
 def test_evaluation_failure_handling():
@@ -241,9 +246,9 @@ def test_evaluation_failure_handling():
     # Should not crash, but mark as failed
     assert results['passed'] is False
     # The evaluation should fail due to 0% generation success rate
-    assert results.get('basic_generation', {}).get('generation_success_rate', 1.0) == 0.0
+    assert results.get('basic_generation', {}).get('generation_success_rate', 0.0) == 0.0
     # Or have a failure reason
-    assert 'failure_reason' in results or results.get('basic_generation', {}).get('generation_success_rate', 1.0) < 0.5
+    assert 'failure_reason' in results or results.get('basic_generation', {}).get('generation_success_rate', 0.0) < 0.5
 
 
 def test_checkpoint_blocking_criteria():
@@ -265,7 +270,7 @@ def test_checkpoint_blocking_criteria():
     
     # Should fail due to bad generation
     assert results['passed'] is False
-    assert results['basic_generation']['generation_success_rate'] == 0.0
+    assert results['evaluations']['basic_generation']['generation_success_rate'] == 0.0
 
 
 @pytest.mark.integration

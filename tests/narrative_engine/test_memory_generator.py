@@ -75,7 +75,7 @@ class TestMemoryGenerator:
     async def test_generate_memories(self, sample_turns, sample_character, mock_openai_response):
         """Test basic memory generation"""
         # Arrange
-        generator = MemoryGenerator()
+        generator = MemoryGenerator(api_key="test-key")
         
         # Mock the OpenAI client
         mock_response = MagicMock()
@@ -158,7 +158,7 @@ class TestMemoryGenerator:
     async def test_method_a_only(self, sample_turns, sample_character, mock_openai_response):
         """Test generating only Method A tokens"""
         # Arrange
-        generator = MemoryGenerator()
+        generator = MemoryGenerator(api_key="test-key")
         
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -185,7 +185,7 @@ class TestMemoryGenerator:
     async def test_method_b_only(self, sample_turns, sample_character, mock_openai_response):
         """Test generating only Method B vectors"""
         # Arrange
-        generator = MemoryGenerator()
+        generator = MemoryGenerator(api_key="test-key")
         
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
