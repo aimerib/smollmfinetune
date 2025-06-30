@@ -77,9 +77,31 @@ def train_sft_model(config: SFTConfig) -> Dict[str, Any]:
             checkpoint_path = Path(config.output_dir) / f"checkpoint-{step}"
             checkpoint_path.mkdir(parents=True, exist_ok=True)
             
+            # Create sharded checkpoint if enabled
+            if hasattr(config, 'shard_size_gb') and config.shard_size_gb > 0:
+                print(f"🔄 Creating sharded checkpoint (shard size: {config.shard_size_gb}GB)...")
+                # Note: This is a demo script, so we just simulate sharding
+                shards_dir = checkpoint_path / "shards"
+                shards_dir.mkdir(exist_ok=True)
+                
+                # Create demo manifest
+                import json
+                manifest = {
+                    "shards": [f"shard-{i:05d}.safetensors" for i in range(1, 3)],
+                    "total_size": 1000000,
+                    "num_shards": 2,
+                    "shard_size_gb": config.shard_size_gb
+                }
+                
+                with open(shards_dir / "checkpoint.json", 'w') as f:
+                    json.dump(manifest, f, indent=2)
+                
+                print(f"💾 Demo sharded checkpoint created: {shards_dir}")
+            
             log({
                 "checkpoint_saved": str(checkpoint_path),
-                "checkpoint_step": step
+                "checkpoint_step": step,
+                "sharded": hasattr(config, 'shard_size_gb') and config.shard_size_gb > 0
             })
             print(f"💾 Saved checkpoint: {checkpoint_path}")
     
@@ -111,6 +133,18 @@ def main():
     parser.add_argument("--run-name", default="sft_experiment",
                        help="Experiment run name")
     
+    # Checkpoint sharding arguments
+    parser.add_argument("--shard-size-gb", type=float, default=0,
+                       help="Shard size in GB (0 = disabled)")
+    parser.add_argument("--s3-bucket", default=None,
+                       help="S3 bucket for checkpoint storage")
+    parser.add_argument("--s3-prefix", default=None,
+                       help="S3 prefix/folder for checkpoints")
+    parser.add_argument("--s3-endpoint-url", default=None,
+                       help="Custom S3 endpoint URL (for MinIO, Wasabi, etc.)")
+    parser.add_argument("--resume-from", default=None,
+                       help="Resume from checkpoint (supports sharded checkpoints)")
+    
     args = parser.parse_args()
     
     # Create configuration
@@ -121,6 +155,13 @@ def main():
         max_steps=args.max_steps,
         output_dir=args.output_dir
     )
+    
+    # Add checkpoint sharding configuration
+    config.shard_size_gb = args.shard_size_gb
+    config.s3_bucket = args.s3_bucket
+    config.s3_prefix = args.s3_prefix or f"sft_checkpoints/{args.run_name}/"
+    config.s3_endpoint_url = args.s3_endpoint_url
+    config.resume_from_checkpoint = args.resume_from
     
     # Initialize telemetry SDK
     print("🔧 Initializing telemetry tracking...")

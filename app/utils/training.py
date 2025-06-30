@@ -327,6 +327,57 @@ class TrainingCallback(TrainerCallback):
                 logger.error(f"Failed to save checkpoint metadata: {e}")
                 import traceback
                 logger.error(traceback.format_exc())
+            
+            # ✅ NEW: Checkpoint sharding support
+            shard_size_gb = getattr(args, 'shard_size_gb', None)
+            if shard_size_gb and shard_size_gb > 0:
+                try:
+                    from ..checkpointing import ShardWriter
+                    import torch
+                    
+                    logger.info(f"🔄 Creating sharded checkpoint (shard size: {shard_size_gb}GB)...")
+                    
+                    # Get model state dict (includes adapter weights)
+                    model_state_dict = kwargs.get('model', args._current_model).state_dict()
+                    
+                    # Add optimizer state if available
+                    optimizer_state = kwargs.get('optimizer')
+                    if optimizer_state and hasattr(optimizer_state, 'state_dict'):
+                        optimizer_dict = optimizer_state.state_dict()
+                        # Prefix optimizer keys to avoid conflicts
+                        for key, value in optimizer_dict.items():
+                            model_state_dict[f"optimizer.{key}"] = value
+                    
+                    # Create shards
+                    shard_writer = ShardWriter(shard_size_gb=shard_size_gb)
+                    shards_dir = checkpoint_path / "shards"
+                    manifest_path = shard_writer.save_shards(model_state_dict, shards_dir)
+                    
+                    logger.info(f"✅ Sharded checkpoint saved: {manifest_path}")
+                    
+                    # Upload to S3 if configured
+                    s3_bucket = getattr(args, 's3_bucket', None)
+                    if s3_bucket:
+                        s3_prefix = getattr(args, 's3_prefix', f"checkpoints/{self.character.get('name', 'unknown')}/{state.global_step}/")
+                        endpoint_url = getattr(args, 's3_endpoint_url', None)
+                        
+                        logger.info(f"📤 Uploading shards to S3: s3://{s3_bucket}/{s3_prefix}")
+                        success = shard_writer.upload_to_s3(
+                            shards_dir, 
+                            s3_bucket, 
+                            s3_prefix,
+                            endpoint_url=endpoint_url
+                        )
+                        
+                        if success:
+                            logger.info("✅ Shards uploaded to S3 successfully")
+                        else:
+                            logger.warning("⚠️ Failed to upload shards to S3")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create sharded checkpoint: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
 
 
 class TrainingManager:
@@ -930,6 +981,12 @@ class TrainingManager:
             training_args.dataset_size = len(selected_dataset)
             training_args.character_name = character_name
             
+            # ✅ NEW: Add checkpoint sharding configuration
+            training_args.shard_size_gb = config.get('shard_size_gb', 0)  # 0 = disabled
+            training_args.s3_bucket = config.get('s3_bucket', None)
+            training_args.s3_prefix = config.get('s3_prefix', None)
+            training_args.s3_endpoint_url = config.get('s3_endpoint_url', None)
+            
             logger.info(f"🏷️ Training args enhanced with metadata: {finetune_method}, r={training_args.lora_r}, base={self.base_model}")
             
             print(f"✅ Using max_steps={total_steps} for precise control (instead of epochs)")
@@ -1179,8 +1236,71 @@ class TrainingManager:
             })
         return True
     
+    def _load_sharded_checkpoint(self, manifest_path: Path, cache_dir: Path = None) -> Optional[str]:
+        """
+        Load a sharded checkpoint and return the path to the reassembled checkpoint.
+        
+        Args:
+            manifest_path: Path to checkpoint.json manifest file
+            cache_dir: Optional directory to cache downloaded files (for S3 checkpoints)
+            
+        Returns:
+            Path to loaded checkpoint directory or None if failed
+        """
+        try:
+            from .checkpointing import ShardLoader
+            import tempfile
+            
+            logger.info(f"📥 Loading sharded checkpoint: {manifest_path}")
+            
+            # Handle S3 manifest URLs
+            if str(manifest_path).startswith('s3://'):
+                # Parse S3 URL: s3://bucket/prefix/checkpoint.json
+                s3_url = str(manifest_path)
+                parts = s3_url[5:].split('/', 1)  # Remove 's3://' and split
+                bucket = parts[0]
+                prefix = parts[1].rsplit('/', 1)[0] + '/' if len(parts) > 1 else ""
+                
+                if cache_dir is None:
+                    cache_dir = Path(tempfile.mkdtemp(prefix="sharded_checkpoint_"))
+                
+                loader = ShardLoader()
+                state_dict = loader.load_from_s3(bucket, prefix, cache_dir)
+                
+                # Create temporary checkpoint directory and save state dict
+                checkpoint_dir = cache_dir / "assembled_checkpoint"
+                checkpoint_dir.mkdir(exist_ok=True)
+                
+                import torch
+                torch.save(state_dict, checkpoint_dir / "pytorch_model.bin")
+                logger.info(f"✅ Sharded checkpoint assembled to: {checkpoint_dir}")
+                
+                return str(checkpoint_dir)
+            
+            else:
+                # Local manifest file
+                manifest_dir = manifest_path.parent
+                loader = ShardLoader()
+                state_dict = loader.load_from_directory(manifest_dir)
+                
+                # Save assembled checkpoint in same directory
+                checkpoint_dir = manifest_dir.parent / "assembled_checkpoint"
+                checkpoint_dir.mkdir(exist_ok=True)
+                
+                import torch
+                torch.save(state_dict, checkpoint_dir / "pytorch_model.bin")
+                logger.info(f"✅ Sharded checkpoint assembled to: {checkpoint_dir}")
+                
+                return str(checkpoint_dir)
+        
+        except Exception as e:
+            logger.error(f"Failed to load sharded checkpoint: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+
     def resume_training(self):
-        """Resume paused training"""
+        """Resume paused training with support for sharded checkpoints"""
         if not self.is_paused or self.is_training:
             return False
 
@@ -1192,6 +1312,16 @@ class TrainingManager:
         character_name = self._last_character.get('name', 'unknown').lower().replace(' ', '_')
         adapter_dir = self.project_dir / f"adapters/{character_name}"
         latest_ckpt = self._latest_checkpoint_dir(adapter_dir)
+        
+        # Check for sharded checkpoint if regular checkpoint not found
+        if not latest_ckpt:
+            # Look for sharded checkpoints
+            for item in adapter_dir.glob("checkpoint-*/shards/checkpoint.json"):
+                sharded_ckpt = self._load_sharded_checkpoint(item)
+                if sharded_ckpt:
+                    latest_ckpt = Path(sharded_ckpt)
+                    break
+        
         if not latest_ckpt:
             logger.error("No checkpoint found to resume from.")
             return False

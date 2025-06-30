@@ -46,3 +46,7 @@ trl
 # Authentication dependencies
 pyjwt
 bcrypt
+
+# Checkpoint sharding dependencies
+safetensors
+boto3
