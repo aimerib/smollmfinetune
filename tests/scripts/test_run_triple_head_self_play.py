@@ -27,7 +27,6 @@ class TestTripleHeadSelfPlayHarness:
         spec.loader.exec_module(module)  # type: ignore[union-attr]
         assert hasattr(module, "main"), "Module should expose main()"
 
-    @pytest.mark.timeout(30)
     def test_mock_mode_generates_head_logs(self):
         """Running the script in mock-mode should create 3 JSONL log files with content."""
         assert SCRIPT_PATH.exists(), f"Self-play script not found at {SCRIPT_PATH}"

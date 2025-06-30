@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class RLHFConfig:
     """Configuration for RLHF training"""
     # Algorithm selection
-    algorithm: str = "grpo"  # "grpo" or "ppo"
+    algorithm: str = "grpo"  # "grpo", "ppo", or "dpo"
     
     # Training hyperparameters (GRPO defaults from R1-11 spec)
     learning_rate: float = 5e-6
@@ -55,6 +55,11 @@ class RLHFConfig:
     # PPO-specific parameters
     kl_penalty: float = 0.1
     ppo_batch_size: int = 16
+    
+    # DPO-specific parameters
+    dpo_beta: float = 0.1  # DPO KL penalty
+    reference_free: bool = False  # Use reference-free DPO
+    label_smoothing: float = 0.0  # Label smoothing for DPO
     
     # Output and logging
     output_dir: str = "rlhf_output"
@@ -272,8 +277,83 @@ def run_rlhf(
             tokenizer=tokenizer,
         )
         
+    elif config.algorithm.lower() == "dpo":
+        logger.info("Using DPO (Direct Preference Optimization)")
+        
+        # Import DPO components
+        try:
+            from narrative_engine.dpo_trainer import GenerationDPOTrainer, TripleHeadDPOConfig
+            from transformers import TrainingArguments
+        except ImportError:
+            logger.warning("DPO trainer not found. Falling back to TRL DPOTrainer if available.")
+            try:
+                from trl import DPOTrainer, DPOConfig
+                use_trl_dpo = True
+            except ImportError:
+                raise ImportError("Neither narrative_engine DPO nor TRL DPO is available")
+        else:
+            use_trl_dpo = False
+        
+        if use_trl_dpo:
+            # Use TRL's DPO implementation
+            training_args = DPOConfig(
+                output_dir=config.output_dir,
+                learning_rate=config.learning_rate,
+                per_device_train_batch_size=config.per_device_train_batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                max_steps=config.max_steps,
+                beta=config.dpo_beta,
+                warmup_ratio=config.warmup_ratio,
+                logging_steps=config.logging_steps,
+                save_steps=config.save_steps,
+                report_to=config.report_to,
+                fp16=config.fp16,
+                gradient_checkpointing=config.gradient_checkpointing,
+            )
+            
+            trainer = DPOTrainer(
+                model=model,
+                args=training_args,
+                train_dataset=pref_dataset,
+                tokenizer=tokenizer,
+            )
+        else:
+            # Use our custom triple-head DPO implementation
+            dpo_config = TripleHeadDPOConfig(
+                head_type="generation",  # Focus on generation head for standard DPO
+                learning_rate=config.learning_rate,
+                beta=config.dpo_beta,
+                max_length=config.max_prompt_length,
+                batch_size=config.per_device_train_batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                warmup_steps=int(config.max_steps * config.warmup_ratio),
+            )
+            
+            training_args = TrainingArguments(
+                output_dir=config.output_dir,
+                max_steps=config.max_steps,
+                per_device_train_batch_size=config.per_device_train_batch_size,
+                gradient_accumulation_steps=config.gradient_accumulation_steps,
+                learning_rate=config.learning_rate,
+                warmup_ratio=config.warmup_ratio,
+                logging_steps=config.logging_steps,
+                save_steps=config.save_steps,
+                report_to=config.report_to,
+                fp16=config.fp16,
+                gradient_checkpointing=config.gradient_checkpointing,
+                remove_unused_columns=False,
+            )
+            
+            trainer = GenerationDPOTrainer(
+                model=model,
+                config=dpo_config,
+                args=training_args,
+                train_dataset=pref_dataset,
+                tokenizer=tokenizer,
+            )
+    
     else:
-        raise ValueError(f"Unknown algorithm: {config.algorithm}. Choose 'grpo' or 'ppo'")
+        raise ValueError(f"Unknown algorithm: {config.algorithm}. Choose 'grpo', 'ppo', or 'dpo'")
     
     # Log training start
     logger.info(f"Starting {config.algorithm.upper()} training with {len(pref_dataset)} preference pairs")
@@ -331,7 +411,7 @@ def has_sufficient_preferences(character_name: str, min_preferences: int = 100) 
 # Convenience function for UI integration
 def get_rlhf_algorithms() -> List[str]:
     """Get list of available RLHF algorithms"""
-    return ["GRPO", "PPO"]
+    return ["GRPO", "PPO", "DPO"]
 
 
 def get_default_rlhf_config(algorithm: str = "grpo") -> Dict[str, Any]:

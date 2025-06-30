@@ -121,3 +121,15 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 • The LLM should start work with a short friendly preamble, a small note about its thoughts around the task, and only then proceed with its usual flow, thinking, searching, generating code, etc. Friendliness towards humans helps cooperation, and humans are surprisingly fond of pleasantries.
 
 • **TDD is now mandatory for every card** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
+
+• Always execute the integration between the new feature and existing code. No task is complete if it isn't integrated in code, or explicitly marked as preparation steps
+
+### 5.1 Rules for Ring 5
+
+• Ring 5 is all about the magic. Here Streamlit might become our bottleneck. We must always choose the experience for the user. UI/UX is the target.
+
+• We must not be attached to what we already built. We might need to build UIs from scratch to satisfy the view. Here the cards give us the direction, and it is up to us to see the vision and follow it.
+
+• If we need to use react components, we will, if we need to write a page from scratch, we will, if we need to abandon streamlit for a better solution that gives us what we need, like fastapi+react, we will. The experience for the user is what matters. At this point we validated the concept and are no longer a prototype.
+
+• All design decisions are taken with the above in mind, no exceptions.

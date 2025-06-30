@@ -229,9 +229,9 @@ def page_training_config():
                     # Algorithm selection
                     rlhf_algorithm = st.selectbox(
                         "Algorithm",
-                        ["GRPO", "PPO"],
+                        ["GRPO", "PPO", "DPO"],
                         index=0,  # GRPO default
-                        help="GRPO is more sample-efficient and stable for preference data"
+                        help="GRPO is more sample-efficient and stable. DPO provides direct preference optimization without reward modeling."
                     )
                     
                     # Store RLHF config
@@ -281,7 +281,7 @@ def page_training_config():
                                     value=defaults.get("rlhf_num_generations", 6),
                                     help="Generations for group-relative scoring"
                                 )
-                            else:  # PPO
+                            elif rlhf_algorithm == "PPO":
                                 beta_kl = st.slider(
                                     "KL Penalty",
                                     min_value=0.0,
@@ -292,6 +292,23 @@ def page_training_config():
                                 )
                                 
                                 num_generations = 1  # PPO doesn't use multiple generations
+                            else:  # DPO
+                                beta_kl = st.slider(
+                                    "DPO Beta",
+                                    min_value=0.01,
+                                    max_value=0.5,
+                                    value=defaults.get("dpo_beta", 0.1),
+                                    step=0.01,
+                                    help="KL penalty for DPO (lower = closer to reference model)"
+                                )
+                                
+                                reference_free = st.checkbox(
+                                    "Reference-Free DPO",
+                                    value=defaults.get("reference_free", False),
+                                    help="Train without reference model (experimental)"
+                                )
+                                
+                                num_generations = 1  # DPO doesn't use generations
                         
                         # Update RLHF config with advanced settings
                         rlhf_config.update({
@@ -300,6 +317,13 @@ def page_training_config():
                             "beta": beta_kl,
                             "num_generations": num_generations,
                         })
+                        
+                        # Add DPO-specific config
+                        if rlhf_algorithm == "DPO":
+                            rlhf_config.update({
+                                "dpo_beta": beta_kl,
+                                "reference_free": reference_free if 'reference_free' in locals() else False,
+                            })
                     
                     st.info(f"💡 RLHF will run automatically after SFT training completes using {rlhf_algorithm}")
                 else:
