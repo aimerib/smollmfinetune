@@ -28,6 +28,7 @@ sys.path.append('..')
 from app.utils.training import TrainingManager, TrainingCallback
 from narrative_engine.model import NarrativeLLM, create_narrative_model
 from narrative_engine.config import NarrativeLLMConfig
+from narrative_engine.evaluation import run_evaluation_suite
 
 logger = logging.getLogger(__name__)
 
@@ -145,10 +146,12 @@ class CLARATrainingCallback(TrainingCallback):
     both generation and control token metrics.
     """
     
-    def __init__(self, control_tokens: List[Dict[str, Any]], **kwargs):
+    def __init__(self, control_tokens: List[Dict[str, Any]], evaluator=None, **kwargs):
         super().__init__(**kwargs)
         self.control_tokens = control_tokens
         self.control_token_accuracies = {}
+        self.evaluator = evaluator
+        self.evaluation_results = []
     
     def on_log(self, args, state, control, logs=None, **kwargs):
         """Enhanced logging with control token metrics"""
@@ -163,6 +166,30 @@ class CLARATrainingCallback(TrainingCallback):
                     'step': state.global_step,
                     'metrics': control_metrics
                 })
+    
+    def on_save(self, args, state, control, **kwargs):
+        """Run evaluation after each checkpoint save"""
+        if self.evaluator and hasattr(state, 'best_model_checkpoint'):
+            checkpoint_path = state.best_model_checkpoint
+            logger.info(f"Running evaluation on checkpoint: {checkpoint_path}")
+            
+            # Run evaluation in background to not block training
+            try:
+                eval_results = self.evaluator(checkpoint_path)
+                self.evaluation_results.append({
+                    'step': state.global_step,
+                    'checkpoint': checkpoint_path,
+                    'results': eval_results
+                })
+                
+                # Log to wandb if available
+                if eval_results.get('passed', False):
+                    logger.info(f"✅ Checkpoint evaluation PASSED at step {state.global_step}")
+                else:
+                    logger.warning(f"❌ Checkpoint evaluation FAILED at step {state.global_step}")
+                    
+            except Exception as e:
+                logger.error(f"Evaluation failed: {e}")
 
 
 class CLARALoopTrainingManager(TrainingManager):
@@ -396,11 +423,21 @@ class CLARALoopTrainingManager(TrainingManager):
                 dataloader_num_workers=0,
             )
             
+            # Create evaluator function for callback
+            def checkpoint_evaluator(checkpoint_path: str) -> Dict[str, Any]:
+                return self._run_checkpoint_evaluation(
+                    checkpoint_path=checkpoint_path,
+                    model=model,
+                    tokenizer=tokenizer,
+                    save_json=True
+                )
+            
             # Create enhanced callback for C.L.A.R.A. Loop
             callback = CLARATrainingCallback(
                 status_queue=self.status_queue,
                 character=character,
                 control_tokens=control_tokens,
+                evaluator=checkpoint_evaluator,
                 log_interval=config.get('logging_steps', 10)
             )
             
@@ -424,6 +461,14 @@ class CLARALoopTrainingManager(TrainingManager):
             # Save model
             trainer.save_model()
             logger.info("✅ C.L.A.R.A. Loop training complete!")
+            
+            # Run evaluation on final checkpoint
+            self._run_checkpoint_evaluation(
+                checkpoint_path=training_args.output_dir,
+                model=model,
+                tokenizer=tokenizer,
+                training_history=trainer.state.log_history
+            )
             
             self.status_queue.put({
                 'type': 'clara_training_complete',
@@ -468,6 +513,75 @@ class CLARALoopTrainingManager(TrainingManager):
         # For spike, return placeholder metrics
         
         return metrics
+    
+    def _run_checkpoint_evaluation(
+        self, 
+        checkpoint_path: str,
+        model: Optional[Any] = None,
+        tokenizer: Optional[Any] = None,
+        training_history: Optional[List[Dict[str, Any]]] = None,
+        save_json: bool = True
+    ) -> Dict[str, Any]:
+        """
+        Run evaluation on a checkpoint.
+        
+        Args:
+            checkpoint_path: Path to checkpoint
+            model: Loaded model (optional)
+            tokenizer: Tokenizer (optional)
+            training_history: Training metrics history
+            save_json: Whether to save results to JSON
+            
+        Returns:
+            Evaluation results dictionary
+        """
+        try:
+            # Convert training history to expected format
+            formatted_history = None
+            if training_history:
+                formatted_history = {
+                    'loss': [h.get('loss', 0) for h in training_history if 'loss' in h],
+                    'steps': [h.get('step', i) for i, h in enumerate(training_history)],
+                    'generation_loss': [h.get('generation_loss', 0) for h in training_history if 'generation_loss' in h],
+                    'control_loss': [h.get('control_loss', 0) for h in training_history if 'control_loss' in h]
+                }
+            
+            # Determine output path
+            output_json = None
+            if save_json:
+                output_json = str(Path(checkpoint_path) / "evaluation_results.json")
+            
+            # Run evaluation suite
+            results = run_evaluation_suite(
+                checkpoint_path=checkpoint_path,
+                model=model,
+                tokenizer=tokenizer,
+                training_history=formatted_history,
+                output_json=output_json,
+                log_to_wandb=True  # Always log to wandb if available
+            )
+            
+            # Log summary to training status
+            self.status_queue.put({
+                'type': 'evaluation_complete',
+                'checkpoint': checkpoint_path,
+                'passed': results['passed'],
+                'metrics': {
+                    'generation_success_rate': results.get('basic_generation', {}).get('generation_success_rate', 0),
+                    'dual_heads_functional': results.get('dual_head_sanity', {}).get('both_heads_functional', False),
+                    'loss_decreasing': results.get('training_progress', {}).get('loss_decreasing', False)
+                }
+            })
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"Checkpoint evaluation failed: {e}")
+            return {
+                'passed': False,
+                'error': str(e),
+                'checkpoint_path': checkpoint_path
+            }
 
 
 # Factory function for easy integration

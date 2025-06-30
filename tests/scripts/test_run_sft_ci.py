@@ -178,7 +178,7 @@ class TestRunBasicEvaluation:
             result = subprocess.run([
                 "python", str(script_path),
                 "--checkpoint-path", str(checkpoint_dir),
-                "--quick-mode",
+                "--mock-mode",  # Updated to match new evaluation script
                 "--output-json", str(Path(temp_dir) / "results.json")
             ], 
             capture_output=True, 
@@ -202,7 +202,7 @@ class TestRunBasicEvaluation:
             result = subprocess.run([
                 "python", str(script_path),
                 "--checkpoint-path", str(checkpoint_dir),
-                "--quick-mode",
+                "--mock-mode",  # Updated to match new evaluation script
                 "--output-json", str(results_file)
             ], 
             capture_output=True, 
@@ -218,7 +218,15 @@ class TestRunBasicEvaluation:
             with open(results_file) as f:
                 results = json.load(f)
             
-            assert "json_correctness" in results, "Should include JSON correctness metric"
-            assert "personality_alignment" in results, "Should include personality alignment metric"
-            assert isinstance(results["json_correctness"], (int, float)), "JSON correctness should be numeric"
-            assert isinstance(results["personality_alignment"], (int, float)), "Personality alignment should be numeric" 
+            # Check for the evaluation harness structure
+            assert "basic_generation" in results, "Should include basic generation results"
+            assert "passed" in results, "Should include overall pass/fail status"
+            
+            # Check nested metrics
+            gen_results = results.get("basic_generation", {})
+            assert "generation_success_rate" in gen_results, "Should include generation success rate"
+            assert "coherence_score" in gen_results, "Should include coherence score"
+            
+            # Verify metrics are numeric
+            assert isinstance(gen_results.get("generation_success_rate", 0), (int, float)), "Generation success rate should be numeric"
+            assert isinstance(gen_results.get("coherence_score", 0), (int, float)), "Coherence score should be numeric" 

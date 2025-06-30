@@ -177,7 +177,26 @@ def train_sft_model(config: SFTConfig, heartbeat_writer: Optional[HeartbeatWrite
                 "checkpoint_step": step,
                 "sharded": hasattr(config, 'shard_size_gb') and config.shard_size_gb > 0
             })
-            print(f"💾 Saved checkpoint: {checkpoint_path}")
+                            print(f"💾 Saved checkpoint: {checkpoint_path}")
+                
+                # Run evaluation on checkpoint if enabled
+                if config.get('enable_evaluation', True):
+                    print(f"🔍 Running evaluation on checkpoint {step}...")
+                    eval_cmd = [
+                        "python", "scripts/run_basic_evaluation.py",
+                        "--checkpoint-path", str(checkpoint_path),
+                        "--output-json", str(checkpoint_path / "evaluation_results.json"),
+                        "--log-to-wandb"
+                    ]
+                    try:
+                        import subprocess
+                        result = subprocess.run(eval_cmd, capture_output=True, text=True, timeout=300)
+                        if result.returncode == 0:
+                            print("✅ Evaluation passed")
+                        else:
+                            print(f"❌ Evaluation failed: {result.stderr}")
+                    except Exception as e:
+                        print(f"⚠️ Evaluation error: {e}")
     
     # Final results
     final_results = {
