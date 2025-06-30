@@ -1,5 +1,5 @@
 # narrative_engine/data_schema.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import List, Dict, Literal, Optional
 
 class Turn(BaseModel):
@@ -41,5 +41,4 @@ class DatasetSample(BaseModel):
         min_length=1
     )
 
-    class Config:
-        extra = 'forbid' # Forbid any extra fields to ensure strict schema adherence. 
+    model_config = ConfigDict(extra='forbid')  # Forbid any extra fields to ensure strict schema adherence 
