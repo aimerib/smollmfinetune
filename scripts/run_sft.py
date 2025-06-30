@@ -9,12 +9,23 @@ for experiment tracking and reproducibility.
 import argparse
 import json
 import torch
+import os
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from datetime import datetime, timezone
 
 # Import telemetry SDK
 from app.utils.telemetry_sdk import init, log, capture_cfg
+
+# Import for S3 heartbeat support
+try:
+    import boto3
+    HAS_BOTO3 = True
+except ImportError:
+    HAS_BOTO3 = False
 
 
 @dataclass
@@ -32,6 +43,69 @@ class SFTConfig:
     output_dir: str = "sft_output"
 
 
+class HeartbeatWriter:
+    """Writes training heartbeat to S3 for spot instance monitoring"""
+    
+    def __init__(self, s3_bucket: Optional[str] = None, run_id: Optional[str] = None,
+                 interval_seconds: int = 300):
+        self.s3_bucket = s3_bucket or os.getenv('S3_HEARTBEAT_BUCKET')
+        self.run_id = run_id or os.getenv('RUN_ID', f'run_{int(time.time())}')
+        self.instance_id = os.getenv('INSTANCE_ID', 'unknown')
+        self.interval_seconds = interval_seconds
+        self._stop_event = threading.Event()
+        self._thread = None
+        
+        if self.s3_bucket and HAS_BOTO3:
+            self.s3_client = boto3.client('s3')
+            self._start()
+        else:
+            if self.s3_bucket and not HAS_BOTO3:
+                print("⚠️  Heartbeat monitoring disabled: boto3 not installed")
+            self.s3_client = None
+    
+    def _write_heartbeat(self):
+        """Write heartbeat to S3"""
+        if not self.s3_client:
+            return
+            
+        heartbeat_data = {
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'instance_id': self.instance_id,
+            'run_id': self.run_id,
+            'status': 'alive'
+        }
+        
+        try:
+            self.s3_client.put_object(
+                Bucket=self.s3_bucket,
+                Key=f'heartbeats/{self.run_id}',
+                Body=json.dumps(heartbeat_data),
+                ContentType='application/json'
+            )
+            print(f"💓 Heartbeat written at {heartbeat_data['timestamp']}")
+        except Exception as e:
+            print(f"❌ Failed to write heartbeat: {e}")
+    
+    def _heartbeat_loop(self):
+        """Background thread for writing heartbeats"""
+        while not self._stop_event.is_set():
+            self._write_heartbeat()
+            self._stop_event.wait(self.interval_seconds)
+    
+    def _start(self):
+        """Start heartbeat thread"""
+        self._thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+        self._thread.start()
+        print(f"💓 Heartbeat monitoring started (interval: {self.interval_seconds}s)")
+    
+    def stop(self):
+        """Stop heartbeat thread"""
+        if self._thread:
+            self._stop_event.set()
+            self._thread.join()
+            print("💓 Heartbeat monitoring stopped")
+
+
 def prepare_dummy_dataset():
     """Prepare a dummy dataset for demonstration"""
     dummy_data = [
@@ -43,7 +117,7 @@ def prepare_dummy_dataset():
 
 
 @capture_cfg
-def train_sft_model(config: SFTConfig) -> Dict[str, Any]:
+def train_sft_model(config: SFTConfig, heartbeat_writer: Optional[HeartbeatWriter] = None) -> Dict[str, Any]:
     """
     Train SFT model with telemetry tracking.
     
@@ -145,6 +219,12 @@ def main():
     parser.add_argument("--resume-from", default=None,
                        help="Resume from checkpoint (supports sharded checkpoints)")
     
+    # Heartbeat monitoring arguments
+    parser.add_argument("--heartbeat-bucket", default=None,
+                       help="S3 bucket for heartbeat monitoring (defaults to --s3-bucket)")
+    parser.add_argument("--heartbeat-interval", type=int, default=300,
+                       help="Heartbeat interval in seconds (default: 300)")
+    
     args = parser.parse_args()
     
     # Create configuration
@@ -175,9 +255,20 @@ def main():
     
     print(f"📊 Telemetry initialized: {run_id}")
     
+    # Set up heartbeat monitoring for spot instances
+    heartbeat_bucket = args.heartbeat_bucket or args.s3_bucket
+    heartbeat_writer = None
+    
+    if heartbeat_bucket:
+        heartbeat_writer = HeartbeatWriter(
+            s3_bucket=heartbeat_bucket,
+            run_id=run_id,
+            interval_seconds=args.heartbeat_interval
+        )
+    
     try:
         # Run training
-        results = train_sft_model(config)
+        results = train_sft_model(config, heartbeat_writer=heartbeat_writer)
         
         print(f"✅ Training completed successfully!")
         print(f"📈 Final loss: {results['final_loss']:.4f}")
@@ -188,6 +279,10 @@ def main():
         log({"error": str(e), "status": "failed"})
         print(f"❌ Training failed: {e}")
         raise
+    finally:
+        # Stop heartbeat monitoring
+        if heartbeat_writer:
+            heartbeat_writer.stop()
 
 
 if __name__ == "__main__":
