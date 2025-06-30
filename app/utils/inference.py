@@ -20,6 +20,20 @@ from .observability import (
     get_observability_logger
 )
 
+# Import NarrativeLLM for advanced adapter management
+try:
+    from ..narrative_engine.model import NarrativeLLM, create_narrative_model
+    from ..narrative_engine.config import NarrativeLLMConfig
+    NARRATIVE_ENGINE_AVAILABLE = True
+except ImportError:
+    try:
+        # Try absolute import for standalone scripts
+        from narrative_engine.model import NarrativeLLM, create_narrative_model
+        from narrative_engine.config import NarrativeLLMConfig
+        NARRATIVE_ENGINE_AVAILABLE = True
+    except ImportError:
+        NARRATIVE_ENGINE_AVAILABLE = False
+
 
 class InferenceManager:
     """Manages model inference and testing"""
@@ -41,6 +55,16 @@ class InferenceManager:
         self.max_cached_models = 2  # Limit cache size to prevent memory issues
         self.cache_access_count = {}  # Track model usage for LRU eviction
         self.project_dir = Path("training_output")
+        
+        # NEW: NarrativeLLM management for hot-swapping
+        self.narrative_models = {}  # character_name -> NarrativeLLM instance
+        self.character_adapters = {}  # character_name -> {adapter_type: adapter_path}
+        self.active_adapters = {}  # character_name -> currently_active_adapter_name
+        
+        if NARRATIVE_ENGINE_AVAILABLE:
+            logger.info("✨ NarrativeLLM hot-swapping capabilities enabled")
+        else:
+            logger.warning("⚠️ NarrativeLLM not available - enhanced adapter features disabled")
     
     def set_base_model(self, model_name: str):
         """Update the base model for inference"""
@@ -693,10 +717,258 @@ class InferenceManager:
                 break
             except Exception as e:
                 print(f"Error: {str(e)}\n")
-    
+        
+        logger.info("Chat session ended")
+
     def clear_model_cache(self):
-        """Clear the model cache to free up memory"""
+        """Clear all cached models to free memory"""
+        logger.info("Clearing model cache...")
         self.loaded_models.clear()
         self.cache_access_count.clear()
-        torch.cuda.empty_cache() if torch.cuda.is_available() else None
-        logger.info("Model cache cleared") 
+        
+        # Also clear NarrativeLLM models
+        self.narrative_models.clear()
+        self.character_adapters.clear()
+        self.active_adapters.clear()
+        
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logger.info("Model cache cleared")
+
+    # ============================================================================
+    # NEW: NarrativeLLM Hot-Swapping Capabilities
+    # ============================================================================
+    
+    def _find_all_character_adapters(self, character_name: str) -> Dict[str, Path]:
+        """Find all available adapters for a character"""
+        adapters = {}
+        adapter_dir = self.project_dir / "adapters" / character_name
+        
+        if not adapter_dir.exists():
+            return adapters
+        
+        # Check for SFT adapter (main directory)
+        if (adapter_dir / "adapter.safetensors").exists():
+            adapters["SFT"] = adapter_dir
+        
+        # Check for RLHF adapters
+        rlhf_dir = adapter_dir / "rlhf_output"
+        if rlhf_dir.exists():
+            for rlhf_type in ["adapter_grpo", "adapter_ppo"]:
+                rlhf_path = rlhf_dir / rlhf_type
+                if rlhf_path.exists() and (rlhf_path / "adapter.safetensors").exists():
+                    adapter_type = f"RLHF-{rlhf_type.split('_')[1].upper()}"
+                    adapters[adapter_type] = rlhf_path
+        
+        # Check for checkpoints
+        for checkpoint_dir in adapter_dir.iterdir():
+            if (checkpoint_dir.is_dir() and 
+                checkpoint_dir.name.startswith('checkpoint-') and
+                (checkpoint_dir / "adapter.safetensors").exists()):
+                checkpoint_name = checkpoint_dir.name
+                adapters[f"Checkpoint-{checkpoint_name}"] = checkpoint_dir
+        
+        logger.info(f"Found {len(adapters)} adapters for {character_name}: {list(adapters.keys())}")
+        return adapters
+    
+    def _get_preferred_adapter_type(self, adapters: Dict[str, Path]) -> str:
+        """Get the preferred adapter type (RLHF > SFT > Checkpoint)"""
+        # Preference order: RLHF-GRPO > RLHF-PPO > SFT > Checkpoints
+        preference_order = ["RLHF-GRPO", "RLHF-PPO", "SFT"]
+        
+        for preferred in preference_order:
+            if preferred in adapters:
+                return preferred
+        
+        # Fall back to any checkpoint
+        for adapter_type in adapters.keys():
+            if adapter_type.startswith("Checkpoint-"):
+                return adapter_type
+        
+        # Return first available if none match preferences
+        return list(adapters.keys())[0] if adapters else None
+    
+    def load_character_with_hot_swap(self, character_name: str) -> str:
+        """Load character into NarrativeLLM with hot-swapping capability"""
+        if not NARRATIVE_ENGINE_AVAILABLE:
+            return "❌ NarrativeLLM not available. Please install narrative engine components."
+        
+        try:
+            # Find all available adapters for this character
+            adapters = self._find_all_character_adapters(character_name)
+            
+            if not adapters:
+                return f"❌ No adapters found for character '{character_name}'"
+            
+            # Store adapter info
+            self.character_adapters[character_name] = adapters
+            
+            # Create NarrativeLLM instance
+            config = NarrativeLLMConfig(base_model_name=self.base_model)
+            narrative_model = NarrativeLLM(config)
+            
+            # Load all adapters into the model
+            loaded_count = 0
+            for adapter_type, adapter_path in adapters.items():
+                try:
+                    adapter_name = f"{character_name}_{adapter_type}"
+                    narrative_model.load_adapter(str(adapter_path), adapter_name)
+                    loaded_count += 1
+                    logger.info(f"✅ Loaded {adapter_type} adapter for {character_name}")
+                except Exception as e:
+                    logger.error(f"❌ Failed to load {adapter_type} adapter: {e}")
+            
+            if loaded_count == 0:
+                return f"❌ Failed to load any adapters for {character_name}"
+            
+            # Set default adapter (prefer RLHF > SFT)
+            preferred_type = self._get_preferred_adapter_type(adapters)
+            default_adapter = f"{character_name}_{preferred_type}"
+            narrative_model.set_active_adapter(default_adapter)
+            
+            # Store the model and track active adapter
+            self.narrative_models[character_name] = narrative_model
+            self.active_adapters[character_name] = default_adapter
+            
+            logger.info(f"🎮 Character '{character_name}' loaded with {loaded_count} adapters, active: {preferred_type}")
+            return f"✅ Loaded {character_name} with {loaded_count} adapters (active: {preferred_type})"
+            
+        except Exception as e:
+            logger.error(f"Failed to load character {character_name}: {e}")
+            return f"❌ Failed to load character: {str(e)}"
+    
+    def switch_character_adapter(self, character_name: str, adapter_type: str) -> str:
+        """Hot-swap between character adapters"""
+        if not NARRATIVE_ENGINE_AVAILABLE:
+            return "❌ NarrativeLLM not available"
+        
+        if character_name not in self.narrative_models:
+            return f"❌ Character '{character_name}' not loaded. Load it first with load_character_with_hot_swap()"
+        
+        if character_name not in self.character_adapters:
+            return f"❌ No adapter info for character '{character_name}'"
+        
+        available_adapters = self.character_adapters[character_name]
+        if adapter_type not in available_adapters:
+            available_types = list(available_adapters.keys())
+            return f"❌ Adapter type '{adapter_type}' not available. Available: {available_types}"
+        
+        try:
+            model = self.narrative_models[character_name]
+            adapter_name = f"{character_name}_{adapter_type}"
+            
+            # Switch to the requested adapter
+            model.set_active_adapter(adapter_name)
+            self.active_adapters[character_name] = adapter_name
+            
+            logger.info(f"🔄 Switched {character_name} to {adapter_type} adapter")
+            return f"✅ Switched {character_name} to {adapter_type} mode"
+            
+        except Exception as e:
+            logger.error(f"Failed to switch adapter for {character_name}: {e}")
+            return f"❌ Failed to switch adapter: {str(e)}"
+    
+    def get_character_info(self, character_name: str) -> Dict[str, Any]:
+        """Get information about a loaded character"""
+        if character_name not in self.narrative_models:
+            return {"loaded": False, "error": "Character not loaded"}
+        
+        available_adapters = self.character_adapters.get(character_name, {})
+        active_adapter = self.active_adapters.get(character_name, "Unknown")
+        
+        # Extract just the adapter type from the full adapter name
+        active_type = active_adapter.replace(f"{character_name}_", "") if active_adapter else "Unknown"
+        
+        # Safely get model device
+        try:
+            model_device = str(next(self.narrative_models[character_name].base_model.parameters()).device)
+        except (StopIteration, AttributeError):
+            model_device = "unknown"
+        
+        return {
+            "loaded": True,
+            "character_name": character_name,
+            "available_adapters": list(available_adapters.keys()),
+            "active_adapter": active_type,
+            "total_adapters": len(available_adapters),
+            "model_device": model_device
+        }
+    
+    def generate_with_character(self, character_name: str, prompt: str, 
+                              max_tokens: int = 150, temperature: float = 0.8,
+                              top_p: float = 0.9, **kwargs) -> Dict[str, Any]:
+        """Generate response using NarrativeLLM with control tokens"""
+        if not NARRATIVE_ENGINE_AVAILABLE:
+            return {"error": "NarrativeLLM not available"}
+        
+        if character_name not in self.narrative_models:
+            return {"error": f"Character '{character_name}' not loaded"}
+        
+        try:
+            model = self.narrative_models[character_name]
+            tokenizer = model.tokenizer
+            
+            # Tokenize the input
+            inputs = tokenizer(prompt, return_tensors="pt")
+            inputs = {k: v.to(model.base_model.device) for k, v in inputs.items()}
+            
+            # Generate with control tokens
+            result = model.generate_with_control(
+                input_ids=inputs["input_ids"],
+                attention_mask=inputs.get("attention_mask"),
+                max_new_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                user_input=prompt,
+                previous_context="",  # Could be enhanced with conversation history
+                **kwargs
+            )
+            
+            # Get current adapter info
+            active_adapter = self.active_adapters.get(character_name, "Unknown")
+            active_type = active_adapter.replace(f"{character_name}_", "") if active_adapter else "Unknown"
+            
+            return {
+                "response": result["generated_text"],
+                "control_tokens": result.get("control_tokens", []),
+                "emotional_state": result.get("emotional_state", {}),
+                "active_adapter": active_type,
+                "character_name": character_name,
+                "surprise_score": result.get("surprise_score", 0.0)
+            }
+            
+        except Exception as e:
+            logger.error(f"Generation failed for {character_name}: {e}")
+            return {"error": f"Generation failed: {str(e)}"}
+    
+    def list_loaded_characters(self) -> List[Dict[str, Any]]:
+        """List all loaded characters with their adapter information"""
+        characters = []
+        for character_name in self.narrative_models.keys():
+            info = self.get_character_info(character_name)
+            characters.append(info)
+        return characters
+    
+    def unload_character(self, character_name: str) -> str:
+        """Unload a character to free memory"""
+        if character_name not in self.narrative_models:
+            return f"❌ Character '{character_name}' not loaded"
+        
+        try:
+            # Remove from all tracking dictionaries
+            del self.narrative_models[character_name]
+            if character_name in self.character_adapters:
+                del self.character_adapters[character_name]
+            if character_name in self.active_adapters:
+                del self.active_adapters[character_name]
+            
+            # Clear GPU memory if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            
+            logger.info(f"🗑️ Unloaded character '{character_name}'")
+            return f"✅ Unloaded character '{character_name}'"
+            
+        except Exception as e:
+            logger.error(f"Failed to unload character {character_name}: {e}")
+            return f"❌ Failed to unload character: {str(e)}" 
