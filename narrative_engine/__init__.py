@@ -1,57 +1,62 @@
 """
-Narrative Engine - Dual-Head Architecture for Bilingual AI
+Narrative Engine - Advanced model architecture for character AI
 
-This module implements the innovative dual-head architecture that enables
-models to seamlessly switch between natural language generation and
-structured action/tool use. Now enhanced with memory formation capabilities.
+This module implements:
+- Dual-head model architecture for narrative + actions
+- Memory system with control tokens and neural memory head
+- Runtime state management for persistent world simulation
+- Custom loss functions and training loops
 """
 
-from .model import NarrativeLLM, create_narrative_model, NarrativeLLMConfig
-from .data_pipeline import DatasetProcessor, NarrativeDataset
-from .data_schema import DatasetSample, Turn
+from .model import NarrativeLLM, EmotionalMomentumTracker, SurpriseDetector
 from .loss import DualHeadLoss
 from .config import NarrativeLLMConfig
 from .memory_schema import (
-    MemoryAnnotation,
+    MemoryAnnotation, 
     MemoryFormationEvent,
     MemoryQuery,
     MemoryRetrievalResult,
     MemoryTrainingBatch,
     EmotionalMomentumState,
 )
-from .memory_generator import (
-    MemoryGenerator,
-    MemoryGenerationRequest,
-    generate_memories_for_dataset,
+from .memory_generator import MemoryGenerator
+from .state_manager import (
+    StateManager,
+    EntityState,
+    StateUpdate,
+    StateTransaction,
+    StateQuery,
+    EventLog,
+    StateManagerError,
+    TransactionError,
 )
 
 __all__ = [
-    # Core model
-    'NarrativeLLM',
-    'create_narrative_model',
-    'NarrativeLLMConfig',
+    # Model components
+    "NarrativeLLM",
+    "EmotionalMomentumTracker", 
+    "SurpriseDetector",
+    "DualHeadLoss",
+    "NarrativeLLMConfig",
     
-    # Data processing
-    'DatasetProcessor',
-    'NarrativeDataset', 
-    'DatasetSample',
-    'Turn',
+    # Memory system
+    "MemoryAnnotation",
+    "MemoryFormationEvent",
+    "MemoryQuery",
+    "MemoryRetrievalResult", 
+    "MemoryTrainingBatch",
+    "EmotionalMomentumState",
+    "MemoryGenerator",
     
-    # Loss function
-    'DualHeadLoss',
-    
-    # Memory schemas
-    'MemoryAnnotation',
-    'MemoryFormationEvent', 
-    'MemoryQuery',
-    'MemoryRetrievalResult',
-    'MemoryTrainingBatch',
-    'EmotionalMomentumState',
-    
-    # Memory generation
-    'MemoryGenerator',
-    'MemoryGenerationRequest',
-    'generate_memories_for_dataset',
+    # State management
+    "StateManager",
+    "EntityState",
+    "StateUpdate",
+    "StateTransaction",
+    "StateQuery",
+    "EventLog",
+    "StateManagerError",
+    "TransactionError",
 ]
 
 __version__ = '0.1.0' 
