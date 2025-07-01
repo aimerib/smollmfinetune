@@ -208,103 +208,589 @@ def stream_character_voice(text, character_id, emotion_context):
 
 ---
 
-## R6-5: Multi-Character Conversation & Advanced Features
+## R6-5: Multimodal NarrativeLM Architecture Extension
 
-**Objective**: Enable complex multi-character conversations and implement advanced voice features
+**Objective**: Extend NarrativeLM's triple-head architecture to quad-head with integrated speech generation capabilities
+
+**Technical Architecture Design**:
+
+**Current Triple-Head → Quad-Head Extension**:
+```
+Generation Head: Text token prediction (existing)
+Control Head: Narrative control token prediction (existing)
+Memory Head: Memory update operations (existing)
+Speech Head: Mel-spectrogram frame prediction (NEW)
+```
+
+**Speech Head Detailed Implementation**:
+
+**Core Architecture**:
+- **Base Design**: Multi-layer transformer decoder with speech-specific modifications
+- **Model Dimensions**: 768 hidden units, 12 attention heads, 6 decoder layers
+- **Input Processing**: Receives shared transformer representations from backbone
+- **Output Specification**: 80-dimensional mel-spectrogram frames at 25ms resolution
+- **Temporal Modeling**: Causal attention with 1000-frame context window
+
+**Speech Tokenization Strategy** (Based on Visatronic/dMel Research):
+- **Approach**: Discrete mel-spectrogram quantization following dMel methodology
+- **Quantization**: 4-bit quantization per mel-bin (16 discrete levels)
+- **Codebook**: Evenly spaced values in [mel_min, mel_max] range computed across dataset
+- **Frame Structure**: 80 mel-bins × 4-bit quantization = 320 discrete tokens per frame
+- **Embedding**: Each discrete value mapped via learnable embedding to 768-dim space
+
+**Multi-Head Integration Architecture**:
+```python
+class QuadHeadNarrativeLM(nn.Module):
+    def __init__(self):
+        self.shared_backbone = TransformerBackbone(hidden_dim=768)
+        self.generation_head = GenerationHead(vocab_size=50000)
+        self.control_head = ControlHead(control_vocab=200)
+        self.memory_head = MemoryHead(memory_dim=512)
+        self.speech_head = SpeechHead(mel_bins=80, quantization_bits=4)
+        
+    def forward(self, input_ids, speech_frames=None):
+        # Shared representation
+        hidden_states = self.shared_backbone(input_ids)
+        
+        # Multi-head prediction
+        text_logits = self.generation_head(hidden_states)
+        control_logits = self.control_head(hidden_states)
+        memory_updates = self.memory_head(hidden_states)
+        
+        # Speech generation with cross-attention to text
+        if self.training or speech_frames is not None:
+            speech_logits = self.speech_head(hidden_states, speech_frames)
+            return text_logits, control_logits, memory_updates, speech_logits
+        return text_logits, control_logits, memory_updates
+```
+
+**Speech Head Internal Architecture**:
+```python
+class SpeechHead(nn.Module):
+    def __init__(self, mel_bins=80, quantization_bits=4):
+        self.mel_bins = mel_bins
+        self.num_discrete_values = 2 ** quantization_bits  # 16 levels
+        
+        # Speech-specific processing layers
+        self.speech_projector = nn.Linear(768, 512)
+        self.temporal_attention = nn.MultiheadAttention(512, 8)
+        self.mel_decoders = nn.ModuleList([
+            nn.Linear(512, self.num_discrete_values) 
+            for _ in range(mel_bins)
+        ])
+        
+        # Cross-modal attention for text-speech alignment
+        self.cross_attention = nn.MultiheadAttention(512, 8)
+        
+    def forward(self, hidden_states, text_context):
+        # Project to speech space
+        speech_features = self.speech_projector(hidden_states)
+        
+        # Temporal modeling within speech
+        speech_features, _ = self.temporal_attention(
+            speech_features, speech_features, speech_features
+        )
+        
+        # Cross-attention with text for alignment
+        aligned_features, _ = self.cross_attention(
+            speech_features, text_context, text_context
+        )
+        
+        # Predict discrete values for each mel-bin independently
+        mel_predictions = []
+        for i, decoder in enumerate(self.mel_decoders):
+            mel_predictions.append(decoder(aligned_features))
+        
+        return torch.stack(mel_predictions, dim=-1)  # [batch, seq, 16, 80]
+```
+
+**Training Configuration**:
+- **Multi-Task Loss Function**:
+  ```python
+  total_loss = (
+      1.0 * text_generation_loss +      # Cross-entropy for text
+      0.5 * control_prediction_loss +   # Cross-entropy for controls  
+      0.3 * memory_update_loss +        # MSE for memory operations
+      2.0 * speech_generation_loss      # Cross-entropy for mel-frames
+  )
+  ```
+- **Curriculum Learning**: 
+  - Phase 1 (0-50k steps): Text + Control + Memory heads only
+  - Phase 2 (50k-100k steps): Add speech head with 50% probability
+  - Phase 3 (100k+ steps): Full multimodal training
+- **Data Requirements**: Text-speech aligned pairs with control annotations
+- **Optimization**: AdamW (lr=1e-4), gradient clipping (max_norm=1.0), warmup schedule
+
+**Speech Generation Pipeline**:
+1. **Input Processing**: Text tokens processed through shared backbone
+2. **Cross-Modal Attention**: Speech head attends to text representations
+3. **Mel-Frame Prediction**: Generate discrete mel-spectrogram values autoregressively
+4. **Vocoder Integration**: Convert discrete mel-frames to continuous spectrograms
+5. **Audio Synthesis**: HiFi-GAN vocoder generates final waveform
+
+**Technical Integration Details**:
+- **Frame Alignment**: 25ms mel-frames aligned with ~3-4 text tokens (assuming 150ms per token)
+- **Attention Masking**: Causal masking for autoregressive speech generation
+- **Memory Efficiency**: Gradient checkpointing for large sequence lengths
+- **Streaming Support**: Frame-by-frame generation for real-time synthesis
+
+**Deliverables**:
+- Quad-head NarrativeLM architecture implementation
+- Speech head with mel-spectrogram prediction
+- Multi-task training pipeline with curriculum learning
+- Speech-text alignment and synchronization system
+- Vocoder integration and audio synthesis pipeline
+
+**Success Criteria**:
+- Successfully extend tri-head to quad-head without degrading existing performance
+- Generate coherent mel-spectrograms synchronized with text generation
+- Achieve reasonable speech quality after vocoder conversion
+- Maintain real-time inference capability for interactive use
+
+---
+
+## R6-6: Advanced Custom Speech Architecture (Research Alternative)
+
+**Objective**: Develop novel speech synthesis architecture optimized specifically for narrative generation (alternative to Orpheus)
 
 **Technical Requirements**:
-- Implement multi-speaker conversation management
-- Create voice interaction dynamics (interruptions, overlaps)
-- Develop conversation flow control
-- Build advanced voice features (whispers, shouts, etc.)
+- Design transformer-based speech synthesis architecture
+- Implement flow matching for continuous mel-spectrogram generation
+- Develop narrative-aware attention mechanisms
+- Create end-to-end training framework
 
-**Multi-Character Conversations**:
-- **Speaker Management**: Track multiple character voices in conversations
-- **Turn-Taking**: Implement natural conversation flow patterns
-- **Voice Switching**: Seamless transitions between character voices
-- **Conversation Memory**: Maintain context across character interactions
+**Architecture Specifications**:
+
+**Flow-Matching Speech Generator** (Based on Flow-Omni Research):
+- **Base Architecture**: Continuous mel-spectrogram prediction using flow matching
+- **Model Size**: 1.5B parameters (encoder: 512M, decoder: 1B)
+- **Flow Matching Implementation**:
+  ```python
+  # Continuous flow matching for mel-spectrogram generation
+  def flow_matching_loss(model_output, target_mel, t, noise):
+      # Optimal transport conditional vector field
+      mu_t = t * target_mel
+      sigma_t = 1 - (1 - sigma_min) * t
+      
+      # Ground truth vector field
+      u_t = (target_mel - (1 - sigma_min) * noise) / (1 - (1 - sigma_min) * t)
+      
+      # Model prediction
+      v_t = model_output
+      
+      # Flow matching loss
+      return torch.mean((u_t - v_t) ** 2)
+  ```
+
+**Multi-Scale Attention System**:
+- **Local Attention**: 512-frame window for phoneme-level detail (25ms × 512 = 12.8s context)
+- **Global Attention**: Full sequence attention for prosody and rhythm consistency
+- **Cross-Modal Attention**: Text-to-speech alignment with learnable alignment matrix
+- **Control-Guided Attention**: Narrative control tokens modulate attention weights
+
+**Narrative-Aware Components**:
+```python
+class NarrativeAwareAttention(nn.Module):
+    def __init__(self, hidden_dim=768):
+        self.text_attention = nn.MultiheadAttention(hidden_dim, 12)
+        self.control_modulator = nn.Linear(200, hidden_dim)  # 200 control tokens
+        self.character_embeddings = nn.Embedding(1000, hidden_dim)  # 1000 characters
+        
+    def forward(self, speech_hidden, text_hidden, control_tokens, character_id):
+        # Character-specific attention bias
+        char_bias = self.character_embeddings(character_id)
+        
+        # Control-modulated attention
+        control_modulation = self.control_modulator(control_tokens)
+        modulated_text = text_hidden + control_modulation
+        
+        # Cross-modal attention with character bias
+        attended_output, alignment = self.text_attention(
+            query=speech_hidden + char_bias,
+            key=modulated_text,
+            value=modulated_text
+        )
+        return attended_output, alignment
+```
+
+**Training Framework**:
+- **Loss Functions**: 
+  ```python
+  total_loss = (
+      flow_matching_loss +           # Continuous mel generation
+      0.3 * perceptual_loss +        # STFT-based perceptual quality
+      0.1 * control_consistency_loss + # Control token adherence
+      0.2 * adversarial_loss         # GAN-based realism
+  )
+  ```
+- **Training Data Requirements**: 
+  - 10k+ hours of narrative-style speech with emotion annotations
+  - Character-labeled dialogue datasets
+  - Control token aligned speech corpora
+- **Optimization Strategy**:
+  - Mixed-precision training (FP16) for memory efficiency
+  - Gradient accumulation over 8 steps for effective batch size
+  - Learning rate: 1e-4 with cosine annealing
+  - Gradient clipping: max_norm=1.0
+
+**Novel Architecture Components**:
+
+**Narrative-Aware Positional Encoding**:
+```python
+class NarrativePositionalEncoding(nn.Module):
+    def __init__(self, d_model=768, max_len=8192):
+        # Standard sinusoidal encoding
+        self.pe = self._generate_positional_encoding(d_model, max_len)
+        
+        # Narrative structure encoding (chapter, scene, dialogue turn)
+        self.structure_embeddings = nn.ModuleDict({
+            'chapter': nn.Embedding(100, d_model // 4),
+            'scene': nn.Embedding(1000, d_model // 4),
+            'turn': nn.Embedding(50, d_model // 4),
+            'emotion': nn.Embedding(20, d_model // 4)
+        })
+        
+    def forward(self, x, narrative_context):
+        pos_encoding = self.pe[:x.size(1)]
+        
+        # Add narrative structure information
+        structure_encoding = torch.cat([
+            self.structure_embeddings['chapter'](narrative_context['chapter']),
+            self.structure_embeddings['scene'](narrative_context['scene']),
+            self.structure_embeddings['turn'](narrative_context['turn']),
+            self.structure_embeddings['emotion'](narrative_context['emotion'])
+        ], dim=-1)
+        
+        return x + pos_encoding + structure_encoding
+```
+
+**Character-Conditioned Layer Normalization**:
+```python
+class CharacterConditionedLayerNorm(nn.Module):
+    def __init__(self, normalized_shape, num_characters=1000):
+        self.ln = nn.LayerNorm(normalized_shape, elementwise_affine=False)
+        self.character_scale = nn.Embedding(num_characters, normalized_shape)
+        self.character_shift = nn.Embedding(num_characters, normalized_shape)
+        
+    def forward(self, x, character_id):
+        normalized = self.ln(x)
+        scale = self.character_scale(character_id)
+        shift = self.character_shift(character_id)
+        return normalized * scale + shift
+```
+
+**Advanced Features**:
+- **Zero-Shot Voice Cloning**: 
+  - Speaker embedding extraction from 3-second reference audio
+  - Adaptive voice characteristics based on character profiles
+  - Cross-lingual voice transfer capabilities
+- **Real-Time Voice Conversion**: 
+  - Streaming inference with <100ms latency
+  - Dynamic character voice switching mid-sentence
+  - Emotion-aware voice morphing
+- **Multi-Language Architecture**:
+  - Language-specific mel-spectrogram predictors
+  - Cross-lingual phoneme alignment
+  - Cultural accent modeling
+
+**Evaluation Framework**:
+- **Objective Metrics**:
+  - MOS (Mean Opinion Score) for naturalness
+  - WER (Word Error Rate) for intelligibility  
+  - Emotion accuracy via classification models
+  - Character voice consistency metrics
+- **Subjective Evaluation**:
+  - Human preference studies
+  - A/B testing against commercial TTS
+  - Narrative immersion assessment
+
+**Deliverables**:
+- Custom flow-matching speech synthesis architecture
+- Narrative-aware attention mechanisms implementation
+- Zero-shot voice cloning system
+- Multi-language support framework
+- Comprehensive evaluation and benchmarking suite
+
+**Success Criteria**:
+- Achieve human-level naturalness in narrative contexts
+- Successfully integrate control tokens for fine-grained emotion control
+- Support real-time generation for interactive applications
+- Demonstrate superior narrative immersion compared to existing TTS systems
+
+---
+
+## R6-7: Multi-Character Conversation & Advanced Speech Features
+
+**Objective**: Enable sophisticated multi-character conversations and implement advanced speech features for immersive narrative experiences
+
+**Technical Requirements**:
+- Implement multi-speaker conversation management with voice switching
+- Create advanced prosody control for narrative contexts
+- Develop conversation dynamics (interruptions, overlaps, emotional contagion)
+- Build environmental audio effects and spatial positioning
+
+**Multi-Character Voice Management**:
+
+**Speaker Switching Architecture**:
+```python
+class MultiCharacterManager:
+    def __init__(self):
+        self.active_characters = {}  # character_id -> voice_model
+        self.conversation_state = ConversationState()
+        self.voice_scheduler = VoiceScheduler()
+        
+    async def generate_dialogue(self, dialogue_sequence):
+        for turn in dialogue_sequence:
+            character_voice = self.get_character_voice(turn.character_id)
+            
+            # Apply conversation context
+            speech_context = self.build_speech_context(
+                character=turn.character_id,
+                emotion=turn.emotion_state,
+                previous_speakers=self.conversation_state.recent_speakers,
+                narrative_tension=self.conversation_state.tension_level
+            )
+            
+            # Generate with context-aware parameters
+            audio_chunk = await character_voice.generate_streaming(
+                text=turn.text,
+                context=speech_context,
+                interrupt_handler=self.handle_interruptions
+            )
+            
+            yield audio_chunk
+```
+
+**Advanced Prosody Control System**:
+- **Narrative Pacing**: Dynamic speech rate based on story tension
+  ```python
+  def calculate_narrative_pace(narrative_context):
+      base_rate = 1.0
+      tension_modifier = narrative_context.tension * 0.3  # 0-30% speed increase
+      scene_type_modifier = {
+          'action': 0.2,    # 20% faster
+          'dialogue': 0.0,  # normal speed
+          'reflection': -0.2 # 20% slower
+      }[narrative_context.scene_type]
+      
+      return base_rate + tension_modifier + scene_type_modifier
+  ```
+- **Emotional Contagion**: Characters react to each other's emotional states
+- **Turn-Taking Dynamics**: Natural conversation flow with realistic pauses
+- **Emphasis Control**: Stress important narrative elements through prosody
+
+**Conversation Dynamics Implementation**:
+
+**Interruption System**:
+```python
+class InterruptionHandler:
+    def __init__(self):
+        self.active_speakers = []
+        self.interruption_probability = 0.1  # Base chance
+        
+    def should_interrupt(self, current_speaker, interrupting_character):
+        # Character relationship affects interruption likelihood
+        relationship = self.get_relationship(current_speaker, interrupting_character)
+        
+        interruption_chance = (
+            self.interruption_probability * 
+            relationship.familiarity * 
+            interrupting_character.personality.assertiveness *
+            self.narrative_tension_factor()
+        )
+        
+        return random.random() < interruption_chance
+        
+    def handle_interruption(self, current_audio, interrupting_audio):
+        # Fade out current speaker, fade in interrupting speaker
+        fade_duration = 0.5  # seconds
+        mixed_audio = self.crossfade_voices(
+            current_audio, interrupting_audio, fade_duration
+        )
+        return mixed_audio
+```
+
+**Overlap Management**:
+```python
+class ConversationMixer:
+    def __init__(self):
+        self.max_simultaneous_speakers = 3
+        self.voice_channels = {}
+        
+    def mix_simultaneous_speech(self, voice_streams):
+        # Implement ducking: reduce volume of background speakers
+        primary_speaker = voice_streams[0]  # Most recent speaker
+        background_speakers = voice_streams[1:]
+        
+        mixed_audio = primary_speaker
+        for bg_voice in background_speakers:
+            # Reduce background voice volume based on importance
+            bg_voice.volume *= 0.3  # 30% volume for background
+            mixed_audio = self.audio_mix(mixed_audio, bg_voice)
+            
+        return mixed_audio
+```
 
 **Advanced Voice Features**:
-- **Dynamic Range**: Support whispers (`<whisper>`) to shouts (`<yell>`)
-- **Environmental Effects**: Simulate acoustic environments
-- **Voice Layering**: Support background character voices
-- **Crowd Simulation**: Generate multiple background voices
 
-**Conversation Dynamics**:
-- **Interruption Handling**: Natural mid-sentence voice changes
-- **Overlap Management**: Handle simultaneous character speech
-- **Pace Matching**: Synchronize conversation rhythm
-- **Emotional Contagion**: Characters react to each other's emotions
+**Dynamic Range & Environmental Effects**:
+```python
+class AdvancedVoiceEffects:
+    def apply_distance_effect(self, audio, distance):
+        """Apply distance-based volume and frequency filtering"""
+        volume_factor = 1.0 / max(1.0, distance * 0.5)
+        frequency_cutoff = 8000 - (distance * 1000)  # Reduce high frequencies
+        
+        filtered_audio = self.low_pass_filter(audio, frequency_cutoff)
+        return filtered_audio * volume_factor
+        
+    def apply_environmental_reverb(self, audio, environment):
+        """Apply environmental acoustic effects"""
+        reverb_settings = {
+            'indoor': {'decay': 0.3, 'damping': 0.7},
+            'outdoor': {'decay': 0.1, 'damping': 0.9},
+            'cave': {'decay': 1.2, 'damping': 0.3},
+            'forest': {'decay': 0.5, 'damping': 0.8}
+        }
+        
+        settings = reverb_settings.get(environment, reverb_settings['indoor'])
+        return self.apply_reverb(audio, **settings)
+        
+    def apply_emotional_processing(self, audio, emotion_state):
+        """Modify audio characteristics based on emotional state"""
+        if emotion_state.fear > 0.7:
+            audio = self.add_tremolo(audio, rate=6.0, depth=0.4)
+        elif emotion_state.anger > 0.7:
+            audio = self.add_distortion(audio, amount=0.2)
+        elif emotion_state.sadness > 0.7:
+            audio = self.reduce_high_frequencies(audio, cutoff=6000)
+            
+        return audio
+```
 
-**Integration Features**:
-- Connect with dialogue generation system
-- Interface with character relationship tracking
-- Support branching conversation paths
-- Enable user-driven conversation control
+**Spatial Audio Positioning**:
+```python
+class SpatialAudioEngine:
+    def __init__(self):
+        self.listener_position = (0, 0, 0)
+        self.character_positions = {}
+        
+    def position_character_voice(self, audio, character_id):
+        """Apply 3D positioning to character voice"""
+        char_pos = self.character_positions[character_id]
+        
+        # Calculate distance and angle
+        distance = self.calculate_distance(self.listener_position, char_pos)
+        angle = self.calculate_angle(self.listener_position, char_pos)
+        
+        # Apply HRTF (Head-Related Transfer Function) for 3D audio
+        left_channel, right_channel = self.apply_hrtf(audio, angle, distance)
+        
+        return self.create_stereo_audio(left_channel, right_channel)
+```
+
+**Character Voice Evolution System**:
+```python
+class VoiceEvolutionEngine:
+    def __init__(self):
+        self.character_voice_history = {}
+        self.adaptation_rate = 0.01  # How quickly voices evolve
+        
+    def evolve_character_voice(self, character_id, interaction_context):
+        """Gradually evolve character voice based on story events"""
+        current_voice = self.get_character_voice(character_id)
+        
+        # Factor in story events that might change voice
+        trauma_events = interaction_context.get_trauma_events()
+        positive_events = interaction_context.get_positive_events()
+        
+        voice_modifications = {}
+        
+        # Trauma makes voice more subdued
+        if trauma_events:
+            voice_modifications['energy'] = -0.1
+            voice_modifications['pitch_variance'] = -0.05
+            
+        # Positive events make voice more expressive
+        if positive_events:
+            voice_modifications['energy'] = +0.1
+            voice_modifications['emotion_range'] = +0.05
+            
+        # Apply gradual changes
+        adapted_voice = self.apply_voice_modifications(
+            current_voice, voice_modifications, self.adaptation_rate
+        )
+        
+        return adapted_voice
+```
+
+**Integration Architecture**:
+```python
+class NarrativeVoiceOrchestrator:
+    def __init__(self):
+        self.character_manager = MultiCharacterManager()
+        self.conversation_mixer = ConversationMixer()
+        self.effects_engine = AdvancedVoiceEffects()
+        self.spatial_engine = SpatialAudioEngine()
+        self.evolution_engine = VoiceEvolutionEngine()
+        
+    async def generate_scene_audio(self, scene_data):
+        """Generate complete audio for a narrative scene"""
+        scene_audio_streams = []
+        
+        for dialogue_turn in scene_data.dialogue_sequence:
+            # Get evolved character voice
+            character_voice = self.evolution_engine.evolve_character_voice(
+                dialogue_turn.character_id, scene_data.context
+            )
+            
+            # Generate basic speech
+            raw_audio = await character_voice.generate(dialogue_turn.text)
+            
+            # Apply environmental effects
+            environmental_audio = self.effects_engine.apply_environmental_reverb(
+                raw_audio, scene_data.environment
+            )
+            
+            # Apply emotional processing
+            emotional_audio = self.effects_engine.apply_emotional_processing(
+                environmental_audio, dialogue_turn.emotion_state
+            )
+            
+            # Apply spatial positioning
+            positioned_audio = self.spatial_engine.position_character_voice(
+                emotional_audio, dialogue_turn.character_id
+            )
+            
+            scene_audio_streams.append(positioned_audio)
+            
+        # Mix all audio streams with conversation dynamics
+        final_scene_audio = self.conversation_mixer.mix_conversation(
+            scene_audio_streams, scene_data.conversation_dynamics
+        )
+        
+        return final_scene_audio
+```
 
 **Deliverables**:
-- Multi-character conversation engine
-- Advanced voice feature library
-- Conversation dynamics system
-- Enhanced narrative interaction tools
+- Multi-character conversation management system
+- Advanced prosody control engine
+- Conversation dynamics with interruption/overlap handling
+- Environmental audio effects and spatial positioning
+- Character voice evolution system
+- Integrated narrative voice orchestration platform
 
 **Success Criteria**:
-- Support 3+ characters in simultaneous conversation
-- Natural conversation flow and turn-taking
-- Advanced voice features work reliably
-- Seamless integration with narrative system
+- Support 3+ characters in simultaneous conversation with natural dynamics
+- Seamless voice switching and character consistency
+- Realistic conversation interruptions and overlaps
+- Environmental audio effects enhance narrative immersion
+- Character voices evolve naturally based on story events
+- System integrates smoothly with existing narrative generation
 
 ---
 
-## R6-6: Custom TTS Architecture Development (Future)
-
-**Objective**: Develop custom TTS architecture integrated with the tri-head model for advanced capabilities
-
-**Technical Requirements**:
-- Design quad-head architecture (Generation, Control, Memory, Speech)
-- Implement speech head for mel-spectrogram generation
-- Create end-to-end voice synthesis pipeline
-- Develop custom training procedures
-
-**Custom Architecture Design**:
-- **Speech Head Integration**: Add fourth head to existing tri-head model
-- **Shared Representations**: Leverage existing model knowledge for speech
-- **Joint Training**: Train speech capabilities alongside existing heads
-- **Control Integration**: Deep integration with control token system
-
-**Advanced Capabilities**:
-- **Custom Voice Creation**: Generate entirely new character voices
-- **Style Transfer**: Advanced emotion and speaking style control
-- **Real-time Adaptation**: Learn new voices during interaction
-- **Multi-modal Integration**: Combine with visual and text generation
-
-**Research Components**:
-- Study Orpheus architecture for integration insights
-- Explore mel-spectrogram generation techniques
-- Investigate joint training strategies
-- Research voice synthesis optimization methods
-
-**Technical Implementation**:
-- Extend existing transformer architecture
-- Implement vocoder integration (HiFi-GAN or similar)
-- Create custom training data pipeline
-- Develop evaluation metrics for voice quality
-
-**Deliverables**:
-- Custom quad-head architecture design
-- Speech synthesis implementation
-- Training pipeline and procedures
-- Performance evaluation framework
-
-**Success Criteria**:
-- Match or exceed Orpheus quality with custom model
-- Seamless integration with existing tri-head architecture
-- Support for novel voice generation capabilities
-- Maintainable and scalable implementation
-
----
-
-## R6-7: Production Deployment & Monitoring
+## R6-8: Production Deployment & Monitoring
 
 **Objective**: Deploy voice system to production with comprehensive monitoring and scaling capabilities
 
