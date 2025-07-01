@@ -1,0 +1,178 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "N-Script Schema",
+  "description": "Schema for Narrative Scripting Engine with triple-head support",
+  "type": "object",
+  "properties": {
+    "script_id": {
+      "type": "string",
+      "description": "Unique identifier for this script",
+      "minLength": 1
+    },
+    "trigger": {
+      "$ref": "#/definitions/trigger"
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/action"
+      },
+      "minItems": 1
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "author": {"type": "string"},
+        "version": {"type": "string"},
+        "description": {"type": "string"},
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    }
+  },
+  "required": ["script_id", "trigger", "actions"],
+  "definitions": {
+    "trigger": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "ON_ENTER_LOCATION",
+            "ON_MEMORY_FORMATION", 
+            "ON_EMOTIONAL_STATE",
+            "ON_GENERATION_QUALITY",
+            "ON_HEAD_COORDINATION"
+          ]
+        },
+        "location_id": {"type": "string"},
+        "actor_filter": {"type": "string"},
+        "target_agent_id": {"type": "string"},
+        "once": {"type": "boolean"},
+        "conditions": {
+          "type": "object",
+          "patternProperties": {
+            ".*": {
+              "oneOf": [
+                {"type": "string"},
+                {"type": "number"},
+                {"type": "boolean"}
+              ]
+            }
+          }
+        }
+      },
+      "required": ["type"],
+      "if": {
+        "properties": {"type": {"const": "ON_ENTER_LOCATION"}}
+      },
+      "then": {
+        "required": ["location_id"]
+      }
+    },
+    "action": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "TRIPLE_HEAD_ACTION",
+            "GENERATION_OVERRIDE",
+            "CONTROL_INJECTION",
+            "MEMORY_FORMATION",
+            "HEAD_SYNCHRONIZATION"
+          ]
+        },
+        "target_agent_id": {"type": "string"},
+        "generation_params": {
+          "$ref": "#/definitions/generation_params"
+        },
+        "control_params": {
+          "$ref": "#/definitions/control_params"
+        },
+        "memory_params": {
+          "$ref": "#/definitions/memory_params"
+        },
+        "coordination_params": {
+          "$ref": "#/definitions/coordination_params"
+        },
+        "action": {
+          "$ref": "#/definitions/base_action"
+        }
+      },
+      "required": ["type", "target_agent_id"]
+    },
+    "generation_params": {
+      "type": "object",
+      "properties": {
+        "style": {"type": "string"},
+        "tone": {"type": "string"},
+        "narrative_focus": {"type": "string"},
+        "override_duration": {"type": "integer", "minimum": 1}
+      }
+    },
+    "control_params": {
+      "type": "object",
+      "properties": {
+        "emotions": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "mood_shift": {"type": "string"},
+        "control_tokens": {
+          "type": "array",
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "memory_params": {
+      "type": "object",
+      "properties": {
+        "importance": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "emotional_impact": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "emotional_weight": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "tags": {
+          "type": "array",
+          "items": {"type": "string"}
+        },
+        "content": {"type": "string"}
+      }
+    },
+    "coordination_params": {
+      "type": "object",
+      "properties": {
+        "sync_emotional_state": {"type": "boolean"},
+        "align_memory_focus": {"type": "boolean"},
+        "harmonize_narrative_tone": {"type": "boolean"}
+      }
+    },
+    "base_action": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["SpeakToAction", "MoveToAction", "TakeItemAction", "UpdateGoalAction"]
+        },
+        "message": {"type": "string"},
+        "target_location": {"type": "string"},
+        "item_id": {"type": "string"},
+        "new_goal_description": {"type": "string"}
+      },
+      "required": ["type"]
+    }
+  }
+} 
