@@ -359,8 +359,9 @@ class ProductionInferenceEngine:
             
             # Update attention cache
             if request.use_cache and not cache_hit:
+                # TripleHeadOutput doesn't have attention_weights, skip caching for now
                 self.attention_cache[cache_key] = {
-                    "attention": output.get("attention_weights"),
+                    "attention": None,  # Could be added to TripleHeadOutput if needed
                     "timestamp": time.time()
                 }
             
@@ -449,8 +450,9 @@ class ProductionInferenceEngine:
     async def _generate_standard(self, model: Any, request: InferenceRequest,
                                cached_attention: Optional[Any]) -> TripleHeadOutput:
         """Generate with standard model (fallback)"""
-        # Use inference manager
-        response = await self.inference_manager.generate_response(
+        # Use inference manager (synchronous, so wrap in thread)
+        response = await asyncio.to_thread(
+            self.inference_manager.generate_response,
             model_path=f"character-{request.character_id}",
             prompt=request.prompt,
             max_tokens=request.max_tokens,
