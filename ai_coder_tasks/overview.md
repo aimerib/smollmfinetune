@@ -27,8 +27,8 @@ Your role as an AI assistant is to help build this story machine. Every componen
 • `app/app.py` – Streamlit UI
 • `app/pages/` - 8 pages.  
 • `app/utils/` – core logic:
-  – `world.py` – WorldManager with structured lore system ✅
-  – `character/` – CharacterManager with world integration ✅  
+  – `world.py` – WorldManager with structured lore system
+  – `character/` – CharacterManager with world integration
   – `dataset/` (legacy + refactor in progress)  
   – `generation/` (new modular managers)  
   – `training.py`, `inference.py`, `comparison.py`  
@@ -38,15 +38,22 @@ Your role as an AI assistant is to help build this story machine. Every componen
 ---
 ## 2. Roadmap — "Rings"
 
-| Ring | Name                    | Goal (ship when ✅)                                    |
-|------|-------------------------|--------------------------------------------------------|
-| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat ✅   |
-| R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     |
-| R2   | Runtime Packet          | Export packets + prompt factory for game engine        |
-| R3   | Multi-User Platform     | DB backend, async jobs, ... (future backlog)           |
-| R4   | Narrative Engine        | New model architecture and pretraining                 |
-| R5   | Experience Polish       | The platform evolves around the new model and evovles  |
-|      |                         | new models after it.                                   |
+| Ring | Name                    | Goal                                                   | ✅ |
+|------|-------------------------|--------------------------------------------------------|----|
+| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat      | ✅ |
+|------|-------------------------|--------------------------------------------------------|----|
+| R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     | ✅ |
+|------|-------------------------|--------------------------------------------------------|----|
+| R2   | Runtime Packet          | Export packets + prompt factory for game engine        | ✅ |
+|------|-------------------------|--------------------------------------------------------|----|
+| R3   | Multi-User Platform     | DB backend, async jobs, ...                            | ✅ |
+|------|-------------------------|--------------------------------------------------------|----|
+| R4   | Narrative Engine        | New model architecture and pretraining                 |    |
+|------|-------------------------|--------------------------------------------------------|----|
+| R5   | Experience Polish       | The platform evolves around the new model and evovles  |    |
+|      |                         | new models after it.                                   |    |
+|------|-------------------------|--------------------------------------------------------|----|
+| R6   | TTS/STT                 | Give characters a voice                                |    |
 
 We are currently **here → R4**.
 
