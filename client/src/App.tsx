@@ -4,6 +4,7 @@ import styled from '@emotion/styled';
 import { motion } from 'framer-motion';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
+import DirectorsView from './pages/DirectorsView';
 import './styles/globals.css';
 
 const AppContainer = styled.div`
@@ -91,6 +92,7 @@ function App() {
         <Routes>
           <Route path="/" element={<HomePage />} />
           <Route path="/chat/:sessionId" element={<ChatPage />} />
+          <Route path="/directors-view" element={<DirectorsView />} />
         </Routes>
       </AppContainer>
     </Router>
