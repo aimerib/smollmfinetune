@@ -165,6 +165,61 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 
 • Always execute the integration between the new feature and existing code. No task is complete if it isn't integrated in code, or explicitly marked as preparation steps
 
+### 5.2 LLM-Based Extraction and Structured Output
+
+• **NEVER use hardcoded parsing or templated extraction** for analyzing text, extracting information, or processing unstructured data. Instead, leverage LLMs with structured output using Pydantic models and JSON schemas.
+
+• **Use Pydantic models** to define the expected structure of extracted data. Create clear, well-typed models that represent the information you need to extract.
+
+• **Leverage LMStudio's structured output API** for reliable JSON extraction. Use the `/v1/chat/completions` endpoint with `response_format.type = "json_schema"` to enforce schema compliance.
+
+• **Follow the established pattern** similar to our "LLM as a judge" evaluators - create a request to the LLM with clear instructions and let the model extract/analyze the information intelligently.
+
+#### Existing Examples in Codebase:
+- `app/utils/dataset/content_evaluation.py` - `NsfwResponse`, `CharacterAnalysis`, `NsfwStyle` models
+- `app/utils/character/models.py` - `Personality` model for Big Five estimation  
+- `narrative_engine/evaluation/` - Multiple evaluation models following this pattern
+
+#### Example Pattern:
+```python
+from pydantic import BaseModel
+from typing import List, Optional
+import json
+
+class CharacterTrait(BaseModel):
+    trait_name: str
+    score: float  # 0.0 to 1.0
+    reasoning: str
+
+class PersonalityAnalysis(BaseModel):
+    big_five_traits: List[CharacterTrait]
+    overall_assessment: str
+    confidence_score: float
+
+# Use with LMStudio structured output
+schema = PersonalityAnalysis.model_json_schema()
+response = client.chat.completions.create(
+    model="your-model",
+    messages=[
+        {"role": "system", "content": "You are a character psychologist..."},
+        {"role": "user", "content": f"Analyze this character: {character_text}"}
+    ],
+    response_format={
+        "type": "json_schema",
+        "json_schema": {
+            "name": "personality_analysis",
+            "schema": schema
+        }
+    }
+)
+```
+
+• **Benefits of this approach**: More flexible than regex/templates, handles edge cases gracefully, provides reasoning for decisions, adapts to different input formats, and maintains consistency with our LLM-first philosophy.
+
+• **Error handling**: Always validate the returned JSON against your Pydantic model and provide fallback behavior for parsing failures.
+
+• **Testing**: Mark these extraction functions with `@pytest.mark.llm` since they require model calls. Create mock responses for unit tests of downstream logic.
+
 ### 5.1 Rules for Ring 5
 
 • Ring 5 is all about the magic. Here Streamlit might become our bottleneck. We must always choose the experience for the user. UI/UX is the target.

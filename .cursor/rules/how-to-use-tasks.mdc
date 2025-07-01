@@ -111,6 +111,18 @@ Transform AI character creation from simple chatbots into believable, persistent
 - **Separation of Concerns**: Clear boundaries between UI, business logic, and data layers
 - **Character Psychology Focus**: Everything serves creating psychologically consistent characters
 
+### Development Principles
+
+#### LLM-First Data Extraction
+- **NEVER use hardcoded parsing** or templated extraction for analyzing text, extracting information, or processing unstructured data
+- **Always use LLMs with structured output** via Pydantic models and JSON schemas
+- **Follow the established pattern**: Define Pydantic models → Create LLM request with schema → Validate response
+- **Use LMStudio's structured output API** with `response_format.type = "json_schema"` for reliable extraction
+- **Mark extraction functions** with `@pytest.mark.llm` for proper test classification
+- **Benefits**: More flexible than regex/templates, handles edge cases gracefully, provides reasoning, adapts to input variations
+
+This aligns with our LLM-first philosophy and ensures consistent, intelligent data processing throughout the platform.
+
 ### Example TDD Cycle
 
 For a character personality feature:
