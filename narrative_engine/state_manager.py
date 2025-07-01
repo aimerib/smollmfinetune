@@ -112,14 +112,34 @@ class StateQuery:
     limit: Optional[int] = None
 
 
+@dataclass
+class SubtextEntry:
+    """Represents a character's internal monologue entry"""
+    agent_id: str
+    subtext: str
+    timestamp: datetime = field(default_factory=datetime.now)
+    entry_id: Optional[str] = None
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
+        return {
+            "agent_id": self.agent_id,
+            "subtext": self.subtext,
+            "timestamp": self.timestamp.isoformat(),
+            "entry_id": self.entry_id
+        }
+
+
 class InMemoryBackend:
     """In-memory backend for development and testing"""
     
     def __init__(self):
         self.entities: Dict[str, EntityState] = {}
         self.events: List[EventLog] = []
+        self.subtext_log: List[SubtextEntry] = []  # Store subtext entries
         self.lock = threading.RLock()
         self._event_counter = 0
+        self._subtext_counter = 0
     
     def create_entity(self, entity: EntityState) -> None:
         """Create a new entity"""
@@ -206,6 +226,42 @@ class InMemoryBackend:
             changes=changes
         )
         self.events.append(event)
+    
+    def add_subtext(self, agent_id: str, subtext: str, timestamp: Optional[datetime] = None) -> str:
+        """Add a subtext entry to the log"""
+        with self.lock:
+            self._subtext_counter += 1
+            entry_id = f"subtext_{self._subtext_counter}"
+            
+            entry = SubtextEntry(
+                agent_id=agent_id,
+                subtext=subtext,
+                timestamp=timestamp or datetime.now(),
+                entry_id=entry_id
+            )
+            
+            self.subtext_log.append(entry)
+            return entry_id
+    
+    def get_subtext(self, agent_id: Optional[str] = None, since: Optional[datetime] = None, 
+                   limit: Optional[int] = None) -> List[SubtextEntry]:
+        """Get subtext entries, optionally filtered"""
+        with self.lock:
+            entries = self.subtext_log
+            
+            # Filter by agent
+            if agent_id:
+                entries = [e for e in entries if e.agent_id == agent_id]
+            
+            # Filter by time
+            if since:
+                entries = [e for e in entries if e.timestamp >= since]
+            
+            # Apply limit
+            if limit:
+                entries = entries[-limit:]
+            
+            return deepcopy(entries)
 
 
 class StateManager:
@@ -386,3 +442,45 @@ class StateManager:
             memories = memories[-limit:]
         
         return memories 
+    
+    def add_subtext(self, agent_id: str, subtext: str, timestamp: Optional[datetime] = None) -> str:
+        """
+        Add a subtext entry for a character's internal monologue.
+        
+        Args:
+            agent_id: The ID of the agent/character
+            subtext: The internal monologue text
+            timestamp: Optional timestamp (defaults to now)
+            
+        Returns:
+            Entry ID for the subtext entry
+        """
+        return self.backend.add_subtext(agent_id, subtext, timestamp)
+    
+    def get_subtext(self, agent_id: Optional[str] = None, since: Optional[datetime] = None,
+                   limit: Optional[int] = None) -> List[SubtextEntry]:
+        """
+        Get subtext entries, optionally filtered.
+        
+        Args:
+            agent_id: Filter by specific agent (optional)
+            since: Filter entries since this timestamp (optional)
+            limit: Maximum number of entries to return (optional)
+            
+        Returns:
+            List of SubtextEntry objects
+        """
+        return self.backend.get_subtext(agent_id, since, limit)
+    
+    def get_recent_subtext(self, agent_id: str, limit: int = 10) -> List[SubtextEntry]:
+        """
+        Get the most recent subtext entries for a specific agent.
+        
+        Args:
+            agent_id: The agent to get subtext for
+            limit: Maximum number of entries (default 10)
+            
+        Returns:
+            List of recent SubtextEntry objects
+        """
+        return self.get_subtext(agent_id=agent_id, limit=limit)

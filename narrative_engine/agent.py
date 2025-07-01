@@ -16,6 +16,14 @@ from typing import Dict, Any, List, Optional, Union
 from enum import Enum
 
 from .state_manager import StateManager, EntityState, StateUpdate
+from .types import ThinkResult
+from .subtext_parser import parse_subtext_and_action, SubtextParseError
+
+# Import prompt templates (relative path since this is in narrative_engine)
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).parent.parent / "app" / "utils"))
+from prompt_templates import build_subtext_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -237,42 +245,58 @@ class BaseAgent:
         logger.debug(f"Agent {self.agent_id} perceived {len(nearby_agents)} nearby agents")
         return perception
     
-    async def think(self, perception: Perception) -> Action:
+    async def think(self, perception: Perception) -> ThinkResult:
         """
         Process perception and decide on an action using the narrative model.
+        Enhanced with subtext generation for the "Iceberg Model".
         
         Args:
             perception: Current perception of the world
             
         Returns:
-            Structured action to take
+            ThinkResult containing both action and internal subtext
         """
         if not self.narrative_model:
             # Fallback behavior without AI model
-            return self._fallback_thinking(perception)
+            fallback_action = self._fallback_thinking(perception)
+            return ThinkResult(action=fallback_action, subtext="")
         
-        # Construct prompt for narrative model
-        prompt = self._construct_thinking_prompt(perception)
+        # Construct prompt for narrative model with subtext tags
+        base_prompt = self._construct_thinking_prompt(perception)
+        enhanced_prompt = build_subtext_prompt(base_prompt)
         
         # Call the narrative model
         try:
             model_output = await self.narrative_model.generate_with_control(
                 input_ids=None,  # TODO: Tokenize prompt
-                user_input=prompt,
+                user_input=enhanced_prompt,
                 previous_context="",
-                max_new_tokens=150,
+                max_new_tokens=200,  # Increased for subtext + action
                 temperature=0.7
             )
             
-            # Parse model output into structured action
-            action = self._parse_action_from_model_output(model_output)
+            # Parse both subtext and action from model output
+            generated_text = model_output.get('generated_text', '')
             
-            logger.debug(f"Agent {self.agent_id} decided to: {action.action_type}")
-            return action
+            try:
+                subtext, action_text = parse_subtext_and_action(generated_text)
+                action = self._parse_action_from_model_output({'generated_text': action_text})
+                
+                result = ThinkResult(action=action, subtext=subtext)
+                
+                logger.debug(f"Agent {self.agent_id} decided to: {action.action_type} (subtext: '{subtext[:30]}...')")
+                return result
+                
+            except SubtextParseError as e:
+                logger.warning(f"Failed to parse subtext for {self.agent_id}: {e}")
+                # Fallback: treat entire output as action, empty subtext
+                action = self._parse_action_from_model_output(model_output)
+                return ThinkResult(action=action, subtext="")
             
         except Exception as e:
             logger.error(f"Error in agent thinking: {e}")
-            return self._fallback_thinking(perception)
+            fallback_action = self._fallback_thinking(perception)
+            return ThinkResult(action=fallback_action, subtext="")
     
     async def act(self, action: Action, state_manager: StateManager) -> ActionResult:
         """
@@ -630,17 +654,24 @@ class Scheduler:
             # Perceive
             perception = await agent.perceive(self.state_manager)
             
-            # Think
-            action = await agent.think(perception)
+            # Think (now returns ThinkResult with action + subtext)
+            think_result = await agent.think(perception)
             
-            # Act
-            result = await agent.act(action, self.state_manager)
+            # Log subtext to state manager (always log, even if empty)
+            self.state_manager.add_subtext(
+                agent_id=agent.agent_id,
+                subtext=think_result.subtext,
+                timestamp=think_result.timestamp
+            )
+            
+            # Act using the action from think result
+            result = await agent.act(think_result.action, self.state_manager)
             
             # Update agent state
             agent.state.last_action = datetime.now()
             agent.state.status = "active" if result.success else "error"
             
-            logger.debug(f"Agent {agent.agent_id} completed cycle: {action.action_type} -> {result.success}")
+            logger.debug(f"Agent {agent.agent_id} completed cycle: {think_result.action.action_type} -> {result.success}")
             
         except Exception as e:
             logger.error(f"Error in agent {agent.agent_id} processing cycle: {e}")

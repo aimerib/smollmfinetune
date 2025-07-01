@@ -17,6 +17,7 @@ from narrative_engine.agent import (
     Scheduler, AgentState
 )
 from narrative_engine.state_manager import StateManager, EntityState
+from narrative_engine.types import ThinkResult
 
 
 class TestActionSchemas:
@@ -194,9 +195,10 @@ class TestBaseAgent:
             world_context={"time_of_day": "morning"}
         )
         
-        action = await agent.think(perception)
+        result = await agent.think(perception)
         
-        assert isinstance(action, Action)
+        assert isinstance(result, ThinkResult)
+        assert isinstance(result.action, Action)
         # The think method should parse the model output into a structured action
         mock_narrative_model.generate_with_control.assert_called_once()
     
@@ -317,6 +319,31 @@ class TestScheduler:
             max_agents_per_tick=1
         )
         
+        # Set up mock agents to return proper ThinkResult
+        for agent in mock_agents.values():
+            # Mock perception
+            agent.perceive.return_value = AsyncMock()
+            
+            # Mock think result with action
+            mock_action = Mock()
+            mock_action.action_type = "test_action"
+            mock_action.validate.return_value = True
+            
+            mock_think_result = Mock()
+            mock_think_result.action = mock_action
+            mock_think_result.subtext = "test subtext"
+            mock_think_result.timestamp = datetime.now()
+            
+            agent.think.return_value = mock_think_result
+            
+            # Mock act result
+            mock_act_result = Mock()
+            mock_act_result.success = True
+            agent.act.return_value = mock_act_result
+        
+        # Mock state manager subtext logging
+        mock_state_manager.add_subtext = Mock()
+        
         # Register agents
         for agent in mock_agents.values():
             scheduler.register_agent(agent)
@@ -326,8 +353,11 @@ class TestScheduler:
         
         # Should have processed at least one agent
         assert any(agent.perceive.called for agent in mock_agents.values())
-        assert any(agent.think.called for agent in mock_agents.values()) 
+        assert any(agent.think.called for agent in mock_agents.values())
         assert any(agent.act.called for agent in mock_agents.values())
+        
+        # Should have logged subtext
+        assert mock_state_manager.add_subtext.called
     
     
     async def test_scheduler_agent_selection_round_robin(self, mock_state_manager, mock_agents):
@@ -498,13 +528,14 @@ class TestAgenticLoopIntegration:
         
         # Execute complete cycle
         perception = await agent.perceive(state_manager)
-        action = await agent.think(perception)
-        result = await agent.act(action, state_manager)
+        think_result = await agent.think(perception)
+        result = await agent.act(think_result.action, state_manager)
         
         # Verify the cycle worked
         assert perception.agent_id == "npc_tom"
         assert "npc_clara" in perception.nearby_agents
-        assert isinstance(action, Action)
+        assert isinstance(think_result, ThinkResult)
+        assert isinstance(think_result.action, Action)
         assert result.success is True
         
         # Verify state was updated
