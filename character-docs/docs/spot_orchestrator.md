@@ -582,4 +582,3 @@ To contribute to the spot orchestrator:
 - [AWS Spot Instance Best Practices](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/spot-best-practices.html)
 - [RunPod API Documentation](https://docs.runpod.io/api)
 - [Checkpoint Sharding Guide](checkpoint_sharding.md)
-- [Training Telemetry SDK](../app/utils/telemetry_sdk/README.md) 

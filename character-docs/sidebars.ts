@@ -29,7 +29,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Core Concepts',
       collapsed: false,
-      items: ['core-concepts', 'training-guide'],
+      items: ['core-concepts', 'training-guide', 'TESTING'],
     },
     {
       type: 'category',
