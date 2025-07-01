@@ -15,6 +15,18 @@ from .eval_coherence import CoherenceEvaluator
 from .eval_latency import LatencyEvaluator
 from .eval_memory_consistency import MemoryConsistencyEvaluator
 from .safety_layer import SafetyLayer
+
+# New comprehensive evaluators
+from .eval_character_voice import CharacterVoiceConsistencyEvaluator
+from .eval_emotional_arc import EmotionalArcEvaluator
+from .eval_dialogue_naturalism import DialogueNaturalnessEvaluator
+from .eval_world_consistency import WorldConsistencyEvaluator
+from .eval_user_satisfaction import UserSatisfactionPredictor
+from .eval_triple_head_coordination import TripleHeadCoordinationEvaluator
+from .ab_testing import ABTestingFramework
+from .human_eval import HumanEvaluationInterface
+from .comprehensive_pipeline import ComprehensiveEvaluationPipeline
+
 import logging
 from typing import Dict, Any, Optional, List
 import json
@@ -254,5 +266,15 @@ __all__ = [
     'CoherenceEvaluator', 
     'LatencyEvaluator',
     'MemoryConsistencyEvaluator',
-    'SafetyLayer'
+    'SafetyLayer',
+    # New comprehensive evaluators
+    'CharacterVoiceConsistencyEvaluator',
+    'EmotionalArcEvaluator',
+    'DialogueNaturalnessEvaluator',
+    'WorldConsistencyEvaluator',
+    'UserSatisfactionPredictor',
+    'TripleHeadCoordinationEvaluator',
+    'ABTestingFramework',
+    'HumanEvaluationInterface',
+    'ComprehensiveEvaluationPipeline'
 ] 
