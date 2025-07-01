@@ -2,128 +2,114 @@
 sidebar_position: 1
 ---
 
-# Character Creation Devkit Documentation
+# Character Creation Devkit
 
-Welcome to the Character Creation Devkit - a comprehensive platform for creating, training, and deploying intelligent AI characters. This documentation covers everything you need to know as a content creator.
+A comprehensive platform for creating, training, and deploying AI characters with persistent personalities and memory.
 
-## Quick Start
+## Core Concepts
 
-1. **[Getting Started](getting-started.md)** - Installation and first steps
-2. **[Core Concepts](core-concepts.md)** - Understanding worlds, characters, and the training pipeline
-3. **[User Guide](user-guide.md)** - Complete walkthrough of the character creation process
+The platform is built on these key principles:
 
-## Platform Overview
+- **Devkit + Cartridge Architecture**: A creative suite for designing characters and worlds that exports self-contained "cartridges" for runtime use
+- **Structured Authoring**: Define character psychology using the Big Five personality model, goals, relationships, and memories
+- **Emergent Narrative**: Characters with consistent internal motivations enable unique story interactions
+- **Triple-Head Architecture**: Model generates text, control tokens for UI/emotional state, and memory vectors for persistence
 
-### The Vision: From Chatbots to Personas
+## Getting Started
 
-This platform transforms AI character creation from simple chatbots into believable, persistent digital actors. Using the "Devkit + Cartridge" approach:
+Follow these guides in order:
 
-- **The Devkit (This Application)**: A creative suite where writers define character psychology, memories, goals, and relationships
-- **The Cartridge (Runtime Packet)**: Self-contained exports ready for deployment in game engines or interactive systems
+1. **[Setup Guide](./setup-guide.md)**: Install and configure the platform
+2. **[Getting Started](./getting-started.md)**: Create and train your first character
+3. **[Training Guide](./training-guide.md)**: Deep dive into SFT and RLHF training pipelines
+4. **[Client Guide](./client-guide.md)**: Use the production client for character interactions
 
-### What Makes This Different
+## Documentation Structure
 
-- **Psychological Foundation**: Characters built on Big Five personality traits
-- **World Integration**: Characters exist within rich, interconnected worlds
-- **Visual Creation Tools**: Interactive personality charts and conversational builders
-- **AI-Powered Intelligence**: Smart suggestions and real-time character synthesis
-- **Production Pipeline**: Complete training workflow from conception to deployment
+- **Getting Started**: Setup and tutorial guides
+- **Core Documentation**: Architecture, concepts, and features
+- **Advanced**: Specialized topics for developers
 
-## User Guides
+## Platform Components
 
-### For Content Creators
-- **[World Building](user-guide.md#world-management)** - Creating rich, interconnected worlds
-- **[Character Creation](user-guide.md#character-creation)** - Building compelling character personalities
-- **[Dataset Generation](user-guide.md#dataset-studio)** - Creating training data for your characters
-- **[Training Pipeline](user-guide.md#training)** - Fine-tuning models with your character data
-- **[Quality Assessment](user-guide.md#evaluation)** - Measuring character consistency and quality
+### Architecture Overview
 
-### For Advanced Users
-- **[API Reference](api-reference.md)** - Technical details for integration
-- **[Architecture Guide](architecture.md)** - Understanding the platform's design
-- **[Advanced Features](advanced-features.md)** - Control tokens, RLHF, and specialized techniques
+The platform consists of three main components:
 
-## Key Features
+**The Devkit** - Creative tools for character development:
+- Conversational character builder
+- Interactive personality editor
+- AI-powered dataset generation
+- Real-time training dashboard
 
-### Character Creation
-- **Conversational Builder**: AI-guided character discovery through natural conversation
-- **Personality Editor**: Interactive Big Five personality trait visualization
-- **World Integration**: Characters that fit organically into their worlds
-- **Character Intelligence**: Real-time character synthesis and consistency analysis
+**The Runtime** - Production inference and client:
+- High-performance inference engine
+- React-based chat client
+- Real-time emotion visualization
+- Memory formation tracking
 
-### Dataset Generation
-- **Interactive Generation**: Collaborative batch-by-batch dataset creation
-- **Quality Curation**: AI-powered content evaluation and filtering
-- **Multiple Methods**: Fast templated, slow curated, and factual Q&A generation
-- **NSFW Support**: Sophisticated content analysis and appropriate handling
+### Key Features
 
-### Training Pipeline
-- **Supervised Fine-Tuning (SFT)**: Initial character voice training
-- **Reinforcement Learning (RLHF)**: Preference-based alignment training
-- **Real-time Monitoring**: Live training dashboards with pause/resume controls
-- **Quality Metrics**: Personality alignment and lore adherence evaluation
+**Character Creation**
+- AI-guided character discovery through natural conversation
+- Interactive Big Five personality trait visualization
+- World integration for character consistency
+- Real-time character synthesis and analysis
 
-### Advanced Tools
-- **Control Tokens**: Fine-grained content control (mood, actions, scenes)
-- **Personality Drift Analysis**: Visual comparison of authored vs generated personality
-- **Character Comparison**: Side-by-side model evaluation and testing
-- **Runtime Export**: Self-contained packages ready for deployment
+**Training Pipeline**
+- Supervised Fine-Tuning (SFT) for initial character voice training
+- Reinforcement Learning (RLHF) for preference-based alignment
+- Live training dashboards with pause/resume controls
+- Personality alignment and lore adherence metrics
 
-## Navigation Guide
+**Production Inference**
+- Optimized for real-time character interactions
+- Hot-swappable adapters for character switching
+- Session persistence across conversations
+- Scalable architecture for multiple concurrent users
 
-The platform is organized into clear sections:
+## Quick Setup
 
-- **🌍 World Management** - Create and edit world lore, factions, timelines
-- **📁 Character Upload** - Import existing character cards
-- **🗨️ Conversational Builder** - AI-guided character creation
-- **📋 Character Management** - Detailed character editing and enhancement
-- **🎨 Dataset Studio** - Generate training data for characters
-- **⚙️ Training Config** - Configure and start model training
-- **📊 Training Dashboard** - Monitor training progress and quality
-- **🔍 Model Comparison** - Test and compare trained models
-- **🧪 Model Testing** - Interactive testing of character responses
+```bash
+# Launch everything
+./launch-client.sh
 
-## Best Practices
+# Or run components separately:
+cd app && ./startup.sh                    # Devkit
+python scripts/run_inference_server.py   # Inference Server  
+cd client && npm start                    # React Client
+```
 
-### Character Creation
-1. Start with a clear character concept and backstory
-2. Use the conversational builder for natural character discovery
-3. Balance personality traits for interesting character dynamics
-4. Integrate characters meaningfully into world lore
-5. Generate diverse training examples covering multiple scenarios
+## Complete Workflow
 
-### Training
-1. Generate 500-1000 high-quality training samples
-2. Use interactive generation for best results
-3. Monitor personality alignment during training
-4. Test character consistency throughout the process
-5. Use RLHF to refine character behavior based on preferences
+```mermaid
+graph LR
+    A[Setup Platform] --> B[Create World]
+    B --> C[Design Character]
+    C --> D[Generate Dataset]
+    D --> E[Train Model]
+    E --> F[Test Character]
+    F --> G[Deploy Client]
+    G --> H[User Interaction]
+```
 
-### Quality Assurance
-1. Regularly check personality drift analysis
-2. Verify lore adherence in generated responses
-3. Test characters across multiple scenarios
-4. Use comparison tools to evaluate improvements
-5. Maintain character voice consistency
+## Platform Architecture
+
+1. **Character Devkit** (Streamlit) - Creative tools for character development
+2. **Inference Engine** (FastAPI) - Optimized model serving
+3. **React Client** - User-facing chat interface
+
+## Current Status
+
+- ✅ Ring 1: Devkit Complete
+- ✅ Ring 2: Runtime Packets  
+- ✅ Ring 3: Multi-User Platform
+- ✅ Ring 4: Production Inference
+- 🔄 Ring 5: Experience Polish
 
 ## Getting Help
 
-- **User Guide**: Comprehensive walkthrough of all features
-- **API Reference**: Technical documentation for developers
-- **Troubleshooting**: Common issues and solutions
-- **Best Practices**: Tips for optimal results
+- **GitHub Issues**: Report bugs or request features
+- **API Documentation**: Technical integration details
 
-## Platform Status
-
-This platform represents the culmination of Ring 1 (R1) development, providing:
-
-- Complete character creation and training pipeline
-- Sophisticated AI-powered tools for content creators
-- Production-ready export capabilities
-- Comprehensive evaluation and quality assurance
-
-Future development (Ring 2+) will focus on runtime deployment, advanced narrative engines, and multi-user platforms.
-
----
-
-**Ready to create your first character?** Start with the [Getting Started Guide](getting-started.md) 
+[Get Started](./setup-guide) | [Core Concepts](./core-concepts) 

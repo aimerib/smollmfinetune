@@ -1,23 +1,49 @@
 /**
- * CSS files with the .module.css suffix will be treated as CSS modules
- * and scoped locally.
+ * Clean CSS for Character Creation Devkit homepage
+ * Focused on essential styling without marketing fluff
  */
 
-.heroBanner {
+.ctaSection {
   padding: 4rem 0;
   text-align: center;
-  position: relative;
-  overflow: hidden;
+  background: var(--ifm-color-emphasis-100);
 }
 
-@media screen and (max-width: 996px) {
-  .heroBanner {
-    padding: 2rem;
-  }
+html[data-theme='dark'] .ctaSection {
+  background: var(--ifm-color-emphasis-200);
 }
 
-.buttons {
+.ctaTitle {
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--ifm-heading-color);
+  margin-bottom: 1rem;
+}
+
+.ctaDescription {
+  font-size: 1.1rem;
+  color: var(--ifm-font-color-secondary);
+  margin-bottom: 2rem;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.ctaButtons {
   display: flex;
-  align-items: center;
+  gap: 1rem;
   justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* Responsive adjustments */
+@media screen and (max-width: 768px) {
+  .ctaTitle {
+    font-size: 1.75rem;
+  }
+  
+  .ctaButtons {
+    flex-direction: column;
+    align-items: center;
+  }
 }

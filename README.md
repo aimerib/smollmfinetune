@@ -22,12 +22,61 @@ Our CI pipeline automatically validates every change with:
 - 🔄 **Regression Testing**: Catches quality degradation before merge
 - 📈 **Performance Monitoring**: Tracks training and evaluation metrics
 
+## 🎨 Production Client (NEW!)
+
+We now have a stunning production-ready React client with real-time chat capabilities!
+
+### Quick Launch
+```bash
+# Launch both inference server and React client with one command
+./launch-client.sh
+```
+
+Then open [http://localhost:3000](http://localhost:3000) to experience:
+
+- **Beautiful Glassmorphism UI** with animated backgrounds
+- **Real-time Character Emotions** that change as you chat
+- **Memory Formation Visualization** showing when characters form memories
+- **Mobile-First Design** ready for your React Native port
+
+See [client/README.md](client/README.md) for details.
+
+## 📚 Comprehensive Documentation (NEW!)
+
+We've created beautiful, comprehensive documentation covering everything from setup to deployment!
+
+### View Documentation
+```bash
+# Start the documentation server
+cd character-docs && npm start
+```
+
+Then open [http://localhost:3001](http://localhost:3001) in your browser.
+
+### Documentation Highlights
+
+- **[Getting Started](character-docs/docs/getting-started.md)** - Go from zero to chatting with your AI character in 30 minutes
+- **[Setup Guide](character-docs/docs/setup-guide.md)** - Detailed installation and configuration instructions
+- **[Training Guide](character-docs/docs/training-guide.md)** - Master dataset generation and model training
+- **[Client Guide](character-docs/docs/client-guide.md)** - Learn all the features of our beautiful React client
+- **[Core Concepts](character-docs/docs/core-concepts.md)** - Understand the triple-head architecture and technical details
+
+### Key Documentation Features
+
+- 🎨 Beautiful MDX with interactive components
+- 📱 Mobile-responsive design
+- 🔍 Full-text search
+- 🌙 Dark mode support
+- 📊 Mermaid diagrams for architecture visualization
+
 ## 🏗️ Project Structure
 
 This repository contains multiple interconnected components:
 
 ```
 ├── app/                    # Main Streamlit application (Character Creation Devkit)
+├── client/                # Production React client (NEW!)
+├── character-docs/        # Beautiful Docusaurus documentation (NEW!)
 ├── scripts/               # Training and evaluation scripts
 ├── services/              # Microservices (judge service, etc.)
 ├── narrative_engine/      # Custom model architecture research

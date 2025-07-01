@@ -1,44 +1,43 @@
-import type {ReactNode} from 'react';
-import clsx from 'clsx';
+import type {JSX} from 'react';
 import Link from '@docusaurus/Link';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import Layout from '@theme/Layout';
-import HomepageFeatures from '@site/src/components/HomepageFeatures';
 import Heading from '@theme/Heading';
+import HomepageFeatures from '@site/src/components/HomepageFeatures';
+import HeroSection from '@site/src/components/Homepage/HeroSection';
 
 import styles from './index.module.css';
 
-function HomepageHeader() {
-  const {siteConfig} = useDocusaurusContext();
-  return (
-    <header className={clsx('hero hero--primary', styles.heroBanner)}>
-      <div className="container">
-        <Heading as="h1" className="hero__title">
-          {siteConfig.title}
-        </Heading>
-        <p className="hero__subtitle">{siteConfig.tagline}</p>
-        <div className={styles.buttons}>
-          <Link
-            className="button button--secondary button--lg"
-            to="/docs/intro">
-            Docusaurus Tutorial - 5min ⏱️
-          </Link>
-        </div>
-      </div>
-    </header>
-  );
-}
-
-export default function Home(): ReactNode {
+export default function Home(): JSX.Element {
   const {siteConfig} = useDocusaurusContext();
   return (
     <Layout
-      title={`Hello from ${siteConfig.title}`}
-      description="Description will go into a meta tag in <head />">
-      <HomepageHeader />
+      title={`${siteConfig.title}`}
+      description="Platform for creating, training, and deploying AI characters with persistent personalities">
+      <HeroSection />
       <main>
         <HomepageFeatures />
       </main>
+      <section className={styles.ctaSection}>
+        <div className="container">
+          <Heading as="h2" className={styles.ctaTitle}>Get Started</Heading>
+          <p className={styles.ctaDescription}>
+            Follow our documentation to set up the platform and create your first AI character.
+          </p>
+          <div className={styles.ctaButtons}>
+            <Link
+              className="button button--primary button--lg"
+              to="/docs/getting-started">
+              Getting Started
+            </Link>
+            <Link
+              className="button button--outline button--lg"
+              to="/docs/setup-guide">
+              Setup Guide
+            </Link>
+          </div>
+        </div>
+      </section>
     </Layout>
   );
 }

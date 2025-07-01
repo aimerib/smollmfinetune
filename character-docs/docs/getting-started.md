@@ -1,272 +1,220 @@
+---
+sidebar_position: 3
+---
+
 # Getting Started
 
-This guide will walk you through setting up the Character Creation Devkit and creating your first AI character from start to finish.
+This guide will walk you through setting up the platform and creating your first AI character.
 
-## Installation
+## Quick Setup
 
-### System Requirements
+```bash
+# 1. Clone and enter the project
+git clone <repository-url>
+cd smollmfinetune
 
-- **Operating System**: Windows, macOS, or Linux
-- **Python**: 3.11 or higher
-- **Memory**: 8GB RAM minimum, 16GB recommended
-- **Storage**: 10GB free space for models and data
-- **GPU**: Optional but recommended for faster training
+# 2. Setup Python environment (Python 3.11+ required)
+python3 -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
+cd app && pip install -r requirements.txt && cd ..
 
-### Installation Steps
+# 3. Install React client dependencies
+cd client && npm install && cd ..
 
-1. **Clone the Repository**
-   ```bash
-   git clone <repository-url>
-   cd smollmfinetune
-   ```
+# 4. Launch all components
+./launch-client.sh
+```
 
-2. **Install Dependencies**
-   ```bash
-   cd app
-   pip install -r requirements.txt
-   ```
+The platform will open automatically in your browser at `http://localhost:8501`.
 
-3. **Start the Application**
-   ```bash
-   # Recommended: Use the startup script
-   ./startup.sh
-   
-   # Alternative: Direct Streamlit launch
-   streamlit run app.py
-   ```
+## Step 1: Create a Character
 
-4. **Open Your Browser**
-   Navigate to `http://localhost:8501`
+### Access the Character Devkit
 
-### First Launch
+Navigate to `http://localhost:8501` to access the main Character Creation interface.
 
-When you first open the application, you'll see the main navigation sidebar with several options. The platform automatically creates a default world for you to start with.
+### Use the Conversational Builder
 
-## Your First Character: A Complete Walkthrough
+1. Click "Conversational Builder" in the sidebar
+2. Describe your character concept (e.g., "Create a character who is a space explorer from the future")
+3. Answer the AI's questions to develop:
+   - Personality traits
+   - Background story
+   - Goals and relationships
+4. Review and save your character
 
-Let's create your first character from concept to trained model. We'll create "Aria", a wise but playful magical librarian.
+### Character Template Example
 
-### Step 1: World Setup (Optional)
+If you prefer to define a character manually:
 
-While you can use the default world, let's create a custom world for our character:
+```json
+{
+  "name": "Alex",
+  "description": "A space explorer from the year 2387",
+  "personality": {
+    "traits": ["adventurous", "curious", "analytical"],
+    "big_five": {
+      "openness": 0.9,
+      "conscientiousness": 0.7,
+      "extraversion": 0.6,
+      "agreeableness": 0.7,
+      "neuroticism": 0.3
+    }
+  },
+  "background": "Captain of a research vessel exploring uncharted space",
+  "tagline": "Knowledge through exploration"
+}
+```
 
-1. **Navigate to World Management** (🌍 in sidebar)
-2. **Create New World**:
-   - Name: "Mystical Academy"
-   - Click "Create World"
+## Step 2: Generate Training Data
 
-3. **Add World Lore**:
-   - **Facts Tab**: Add key-value facts:
-     - `magic_system`: "Elemental magic through enchanted crystals"
-     - `setting`: "Ancient academy floating above the clouds"
-     - `technology_level`: "Medieval with magical enhancements"
-   
-   - **Timeline Tab**: Add historical events:
-     - Year: 1200, Event: "Academy founded by the Circle of Mages"
-     - Year: 1450, Event: "Great Library construction completed"
-   
-   - **Places Tab**: Add locations:
-     - Name: "Grand Library"
-     - Description: "A vast repository of magical knowledge spanning seven floating towers"
+### Access Dataset Studio
 
-4. **Save Changes**: Your world lore is now established
+Click "Dataset Studio" in the sidebar.
 
-### Step 2: Character Creation
+### Configure Generation Settings
 
-Now let's create our character using the conversational builder:
+**For testing (quick results):**
+- Target Samples: 100
+- Quality: Iterative
+- Temperature: 0.8
+- Batch Size: 10
 
-1. **Navigate to Conversational Builder** (🗨️ in sidebar)
+**For production (better quality):**
+- Target Samples: 500-1000
+- Quality: Iterative
+- Temperature: 0.9
+- Batch Size: 10
 
-2. **Start the Conversation**:
-   The AI will ask: "Let's create your character together. What's their name?"
-   
-   **You respond**: "Her name is Aria. She's a librarian at a magical academy."
+### Generate Conversations
 
-3. **Follow the AI's Questions**:
-   The AI will ask follow-up questions. Here are example responses:
-   
-   - **About her personality**: "She's incredibly wise and knowledgeable, but has a playful side. She loves surprising students with unexpected magical demonstrations while teaching."
-   
-   - **About her background**: "She's been at the academy for decades, mastering both traditional scholarship and practical magic. She has a special affinity for crystal magic."
-   
-   - **About her goals**: "She wants to help students discover their magical potential and preserve ancient knowledge for future generations."
+1. Click "Generate Batch"
+2. Review each conversation:
+   - Accept good examples
+   - Regenerate poor quality ones
+   - Edit if necessary
+3. Monitor quality metrics:
+   - Diversity Score: aim for >0.7
+   - Character Consistency: aim for >0.8
 
-4. **Watch the Character Develop**:
-   As you answer questions, watch the right panel update with:
-   - Personality trait analysis
-   - Character archetype detection
-   - Voice consistency scoring
-   - Training readiness assessment
+Example training conversation:
 
-5. **Complete the Conversation**:
-   Continue until the AI indicates the character is well-developed, then click "Save Character"
+```
+Human: Tell me about your work.
 
-### Step 3: Character Refinement
+Alex: I command a research vessel in the outer sectors. My crew and I 
+investigate stellar anomalies and catalog new planetary systems. 
+Recently, we discovered a binary star system with unusual gravitational 
+effects that challenge current astrophysics models. The data we're 
+collecting could revolutionize our understanding of stellar formation.
+```
 
-Let's enhance our character using the detailed management tools:
+## Step 3: Train Your Character
 
-1. **Navigate to Character Management** (📋 in sidebar)
-2. **Select Aria** from the character list
+### Access Training Configuration
 
-3. **Review Each Tab**:
-   
-   **Profile Tab**:
-   - Fine-tune the description
-   - Add appearance details: "Auburn hair, green eyes, always wears a crystal pendant"
-   - Enhance the backstory
-   
-   **Personality Tab**:
-   - Review the Big Five radar chart
-   - Adjust traits if needed:
-     - Openness: 0.85 (highly curious and creative)
-     - Conscientiousness: 0.75 (organized but flexible)
-     - Extraversion: 0.60 (friendly but enjoys solitude)
-     - Agreeableness: 0.80 (caring and helpful)
-     - Neuroticism: 0.25 (calm and stable)
-   
-   **Goals & Relationships Tab**:
-   - Add specific goals:
-     - "Help struggling students find their magical strengths"
-     - "Catalog rare magical texts before they're lost"
-     - "Bridge the gap between theoretical and practical magic"
-   
-   **Examples Tab**:
-   - Add a few example conversations showing her teaching style
+Click "Training Config" in the sidebar.
 
-4. **Use AI Suggestions**:
-   - Click the "✨" buttons for AI-powered enhancement suggestions
-   - Accept or modify suggestions that fit your vision
+### Setup Training Parameters
 
-### Step 4: Dataset Generation
+**Quick test configuration:**
+```yaml
+Model: unsloth/Llama-3.2-1B
+Epochs: 1
+Learning Rate: 5e-5
+Batch Size: 4
+Dataset: Your generated samples
+```
 
-Now let's create training data for our character:
+Click "Start Training" to begin the process.
 
-1. **Navigate to Dataset Studio** (🎨 in sidebar)
-2. **Select Interactive Generation Tab**
+### Monitor Training Progress
 
-3. **Configure Generation**:
-   - Target samples: 500 (good starting point)
-   - Quality level: Iterative (balance of quality and speed)
-   - NSFW handling: Appropriate for your character
+Use the "Training Dashboard" to track:
+- Loss curves (should decrease over time)
+- Personality alignment score (target >0.7)
+- Training time estimates
 
-4. **Start Generation**:
-   - Click "Generate Batch"
-   - Review generated samples as they appear
-   - Accept good samples, regenerate poor ones
-   - The AI learns from your preferences
+## Step 4: Test Your Character
 
-5. **Monitor Quality**:
-   - Watch the real-time statistics
-   - Aim for diversity and character consistency
-   - Continue until you have 300-500 high-quality samples
+### Character Testing
 
-### Step 5: Model Training
+1. Navigate to "Model Testing"
+2. Select your trained model
+3. Test with various prompts:
+   - "Tell me about yourself"
+   - "What motivates you?"
+   - "Describe your work"
 
-Time to train your character's AI model:
+### Verify Character Consistency
 
-1. **Navigate to Training Config** (⚙️ in sidebar)
+Check that your character:
+- Maintains consistent personality traits
+- Remembers their background
+- Uses appropriate speech patterns
+- Responds in character
 
-2. **Configure Training**:
-   - **SFT Settings**:
-     - Epochs: 3 (start conservative)
-     - Learning rate: 5e-5 (recommended)
-     - Batch size: Based on your GPU (1-4)
-   
-   - **RLHF Settings** (if you have preference data):
-     - Enable if you've marked preferences during generation
-     - Algorithm: GRPO (recommended)
+## Step 5: Use the React Client
 
-3. **Start Training**:
-   - Click "Start Training"
-   - The system will begin supervised fine-tuning
+### Launch the Client
 
-4. **Monitor Progress**:
-   - Switch to Training Dashboard (📊 in sidebar)
-   - Watch loss curves and quality metrics
-   - Training typically takes 20-60 minutes
+If not already running:
+```bash
+cd client
+npm start
+```
 
-### Step 6: Testing Your Character
+Navigate to `http://localhost:3000`
 
-Let's see how your character performs:
+### Start Conversations
 
-1. **Navigate to Model Testing** (🧪 in sidebar)
-2. **Select Your Trained Model**: Choose Aria's latest adapter
-
-3. **Test Conversations**:
-   Try these prompts:
-   - "Can you help me understand crystal magic?"
-   - "I'm struggling with my enchantment studies."
-   - "Tell me about the history of the Grand Library."
-
-4. **Evaluate Responses**:
-   - Does Aria sound knowledgeable but approachable?
-   - Are her responses consistent with her personality?
-   - Does she reference world lore appropriately?
-
-### Step 7: Quality Analysis
-
-Assess your character's consistency:
-
-1. **Navigate to Model Comparison** (🔍 in sidebar)
-2. **Run Personality Drift Analysis**:
-   - Click "Run Drift Analysis"
-   - Review the radar chart comparing authored vs generated personality
-   - Check individual trait consistency
-
-3. **Review Metrics**:
-   - Personality alignment score
-   - Lore adherence rating
-   - Voice consistency analysis
-
-## Common First-Time Issues
-
-### Character Feels Generic
-- **Solution**: Add more specific personality details and unique traits
-- **Tip**: Use the conversational builder to discover unique character aspects
-
-### Training Loss Not Decreasing
-- **Solution**: Check dataset quality and reduce learning rate
-- **Tip**: Generate more diverse training examples
-
-### Character Responses Too Short
-- **Solution**: Include longer example conversations in training data
-- **Tip**: Use the "Generate additional example" feature
-
-### Personality Drift
-- **Solution**: Increase personality-focused training samples
-- **Tip**: Use control tokens to reinforce personality traits
+1. Select your character from the available options
+2. Begin chatting to test the character's responses
+3. Observe real-time features:
+   - Emotion indicators
+   - Memory formation
+   - Character consistency
 
 ## Next Steps
 
-Congratulations! You've created your first AI character. Here's what to explore next:
+### Improve Your Character
 
-1. **Advanced Features**:
-   - Experiment with control tokens for fine-grained control
-   - Try different training configurations
-   - Explore multi-character world building
+1. Generate additional training data (500+ samples)
+2. Train for more epochs (2-3)
+3. Use RLHF for refinement
+4. Test with edge cases
 
-2. **Quality Optimization**:
-   - Use RLHF training to refine character behavior
-   - Generate more specialized training data
-   - Test across diverse scenarios
+### Advanced Features
 
-3. **World Building**:
-   - Add more characters to your world
-   - Create complex relationship networks
-   - Build rich world lore and timelines
+- **Control Tokens**: Use `<happy>`, `<thinking>` markers for fine control
+- **Memory System**: Enable persistent character memories
+- **Multi-Character**: Create multiple characters for interactions
+- **Custom Worlds**: Define character environments and lore
 
-4. **Export for Production**:
-   - Export runtime packets for deployment
-   - Test in different contexts
-   - Prepare for integration with game engines
+## Command Reference
 
-## Getting Help
+### Platform Commands
 
-- **User Guide**: Comprehensive feature documentation
-- **Best Practices**: Tips for optimal results
-- **Troubleshooting**: Solutions to common issues
-- **Community**: Connect with other creators
+```bash
+# Launch everything
+./launch-client.sh
 
----
+# Individual components
+cd app && streamlit run app.py         # Devkit
+python scripts/run_inference_server.py  # API Server
+cd client && npm start                  # React Client
 
-**Ready to dive deeper?** Continue with the [Complete User Guide](user-guide.md) or explore [Advanced Features](advanced-features.md) 
+# Training
+python scripts/train_sft.py --config configs/training_config.json
+python scripts/train_grpo.py --config configs/rlhf_config.json
+
+# Testing
+python scripts/test_model.py --model-path outputs/model_name
+```
+
+### Service URLs
+
+- **Devkit**: http://localhost:8501
+- **API Health**: http://localhost:8000/health
+- **React Client**: http://localhost:3000
+- **API Documentation**: http://localhost:8000/docs

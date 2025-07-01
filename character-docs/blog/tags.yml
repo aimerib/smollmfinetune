@@ -13,6 +13,41 @@ docusaurus:
   permalink: /docusaurus
   description: Docusaurus tag description
 
+vision:
+  label: Vision
+  permalink: /vision
+  description: Posts about our platform vision and future
+
+ai:
+  label: AI
+  permalink: /ai
+  description: Artificial intelligence and machine learning topics
+
+characters:
+  label: Characters
+  permalink: /characters  
+  description: Character creation and development
+
+storytelling:
+  label: Storytelling
+  permalink: /storytelling
+  description: Narrative design and interactive stories
+
+psychology:
+  label: Psychology
+  permalink: /psychology
+  description: Character psychology and personality modeling
+
+personality:
+  label: Personality
+  permalink: /personality
+  description: Personality systems and traits
+
+character-design:
+  label: Character Design
+  permalink: /character-design
+  description: Character creation methodologies
+
 hola:
   label: Hola
   permalink: /hola

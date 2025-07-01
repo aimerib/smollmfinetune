@@ -1,262 +1,374 @@
+---
+sidebar_position: 6
+---
+
 # Core Concepts
 
-Understanding the fundamental concepts behind the Character Creation Devkit will help you make the most of its powerful features. This guide explains the key ideas that drive the platform.
+Understanding the architecture and key concepts behind the Character Creation Platform will help you create more compelling characters and use the platform more effectively.
 
-## The Devkit + Cartridge Vision
+<div style={{background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', borderRadius: '12px', color: 'white', marginBottom: '2rem'}}>
+  <h2 style={{marginTop: 0}}>Platform Architecture</h2>
+  <p>Our platform is built on cutting-edge AI technology with a focus on:</p>
+  <ul style={{marginBottom: 0}}>
+    <li>Triple-head Narrative-LLM architecture</li>
+    <li>Memory-augmented generation</li>
+    <li>Control token orchestration</li>
+    <li>Real-time emotion modeling</li>
+    <li>Production-grade inference optimization</li>
+  </ul>
+</div>
 
-### The Nintendo DS Analogy
+## The Triple-Head Architecture
 
-Think of this platform as a **Nintendo DS Devkit** for AI characters:
+Our revolutionary model architecture enables characters that truly understand narrative, personality, and memory:
 
-- **The Devkit (This Application)**: Your creative workspace where you design character souls, not just scripts
-- **The Cartridge (Runtime Packet)**: The final exported product that contains everything needed to run your character
+```mermaid
+graph TD
+    Input[User Input] --> Encoder[Shared Encoder]
+    Encoder --> H1[Narrative Head]
+    Encoder --> H2[Control Head]
+    Encoder --> H3[Memory Head]
+    
+    H1 --> Fusion[Multi-Head Fusion]
+    H2 --> Fusion
+    H3 --> Fusion
+    
+    Fusion --> Output[Character Response]
+    
+    style H1 fill:#667eea,color:#fff
+    style H2 fill:#764ba2,color:#fff
+    style H3 fill:#f093fb,color:#fff
+```
 
-This separation allows for sophisticated character creation while producing lightweight, deployable packages.
+### Narrative Head
+Responsible for:
+- Story coherence and progression
+- Character voice and personality
+- World consistency
+- Emotional expression
 
-### From Chatbots to Personas
+### Control Head
+Manages:
+- UI commands and effects
+- Emotion state transitions
+- Memory formation triggers
+- Meta-narrative elements
 
-Traditional AI chatbots are reactive - they wait for input and respond. Our vision is **persistent digital actors** with:
+### Memory Head
+Handles:
+- Long-term memory encoding
+- Memory retrieval and relevance
+- Emotional memory weighting
+- Session persistence
 
-- **Internal Lives**: Characters have goals, memories, and motivations
-- **Consistent Personalities**: Based on psychological foundations
-- **World Awareness**: Characters understand their environment and relationships
-- **Emergent Behavior**: Stories arise from character interactions, not pre-written scripts
+## Memory System
 
-## Character Psychology Foundation
+Our advanced memory system gives characters persistent, emotionally-weighted memories:
 
-### Big Five Personality Model
+### Memory Types
 
-Every character is built on the **Big Five** psychological model (OCEAN):
+<div style={{display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '1rem', marginBottom: '1rem'}}>
+  :::tip[Episodic Memory]
+  <div>
+    <p>Specific events and conversations</p>
+    <ul>
+      <li>User preferences</li>
+      <li>Shared experiences</li>
+      <li>Important moments</li>
+    </ul>
+  </div>
+  :::
+  :::info[Semantic Memory]
+  <div>
+    <p>Facts and knowledge</p>
+    <ul>
+      <li>World lore</li>
+      <li>Character relationships</li>
+      <li>Learned information</li>
+    </ul>
+  </div>
+  :::
+  :::warning[Emotional Memory]
+  <div>
+    <p>Feelings and associations</p>
+    <ul>
+      <li>Emotional context</li>
+      <li>Trust levels</li>
+      <li>Relationship dynamics</li>
+    </ul>
+  </div>
+  :::
+</div>
 
-- **Openness**: Curiosity, creativity, willingness to try new things
-- **Conscientiousness**: Organization, discipline, attention to detail
-- **Extraversion**: Social energy, assertiveness, talkativeness
-- **Agreeableness**: Compassion, cooperation, trust in others
-- **Neuroticism**: Emotional stability, anxiety levels, stress response
+### Memory Formation Process
 
-These traits (scored 0.0-1.0) create a unique psychological fingerprint that influences how your character thinks, speaks, and behaves.
+```python
+memory_pipeline = {
+    "1_detection": "Identify important moments",
+    "2_encoding": "Create memory vector (768D)",
+    "3_weighting": "Apply importance scores",
+    "4_storage": "Store in vector database",
+    "5_decay": "Apply time-based decay"
+}
+```
 
-### Character Intelligence
+### Memory Metadata
 
-The platform includes sophisticated character analysis that:
+Each memory stores:
+- **Importance Score** (0.0-1.0): How significant the memory is
+- **Emotional Valence** (-1.0 to 1.0): Positive/negative emotion
+- **Context Relevance** (0.0-1.0): How relevant to current conversation
+- **Decay Rate** (0.0-1.0): How quickly memory fades
+- **Timestamp**: When memory was formed
 
-- **Synthesizes Character Data**: Combines personality, background, and goals into coherent insights
-- **Detects Archetypes**: Automatically identifies character types (mentor, rebel, caregiver, etc.)
-- **Assesses Consistency**: Measures how well character responses match their established personality
-- **Predicts Training Readiness**: Evaluates if a character has enough depth for quality training
+## Control Token System
 
-## World-Centric Design
+Control tokens enable dynamic UI interactions and character state management:
 
-### Worlds as Containers
+### Token Categories
 
-Characters don't exist in isolation - they live within **worlds** that provide:
+| Category | Examples | Purpose |
+|----------|----------|---------|
+| **Emotion** | `<happy>`, `<sad>`, `<angry>` | Trigger emotion changes |
+| **Action** | `<thinking>`, `<memory>`, `<pause>` | UI effects and timing |
+| **Meta** | `<scene>`, `<chapter>`, `<end>` | Narrative structure |
+| **System** | `<save>`, `<load>`, `<switch>` | Platform commands |
 
-- **Shared Lore**: Facts that all characters in the world must respect
-- **Timeline**: Historical events that shape character backgrounds
-- **Factions**: Organizations and groups characters can belong to
-- **Places**: Locations with their own NPCs, events, and significance
-- **Relationships**: Connections between characters within the world
+### Token Processing Flow
 
-### World Integration
+```mermaid
+sequenceDiagram
+    participant Model
+    participant ControlProcessor
+    participant UI
+    participant User
+    
+    Model->>ControlProcessor: Generate text with tokens
+    ControlProcessor->>ControlProcessor: Parse tokens
+    ControlProcessor->>UI: Dispatch events
+    UI->>User: Visual effects
+    ControlProcessor->>Model: Update state
+```
 
-Characters are designed to fit organically into their worlds through:
+## Character Definition Structure
 
-- **Contextual Creation**: AI suggests character connections to world events
-- **Lore Adherence**: Training data includes world facts to ensure consistency
-- **Relationship Mapping**: Characters understand their connections to other world inhabitants
-- **Timeline Placement**: Characters have appropriate ages and histories
+Characters are defined by multiple interconnected layers:
 
-## The Training Pipeline
+### Core Identity
+```typescript
+interface CharacterCore {
+  name: string;
+  age: number;
+  gender: string;
+  species: string;
+  occupation: string;
+  tagline: string;
+}
+```
 
-### Data-Driven Character Development
+### Personality Model
+Based on Big Five personality traits:
 
-Creating a convincing AI character requires high-quality training data. The platform supports multiple generation methods:
+```typescript
+interface Personality {
+  openness: number;        // 0.0-1.0
+  conscientiousness: number;
+  extraversion: number;
+  agreeableness: number;
+  neuroticism: number;
+  
+  traits: string[];        // ["brave", "curious", ...]
+  quirks: string[];        // ["taps fingers", "says 'indeed'", ...]
+}
+```
 
-**Interactive Generation**:
-- Collaborative batch-by-batch creation with human oversight
-- Real-time quality assessment and preference learning
-- Best balance of quality and creator control
+### Background & Relationships
+```typescript
+interface Background {
+  origin: string;
+  history: string[];
+  goals: string[];
+  fears: string[];
+  relationships: {
+    [character: string]: {
+      type: "friend" | "rival" | "family" | "romantic";
+      description: string;
+      trust_level: number;
+    }
+  };
+}
+```
 
-**Fast Mode**:
-- Template-based rapid generation
-- Good for initial prototyping and large datasets
-- Lower quality but high speed
+## Training Pipeline
 
-**Slow Mode**:
-- AI-curated generation with multiple quality passes
-- Highest quality but slower throughput
-- Best for final character refinement
+Our training process ensures characters maintain consistency while being engaging:
 
-### Two-Stage Training
+### Stage 1: Supervised Fine-Tuning (SFT)
+- **Input**: Character definition + conversation examples
+- **Process**: Fine-tune base model on character-specific data
+- **Output**: Character-aligned model
 
-**Supervised Fine-Tuning (SFT)**:
-- Initial training on character-specific conversation data
-- Teaches the model basic character voice and knowledge
-- Creates the foundation character personality
-
-**Reinforcement Learning from Human Feedback (RLHF)**:
-- Refines character behavior based on creator preferences
-- Uses GRPO (Group-Relative Policy Optimization) for efficiency
-- Aligns character responses with creator's vision
+### Stage 2: Reinforcement Learning (RLHF)
+- **Input**: Preference pairs from human feedback
+- **Process**: Optimize for preferred behaviors
+- **Output**: Refined character model
 
 ### Quality Metrics
 
-The platform continuously monitors character quality through:
+:::note
+We track multiple quality dimensions:
 
-- **Personality Alignment**: How well responses match the intended Big Five profile
-- **Lore Adherence**: Whether character respects established world facts
-- **Voice Consistency**: Stability of character's speaking style
-- **Training Readiness**: Overall assessment of character development completeness
+1. **Personality Alignment** (PA Score)
+   - Measures Big Five trait consistency
+   - Target: >0.75
 
-## Control Systems
+2. **Lore Adherence** (LA Score)
+   - Checks world fact accuracy
+   - Target: >0.85
 
-### Control Tokens
+3. **Emotional Coherence** (EC Score)
+   - Validates emotion transitions
+   - Target: >0.80
 
-Fine-grained content control through special tokens:
+4. **Response Quality** (RQ Score)
+   - Overall generation quality
+   - Target: >0.70
+:::
 
-**Mood Tokens**: `<mood_happy>`, `<mood_angry>`, `<mood_sad>`
-**Action Tokens**: `<stage_whisper>`, `<stage_shout>`, `<stage_laugh>`
-**Scene Tokens**: `<scene_tavern>`, `<scene_night>`, `<scene_outdoor>`
-**Content Tokens**: `<nsfw_soft>`, `<nsfw_explicit>` (for appropriate content)
+## Inference Optimization
 
-These tokens allow precise control over character behavior without retraining.
+Our production inference engine is designed for responsive real-time interactions through:
 
-### NSFW Handling
+- **Request Queueing**: Manages multiple incoming requests efficiently
+- **Attention Caching**: Reduces redundant computation
+- **GPU Memory Management**: Automatic optimization and recovery
+- **Adapter Hot-Swapping**: Change characters without server restart
 
-The platform includes sophisticated content analysis for mature content:
+## Session Management
 
-- **Content Detection**: Automatic identification and categorization
-- **Style Analysis**: Understanding of different intimacy approaches
-- **Appropriate Training**: Careful dataset generation with content flags
-- **Creator Control**: Fine-grained control over content types and boundaries
+Each conversation session maintains:
 
-## Character Lifecycle
-
-### Creation Methods
-
-**Conversational Builder**:
-- AI-guided character discovery through natural conversation
-- Adaptive questioning that builds on previous answers
-- Real-time character synthesis and development tracking
-
-**Traditional Management**:
-- Tabbed interface for detailed character editing
-- Direct control over all character attributes
-- AI-powered suggestions and enhancement tools
-
-**Import from Existing**:
-- SillyTavern card import and enhancement
-- Automatic personality analysis and trait extraction
-- Conversion to the platform's richer character format
-
-### Development Stages
-
-1. **Concept**: Initial character idea and basic traits
-2. **Definition**: Detailed personality, background, and goals
-3. **Integration**: World placement and relationship establishment
-4. **Training Data**: Generation of character-specific conversation examples
-5. **Model Training**: SFT and optional RLHF fine-tuning
-6. **Validation**: Quality testing and consistency analysis
-7. **Export**: Runtime packet creation for deployment
-
-## Advanced Features
-
-### Character Intelligence Service
-
-A sophisticated AI system that:
-
-- **Learns Creator Preferences**: Adapts suggestions based on user choices
-- **Maintains Character Ecosystems**: Ensures coherent character networks
-- **Provides Contextual Suggestions**: Offers world-aware character enhancements
-- **Tracks Character Evolution**: Monitors changes in character development
-
-### Personality Drift Analysis
-
-Visual tools that show:
-
-- **Authored vs Generated**: Comparison of intended vs actual character personality
-- **Trait Consistency**: Individual Big Five trait stability analysis
-- **Training Impact**: How model training affects character personality
-- **Correction Guidance**: Specific suggestions for personality refinement
-
-### Multi-Character Analysis
-
-Tools for managing character ecosystems:
-
-- **Role Distribution**: Ensuring balanced character archetypes
-- **Relationship Networks**: Mapping connections between characters
-- **Narrative Opportunities**: Identifying story potential in character combinations
-- **World Integration**: Assessing how well characters fit together
-
-## Technical Architecture
-
-### Modular Design
-
-The platform is built with clean separation of concerns:
-
-- **Character Management**: Psychology, traits, and development
-- **World Management**: Lore, timelines, and shared context
-- **Dataset Generation**: Training data creation and curation
-- **Training Pipeline**: Model fine-tuning and optimization
-- **Quality Assessment**: Evaluation and consistency monitoring
-
-### Data Flow
-
-```
-Character Concept → Character Definition → World Integration → 
-Dataset Generation → Model Training → Quality Assessment → Export
+### Session State
+```typescript
+interface SessionState {
+  session_id: string;
+  character_id: string;
+  emotional_state: EmotionVector;
+  active_memories: Memory[];
+  conversation_history: Message[];
+  context_window: string[];
+}
 ```
 
-Each stage builds on the previous one while allowing for iteration and refinement.
+### Emotion Vector
+Characters track emotions on multiple dimensions:
 
-### Export System
+```typescript
+interface EmotionVector {
+  happiness: number;    // 0.0-1.0
+  sadness: number;
+  anger: number;
+  fear: number;
+  surprise: number;
+  disgust: number;
+  trust: number;
+  anticipation: number;
+}
+```
 
-Runtime packets contain everything needed for deployment:
+## UI Integration
 
-- **Character Core**: Personality, background, goals, relationships
-- **World Lore**: Relevant world facts and context
-- **Model Adapter**: Trained LoRA/DoRA weights
-- **Control Tokens**: Custom vocabulary for fine control
-- **Runtime Config**: Deployment configuration and metadata
+The React client integrates deeply with our inference engine:
+
+### Real-Time Updates
+- WebSocket connections for instant responses
+- Server-Sent Events for emotion updates
+- Optimistic UI updates
+
+### Visual Feedback
+- Emotion-driven color gradients
+- Memory formation animations
+- Control token visual effects
+
+### Mobile Optimization
+- Progressive enhancement
+- Reduced payload packets
+- Offline-first architecture
+
+## Security & Privacy
+
+### Data Protection
+- End-to-end encryption for sensitive data
+- Session isolation
+- Memory access controls
+
+### Content Safety
+- Built-in content filtering
+- Character behavior boundaries
+- User-defined safety levels
+
+## Deployment Architecture
+
+```mermaid
+graph TD
+    Client[React Client] --> LB[Load Balancer]
+    LB --> API1[API Server 1]
+    LB --> API2[API Server 2]
+    
+    API1 --> GPU1[GPU Worker 1]
+    API1 --> GPU2[GPU Worker 2]
+    API2 --> GPU3[GPU Worker 3]
+    
+    API1 --> Redis[Redis Cache]
+    API2 --> Redis
+    
+    API1 --> Postgres[PostgreSQL]
+    API2 --> Postgres
+    
+    API1 --> Milvus[Vector DB]
+    API2 --> Milvus
+    
+    style Client fill:#f093fb,color:#fff
+    style Redis fill:#dc382d,color:#fff
+    style Postgres fill:#336791,color:#fff
+```
 
 ## Best Practices
 
 ### Character Design
-
-1. **Start with Psychology**: Define personality traits before other details
-2. **Integrate with World**: Ensure character fits naturally into their environment
-3. **Balance Traits**: Avoid extreme personality profiles that lack nuance
-4. **Define Clear Goals**: Give characters motivations and driving forces
-5. **Consider Relationships**: Think about how character connects to others
+1. **Start with strong personality traits**
+2. **Build consistent world lore**
+3. **Define clear relationships**
+4. **Create memorable quirks**
+5. **Establish goals and motivations**
 
 ### Training Optimization
+1. **Quality over quantity for data**
+2. **Diverse conversation scenarios**
+3. **Regular validation during training**
+4. **Incremental improvements**
+5. **Test edge cases thoroughly**
 
-1. **Quality over Quantity**: Better to have fewer high-quality samples
-2. **Diverse Scenarios**: Cover multiple conversation types and contexts
-3. **Personality Reinforcement**: Include examples that clearly show character traits
-4. **World Integration**: Reference world lore in training examples
-5. **Monitor Metrics**: Use personality alignment and lore adherence scores
+### Production Deployment
+1. **Monitor latency metrics**
+2. **Scale based on concurrent users**
+3. **Cache frequently accessed data**
+4. **Use CDN for static assets**
+5. **Implement graceful degradation**
 
-### Workflow Efficiency
+### Scaling Considerations
 
-1. **Use AI Assistance**: Leverage intelligent suggestions and automation
-2. **Iterate Gradually**: Build characters incrementally rather than all at once
-3. **Test Early**: Check character consistency throughout development
-4. **Learn from Feedback**: Use preference learning to improve AI assistance
-5. **Maintain Consistency**: Regular quality checks prevent character drift
-
-## Understanding the Platform's Unique Approach
-
-This platform differs from other character creation tools by:
-
-1. **Psychological Foundation**: Built on established personality psychology
-2. **World-Centric Design**: Characters exist within rich, shared contexts
-3. **AI-Powered Intelligence**: Sophisticated assistance throughout the creation process
-4. **Production Pipeline**: Complete workflow from concept to deployment
-5. **Quality Focus**: Continuous monitoring and optimization of character consistency
-
-Understanding these core concepts will help you make the most of the platform's sophisticated features and create truly compelling AI characters.
+1. **Vertical Scaling**: Use more powerful GPUs for better throughput
+2. **Horizontal Scaling**: Distribute load across multiple instances
+3. **Session Affinity**: Keep users on the same server for consistency
+4. **Memory Management**: Monitor and optimize GPU memory usage
 
 ---
-
-**Next Steps**: Apply these concepts in the [Getting Started Guide](getting-started.md) or explore detailed workflows in the [User Guide](user-guide.md) 
+:::tip[Master the Platform]
+<div>
+  <p>Understanding these core concepts will help you create amazing AI characters. Ready to dive deeper?</p>
+  <a href="./advanced-features" style={{background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', color: 'white', padding: '0.75rem 2rem', borderRadius: '25px', textDecoration: 'none', display: 'inline-block', marginTop: '1rem'}}>
+    <span style={{fontSize: '1.2rem'}}>Explore Advanced Features →</span>
+  </a>
+</div> 
+:::
