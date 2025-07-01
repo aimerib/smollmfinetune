@@ -20,7 +20,7 @@ The project is divided into "Concentric Rings," moving from the most critical co
 *   **Ring 4: Narrative Engine** - Custom model architecture with triple-head outputs (Generation + Control + Memory), external memory, and advanced training techniques.
 *   **Ring 5: Advanced Features** - Director's Chair real-time training, proactive agents, living interfaces, and digital ecology systems.
 
-You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work. At the end of every task, before marking it as completed, ensure that the feature is fully integrated with the wider platform. At this point perform a full code search to ensure you know how to fully integrate the feature. After integration, run a full test suite `python -m pytest tests/ -v` and if the tests come green, mark the task as completed, move it to the completed folder, and make a commit with all files added.
+You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work. At the end of every task, before marking it as completed, ensure that the feature is fully integrated with the wider platform. At this point perform a full code search to ensure you know how to fully integrate the feature. After integration, run the **fast test suite** `./scripts/run_tests.sh fast` and verify all tests pass. If any tests fail, they must be fixed before completing the task - NO exceptions. If a test cannot be reasonably fixed, request permission to delete it. Only mark tasks as completed when all fast tests pass, then move to the completed folder and make a commit with all files added.
 
 ## The TDD Workflow (Red-Green-Refactor)
 
@@ -40,11 +40,35 @@ Every task in this project follows Test-Driven Development (TDD). For each featu
 - **Data**: Pandas, HuggingFace Datasets, SQLite/PostgreSQL
 - **Testing**: pytest for unit tests, streamlit.testing for UI tests
 
-### Testing Patterns
+### Testing Patterns & Markers
 - **Unit Tests**: `tests/test_*.py` for business logic in `app/utils/`
 - **UI Tests**: `tests/ui/test_*.py` for Streamlit pages using `AppTest`
 - **Integration Tests**: `tests/integration/test_*.py` for end-to-end workflows
 - **Test Structure**: Mirror the app structure (e.g., `tests/test_character_manager.py` for `app/utils/character/character.py`)
+
+#### Pytest Markers for Test Classification
+All tests that require LLM calls or model inference MUST be marked with these decorators:
+
+```python
+@pytest.mark.slow      # Tests that take >5 seconds to run
+@pytest.mark.llm       # Tests that call LLMs (OpenAI, local models, etc.)
+@pytest.mark.evaluation # Tests that validate model output quality
+```
+
+**When to use each marker:**
+- `@pytest.mark.slow` - Any test that takes longer than 5 seconds (file I/O, model loading, etc.)
+- `@pytest.mark.llm` - Tests that make actual LLM API calls or run inference
+- `@pytest.mark.evaluation` - Tests that evaluate model output quality, character consistency, etc.
+
+**Example:**
+```python
+@pytest.mark.slow
+@pytest.mark.llm
+@pytest.mark.evaluation
+def test_character_voice_consistency():
+    # Test that requires model inference and quality evaluation
+    pass
+```
 
 ### Multi-Layer TDD Approach
 We follow a **three-circle TDD methodology**:
@@ -97,13 +121,40 @@ For a character personality feature:
 
 ## How to Proceed
 
-1.  Start with the task provided in context
-2.  Follow the TDD cycle for each acceptance criterion
-3.  Run tests frequently: `pytest` for unit tests, `streamlit run` + manual testing for UI
-4.  Integrate the feature with the rest of the codebase
-5.  Run full test suite
-6.  Once complete and all criteria met, mark the task as done
-7.  Move the task file to `ai_coder_tasks/tasks/completed/` with a completion summary
+1.  **FIRST**: Run fast test suite to ensure clean baseline: `./scripts/run_tests.sh fast`
+2.  Start with the task provided in context
+3.  Follow the TDD cycle for each acceptance criterion
+4.  Run tests frequently using the test runner script (see Testing Workflow below)
+5.  Integrate the feature with the rest of the codebase
+6.  **FINAL**: Run fast test suite again: `./scripts/run_tests.sh fast` - ALL must pass
+7.  Once complete and all criteria met (and tests pass), mark the task as done
+8.  Move the task file to `ai_coder_tasks/tasks/completed/` with a completion summary
+
+## Testing Workflow & Script Usage
+
+Use `./scripts/run_tests.sh` for all testing. Available modes:
+
+### Development Testing (Use These Regularly)
+- `./scripts/run_tests.sh fast` - **PRIMARY**: Fast tests only (no LLM calls) - use before/after every task
+- `./scripts/run_tests.sh dev` - Development mode (fast tests, fail on first error)
+- `./scripts/run_tests.sh pre-commit` - Before git commit (fast + sample slow tests)
+
+### Specialized Testing (Use As Needed)
+- `./scripts/run_tests.sh ui` - UI tests only
+- `./scripts/run_tests.sh integration` - Integration tests only
+- `./scripts/run_tests.sh evaluation-fast` - Fast evaluation tests only
+
+### Model Validation Testing (Manual/CI Only)
+- `./scripts/run_tests.sh evaluation-slow` - Slow evaluation tests (LLM-dependent)
+- `./scripts/run_tests.sh slow` - All slow/LLM tests
+- `./scripts/run_tests.sh all` - Everything (expensive, rarely needed)
+
+### Critical Testing Rules
+1. **ALWAYS** run `./scripts/run_tests.sh fast` before starting any task
+2. **ALWAYS** run `./scripts/run_tests.sh fast` before marking any task complete
+3. **NEVER** mark a task complete with failing tests
+4. **NEVER** run slow/LLM tests during platform development unless explicitly testing model features
+5. If a test fails and cannot be reasonably fixed, request permission to delete it
 
 ## File Organization
 

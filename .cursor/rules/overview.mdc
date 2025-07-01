@@ -74,9 +74,28 @@ Example: `R0-1_restore_dataset_generation.md`
 ### Testing Standards - TDD
 - **All tests** go in `/tests/` directory (not in `/app/`)
 - **Comprehensive coverage** required for new components
-- **Run tests** with `pytest` from project root
+- **Run tests** with `./scripts/run_tests.sh` script (never raw pytest)
 - **Test structure**: `test_<module_name>.py` matches `utils/<module_name>.py`
 - **TDD Enabled**: The codebase now has proper separation of concerns, modular design, and comprehensive test coverage. Future development should follow TDD practices.
+
+### Test Classification & Markers ⚠️
+Tests are classified using pytest markers for proper CI/CD separation:
+
+**Platform Development Tests** (Run in CI):
+- Fast unit tests, UI tests, integration tests (no LLM calls)
+- Use: `./scripts/run_tests.sh fast` 
+- **MANDATORY**: All tasks must pass fast tests before completion
+
+**Model Validation Tests** (Manual/Model CI only):
+- Tests requiring LLM calls or model inference
+- Markers: `@pytest.mark.slow`, `@pytest.mark.llm`, `@pytest.mark.evaluation`
+- Use: `./scripts/run_tests.sh evaluation-slow`
+- **NOT for platform CI**: These test model quality, not platform functionality
+
+### CI/CD Workflows
+1. **Platform CI** (Feature branches → main): Only fast tests (`./scripts/run_tests.sh fast`)
+2. **Model Validation CI** (Manual trigger): LLM/evaluation tests for model releases
+3. **Pre-commit**: Fast tests + sample critical slow tests
 
 ### Multi-Layer TDD Approach ✅ 
 We follow a **three-circle TDD methodology**:
@@ -98,14 +117,17 @@ We follow a **three-circle TDD methodology**:
 - Slower feedback loop (~30-60 seconds)
 
 ### TDD Guidelines for Future Sessions:
-1. **Work Inside-Out**: Start with inner circle tests, move outward
-2. **Red-Green-Refactor** at each layer before moving to next
-3. **UI Testing**: All Streamlit pages must have `AppTest` coverage
-4. **Mock Strategy**: Mock external dependencies, keep UI tests focused on interaction
-5. **Test Structure**: 
+1. **Test First**: Always run `./scripts/run_tests.sh fast` before starting any work
+2. **Work Inside-Out**: Start with inner circle tests, move outward
+3. **Red-Green-Refactor** at each layer before moving to next
+4. **UI Testing**: All Streamlit pages must have `AppTest` coverage
+5. **Mock Strategy**: Mock external dependencies, keep UI tests focused on interaction
+6. **Test Structure**: 
    - `tests/unit/` → Inner circle (business logic)
    - `tests/integration/` → Middle circle (workflows)  
    - `tests/ui/` → Outer circle (Streamlit pages)
+7. **LLM Test Markers**: Mark any test requiring LLM calls with `@pytest.mark.slow`, `@pytest.mark.llm`, `@pytest.mark.evaluation`
+8. **Zero Tolerance**: No task completion with failing fast tests - fix or request deletion permission
 
 ---
 ## 4. Vision & Analogy - Expanded
@@ -136,6 +158,10 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 • The LLM should start work with a short friendly preamble, a small note about its thoughts around the task, and only then proceed with its usual flow, thinking, searching, generating code, etc. Friendliness towards humans helps cooperation, and humans are surprisingly fond of pleasantries.
 
 • **TDD is now mandatory for every card** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
+
+• **Test Suite Discipline**: Run `./scripts/run_tests.sh fast` before starting any task and before marking any task complete. No task is complete with failing tests - fix issues or request permission to delete problematic tests.
+
+• **LLM Test Classification**: Any test requiring LLM calls, model inference, or quality evaluation MUST be marked with `@pytest.mark.slow`, `@pytest.mark.llm`, and/or `@pytest.mark.evaluation`. These tests are NOT part of platform CI.
 
 • Always execute the integration between the new feature and existing code. No task is complete if it isn't integrated in code, or explicitly marked as preparation steps
 
