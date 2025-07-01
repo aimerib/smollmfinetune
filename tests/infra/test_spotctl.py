@@ -9,11 +9,8 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, call
+from unittest.mock import Mock, patch
 from datetime import datetime, timedelta, timezone
-import boto3
-from botocore.exceptions import ClientError
-import click
 from click.testing import CliRunner
 
 # Import the CLI we'll build

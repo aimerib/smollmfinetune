@@ -47,6 +47,7 @@ class TestRunSFTCI:
             # Should exit successfully
             assert result.returncode == 0, f"Script failed: {result.stderr}"
     
+    @pytest.mark.slow
     def test_run_sft_ci_produces_checkpoint(self):
         """CI script should produce a model checkpoint file within timeout"""
         script_path = Path("scripts/run_sft_ci.py")
@@ -163,6 +164,9 @@ class TestRunBasicEvaluation:
         except ImportError:
             pytest.fail("scripts.run_basic_evaluation should be importable")
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     def test_run_basic_evaluation_quick_mode(self):
         """Evaluation script should support quick mode for CI"""
         script_path = Path("scripts/run_basic_evaluation.py")
@@ -188,6 +192,9 @@ class TestRunBasicEvaluation:
             
             assert result.returncode == 0, f"Evaluation script failed: {result.stderr}"
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     def test_run_basic_evaluation_outputs_json(self):
         """Evaluation script should output JSON results with required metrics"""
         script_path = Path("scripts/run_basic_evaluation.py")

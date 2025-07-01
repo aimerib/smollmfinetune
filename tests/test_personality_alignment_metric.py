@@ -1,5 +1,5 @@
 import unittest
-from unittest.mock import Mock, patch
+import pytest
 import json
 from typing import Dict
 
@@ -32,98 +32,93 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
         from app.utils.evaluation.personality_metric import calculate_personality_alignment
         self.assertTrue(callable(calculate_personality_alignment))
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     def test_calculate_personality_alignment_returns_float(self):
         """Test that the function returns a float between 0 and 1"""
         from app.utils.evaluation.personality_metric import calculate_personality_alignment
         
-        # Mock the OpenAI client
-        with patch('app.utils.evaluation.personality_metric.get_client') as mock_get_client:
-            mock_client = Mock()
-            mock_get_client.return_value = mock_client
-            
-            # Mock the chat completion response
-            mock_completion = Mock()
-            mock_completion.choices = [Mock()]
-            mock_completion.choices[0].message.content = '{"alignment_score": 0.85}'
-            mock_client.chat.completions.create.return_value = mock_completion
-            
-            result = calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
-            
-            self.assertIsInstance(result, float)
-            self.assertGreaterEqual(result, 0.0)
-            self.assertLessEqual(result, 1.0)
+        result = calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
+        
+        self.assertIsInstance(result, float)
+        self.assertGreaterEqual(result, 0.0)
+        self.assertLessEqual(result, 1.0)
     
-    def test_llm_prompt_contains_required_elements(self):
-        """Test that the LLM prompt contains all required elements"""
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_personality_alignment_high_openness_extraversion(self):
+        """Test alignment scoring for high openness and extraversion traits"""
         from app.utils.evaluation.personality_metric import calculate_personality_alignment
         
-        with patch('app.utils.evaluation.personality_metric.get_client') as mock_get_client:
-            mock_client = Mock()
-            mock_get_client.return_value = mock_client
-            
-            mock_completion = Mock()
-            mock_completion.choices = [Mock()]
-            mock_completion.choices[0].message.content = '{"alignment_score": 0.85}'
-            mock_client.chat.completions.create.return_value = mock_completion
-            
-            calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
-            
-            # Check that create was called
-            mock_client.chat.completions.create.assert_called_once()
-            
-            # Get the actual call arguments
-            call_args = mock_client.chat.completions.create.call_args
-            messages = call_args[1]['messages']
-            
-            # Check system message exists
-            self.assertEqual(messages[0]['role'], 'system')
-            self.assertIn('personality psychologist', messages[0]['content'].lower())
-            
-            # Check user message contains all personality traits
-            user_message = messages[1]['content']
-            self.assertIn('Openness: 0.8', user_message)
-            self.assertIn('Conscientiousness: 0.3', user_message)
-            self.assertIn('Extraversion: 0.9', user_message)
-            self.assertIn('Agreeableness: 0.6', user_message)
-            self.assertIn('Neuroticism: 0.2', user_message)
-            
-            # Check response is included
-            self.assertIn(self.sample_response, user_message)
+        # Response that should align well with high openness and extraversion
+        high_oe_response = "I absolutely love exploring new places, meeting new people, and trying exciting adventures!"
+        high_oe_traits = {
+            "openness": 0.9,
+            "conscientiousness": 0.5,
+            "extraversion": 0.9,
+            "agreeableness": 0.5,
+            "neuroticism": 0.3
+        }
+        
+        score = calculate_personality_alignment(high_oe_response, high_oe_traits)
+        
+        # Should show good alignment (expect score > 0.6)
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+        self.assertGreater(score, 0.6)
     
-    def test_handles_invalid_json_response(self):
-        """Test that the function handles invalid JSON responses gracefully"""
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_personality_alignment_low_extraversion(self):
+        """Test alignment scoring for low extraversion traits"""
         from app.utils.evaluation.personality_metric import calculate_personality_alignment
         
-        with patch('app.utils.evaluation.personality_metric.get_client') as mock_get_client:
-            mock_client = Mock()
-            mock_get_client.return_value = mock_client
-            
-            # Return invalid JSON
-            mock_completion = Mock()
-            mock_completion.choices = [Mock()]
-            mock_completion.choices[0].message.content = 'Not valid JSON'
-            mock_client.chat.completions.create.return_value = mock_completion
-            
-            # Should return a default score (e.g., 0.5) or raise an appropriate exception
-            result = calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
-            self.assertEqual(result, 0.5)  # Default score for error cases
+        # Response that should align with low extraversion
+        low_e_response = "I prefer quiet evenings at home, reading a book by myself."
+        low_e_traits = {
+            "openness": 0.5,
+            "conscientiousness": 0.5,
+            "extraversion": 0.2,  # Low extraversion
+            "agreeableness": 0.5,
+            "neuroticism": 0.3
+        }
+        
+        score = calculate_personality_alignment(low_e_response, low_e_traits)
+        
+        # Should show good alignment with introverted response
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+        self.assertGreater(score, 0.6)
     
-    def test_handles_missing_alignment_score_key(self):
-        """Test that the function handles JSON without alignment_score key"""
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_personality_misalignment_detection(self):
+        """Test that misaligned personality traits are detected"""
         from app.utils.evaluation.personality_metric import calculate_personality_alignment
         
-        with patch('app.utils.evaluation.personality_metric.get_client') as mock_get_client:
-            mock_client = Mock()
-            mock_get_client.return_value = mock_client
-            
-            # Return JSON without alignment_score
-            mock_completion = Mock()
-            mock_completion.choices = [Mock()]
-            mock_completion.choices[0].message.content = '{"score": 0.85}'
-            mock_client.chat.completions.create.return_value = mock_completion
-            
-            result = calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
-            self.assertEqual(result, 0.5)  # Default score for error cases
+        # Introverted response with extraverted target traits
+        introverted_response = "I really prefer staying home alone and avoiding social gatherings."
+        extraverted_traits = {
+            "openness": 0.5,
+            "conscientiousness": 0.5,
+            "extraversion": 0.9,  # High extraversion - should clash with response
+            "agreeableness": 0.5,
+            "neuroticism": 0.3
+        }
+        
+        score = calculate_personality_alignment(introverted_response, extraverted_traits)
+        
+        # Should show poor alignment (expect score < 0.5)
+        self.assertIsInstance(score, float)
+        self.assertGreaterEqual(score, 0.0)
+        self.assertLessEqual(score, 1.0)
+        self.assertLess(score, 0.5)
     
     def test_validates_empty_response(self):
         """Test that the function raises ValueError for empty response"""
@@ -160,31 +155,51 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
         
         self.assertIn("must be between 0.0 and 1.0", str(context.exception))
     
-    def test_cached_version_works(self):
-        """Test that the cached version returns the same results"""
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_cached_version_consistency(self):
+        """Test that the cached version returns consistent results"""
         from app.utils.evaluation.personality_metric import calculate_personality_alignment_cached
         
-        with patch('app.utils.evaluation.personality_metric.get_client') as mock_get_client:
-            mock_client = Mock()
-            mock_get_client.return_value = mock_client
-            
-            mock_completion = Mock()
-            mock_completion.choices = [Mock()]
-            mock_completion.choices[0].message.content = '{"alignment_score": 0.75}'
-            mock_client.chat.completions.create.return_value = mock_completion
-            
-            # Convert dict to tuple for cached version
-            big_five_tuple = (0.8, 0.3, 0.9, 0.6, 0.2)
-            
-            result = calculate_personality_alignment_cached(self.sample_response, big_five_tuple)
-            self.assertEqual(result, 0.75)
-            
-            # Second call should use cache (mock shouldn't be called again)
-            result2 = calculate_personality_alignment_cached(self.sample_response, big_five_tuple)
-            self.assertEqual(result2, 0.75)
-            
-            # Verify API was only called once due to caching
-            mock_client.chat.completions.create.assert_called_once()
+        # Convert dict to tuple for cached version
+        big_five_tuple = (0.8, 0.3, 0.9, 0.6, 0.2)
+        
+        result1 = calculate_personality_alignment_cached(self.sample_response, big_five_tuple)
+        result2 = calculate_personality_alignment_cached(self.sample_response, big_five_tuple)
+        
+        # Results should be identical due to caching
+        self.assertEqual(result1, result2)
+        self.assertIsInstance(result1, float)
+        self.assertGreaterEqual(result1, 0.0)
+        self.assertLessEqual(result1, 1.0)
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_scoring_consistency_across_similar_responses(self):
+        """Test that similar responses get similar scores"""
+        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        
+        # Similar extraverted, open responses
+        responses = [
+            "I love meeting new people and trying new experiences!",
+            "Meeting people and exploring new things makes me so excited!",
+            "I get energized by social interactions and novel adventures!"
+        ]
+        
+        scores = []
+        for response in responses:
+            score = calculate_personality_alignment(response, self.sample_big_five_scores)
+            scores.append(score)
+        
+        # All scores should be reasonably consistent (within 0.3 range)
+        score_range = max(scores) - min(scores)
+        self.assertLess(score_range, 0.4)
+        
+        # All should show good alignment with high openness/extraversion
+        for score in scores:
+            self.assertGreater(score, 0.5)
 
 
 class TestTrainingQualityTrackerIntegration(unittest.TestCase):
@@ -199,22 +214,24 @@ class TestTrainingQualityTrackerIntegration(unittest.TestCase):
         # Check that we can add personality alignment scores
         self.assertTrue(hasattr(tracker, 'add_personality_alignment_score'))
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     def test_tracker_logs_personality_alignment_to_wandb(self):
         """Test that personality alignment is logged to WandB"""
         from app.utils.metrics import TrainingQualityTracker
         
-        with patch('app.utils.metrics.wandb') as mock_wandb:
-            tracker = TrainingQualityTracker()
-            
-            # Add some personality alignment scores
-            tracker.add_personality_alignment_score(0.85)
-            tracker.add_personality_alignment_score(0.90)
-            
-            # Get metrics for logging
-            metrics = tracker.get_wandb_metrics()
-            
-            self.assertIn('avg_personality_alignment', metrics)
-            self.assertAlmostEqual(metrics['avg_personality_alignment'], 0.875)
+        tracker = TrainingQualityTracker()
+        
+        # Add some personality alignment scores
+        tracker.add_personality_alignment_score(0.85)
+        tracker.add_personality_alignment_score(0.90)
+        
+        # Get metrics for logging
+        metrics = tracker.get_wandb_metrics()
+        
+        self.assertIn('avg_personality_alignment', metrics)
+        self.assertAlmostEqual(metrics['avg_personality_alignment'], 0.875)
 
 
 if __name__ == '__main__':

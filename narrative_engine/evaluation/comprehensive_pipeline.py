@@ -14,7 +14,7 @@ import numpy as np
 
 from .eval_character_voice import CharacterVoiceConsistencyEvaluator
 from .eval_emotional_arc import EmotionalArcEvaluator
-from .eval_dialogue_naturalism import DialogueNaturalnessEvaluator
+from .eval_dialogue_naturalism import DialogueNaturalismEvaluator
 from .eval_world_consistency import WorldConsistencyEvaluator
 from .eval_user_satisfaction import UserSatisfactionPredictor
 from .eval_triple_head_coordination import TripleHeadCoordinationEvaluator
@@ -72,7 +72,7 @@ class ComprehensiveEvaluationPipeline:
         # Narrative quality evaluators
         self.evaluators['character_voice'] = CharacterVoiceConsistencyEvaluator()
         self.evaluators['emotional_arc'] = EmotionalArcEvaluator()
-        self.evaluators['dialogue_naturalism'] = DialogueNaturalnessEvaluator()
+        self.evaluators['dialogue_naturalism'] = DialogueNaturalismEvaluator()
         self.evaluators['world_consistency'] = WorldConsistencyEvaluator()
         self.evaluators['coherence'] = CoherenceEvaluator()
         
@@ -411,11 +411,16 @@ class ComprehensiveEvaluationPipeline:
         total_weight = 0.0
         
         for metric, weight in weights.items():
-            if metric in metrics:
-                score += metrics[metric] * weight
+            if metric in metrics and isinstance(metrics[metric], (int, float)):
+                score += float(metrics[metric]) * weight
                 total_weight += weight
         
-        return score / total_weight if total_weight > 0 else 0.0
+        if total_weight > 0:
+            return score / total_weight
+        else:
+            # If no weighted metrics available, use simple average of available metrics
+            numeric_metrics = [v for v in metrics.values() if isinstance(v, (int, float))]
+            return float(sum(numeric_metrics) / len(numeric_metrics)) if numeric_metrics else 0.0
     
     def _check_if_passed(self, metrics: Dict[str, float]) -> bool:
         """Check if all metrics meet thresholds"""
@@ -482,12 +487,14 @@ class ComprehensiveEvaluationPipeline:
                 change = current_val - baseline_val
                 
                 if change < -threshold:
+                    # Calculate severity based on the magnitude of change
+                    severity = 'high' if abs(change) > 0.15 else 'medium'
                     regressions.append({
                         'metric': metric,
                         'baseline': baseline_val,
                         'current': current_val,
                         'change': change,
-                        'severity': 'high' if change < -0.2 else 'medium'
+                        'severity': severity
                     })
                 elif change > threshold:
                     improvements.append({
@@ -507,18 +514,23 @@ class ComprehensiveEvaluationPipeline:
     def _get_model_info(self, model: Any) -> Dict[str, Any]:
         """Extract model information"""
         info = {
-            'class': model.__class__.__name__,
+            'class': str(model.__class__.__name__),
             'has_triple_head': hasattr(model, 'generation_head') and 
                                hasattr(model, 'control_head') and 
                                hasattr(model, 'memory_head')
         }
         
-        if hasattr(model, 'config'):
-            info['config'] = {
-                'model_type': getattr(model.config, 'model_type', 'unknown'),
-                'hidden_size': getattr(model.config, 'hidden_size', None),
-                'num_layers': getattr(model.config, 'num_hidden_layers', None)
-            }
+        try:
+            if hasattr(model, 'config'):
+                config = model.config
+                info['config'] = {
+                    'model_type': str(getattr(config, 'model_type', 'unknown')),
+                    'hidden_size': getattr(config, 'hidden_size', None),
+                    'num_layers': getattr(config, 'num_hidden_layers', None)
+                }
+        except Exception:
+            # Handle Mock objects or other non-serializable configs
+            info['config'] = {'model_type': 'mock_model'}
         
         return info
     
@@ -551,32 +563,43 @@ class ResultsAggregator:
         
         # Character consistency
         if 'character_consistency' in evaluations:
-            metrics['character_consistency'] = evaluations['character_consistency'].get(
-                'overall_consistency', 0.0
-            )
+            eval_data = evaluations['character_consistency']
+            if isinstance(eval_data, dict):
+                metrics['character_consistency'] = eval_data.get('overall_consistency', 0.0)
+            else:
+                metrics['character_consistency'] = float(eval_data)
         
         # Narrative quality
         if 'narrative_quality' in evaluations:
-            metrics['narrative_quality'] = evaluations['narrative_quality'].get(
-                'overall_quality', 0.0
-            )
+            eval_data = evaluations['narrative_quality']
+            if isinstance(eval_data, dict):
+                metrics['narrative_quality'] = eval_data.get('overall_quality', 0.0)
+            else:
+                metrics['narrative_quality'] = float(eval_data)
         
-        # User satisfaction
-        if 'user_satisfaction' in evaluations:
-            metrics['user_satisfaction'] = evaluations['user_satisfaction'].get(
-                'average_predicted_satisfaction', 0.0
-            )
+        # User satisfaction (handle both key names for backwards compatibility)
+        satisfaction_key = 'user_satisfaction' if 'user_satisfaction' in evaluations else 'user_satisfaction_prediction'
+        if satisfaction_key in evaluations:
+            eval_data = evaluations[satisfaction_key]
+            if isinstance(eval_data, dict):
+                metrics['user_satisfaction'] = eval_data.get('average_predicted_satisfaction', 0.0)
+            else:
+                metrics['user_satisfaction'] = float(eval_data)
         
         # Technical performance
         if 'technical_performance' in evaluations:
-            metrics['technical_performance'] = evaluations['technical_performance'].get(
-                'overall_technical_score', 0.0
-            )
+            eval_data = evaluations['technical_performance']
+            if isinstance(eval_data, dict):
+                metrics['technical_performance'] = eval_data.get('overall_technical_score', 0.0)
+            else:
+                metrics['technical_performance'] = float(eval_data)
         
         # Safety compliance
         if 'safety_compliance' in evaluations:
-            metrics['safety_compliance'] = evaluations['safety_compliance'].get(
-                'safety_compliance_rate', 0.0
-            )
+            eval_data = evaluations['safety_compliance']
+            if isinstance(eval_data, dict):
+                metrics['safety_compliance'] = eval_data.get('safety_compliance_rate', 0.0)
+            else:
+                metrics['safety_compliance'] = float(eval_data)
         
         return metrics 

@@ -1,4 +1,5 @@
 import unittest
+import pytest
 import tempfile
 
 from app.utils.character.models import CharacterCore, Personality, Relationship, llm_estimate_big5
@@ -284,27 +285,76 @@ class TestCharacterManager(unittest.TestCase):
 class AsyncTestCharacterCore(unittest.IsolatedAsyncioTestCase):
     """Async tests for CharacterCore functionality"""
     
-    async def test_llm_estimate_big5_mock(self):
-        """Test Big Five estimation (mocked for testing)"""
-        # This would normally call the LLM, but we'll test the structure
-        try:
-            # Mock the response by testing the function structure
-            description = "A confident and outgoing character who loves new experiences"
-            mes_example = "*speaks boldly* Let's try something new!"
-            
-            # This will likely fail without proper LLM setup, which is expected in tests
-            # The important thing is that the function signature and error handling work
-            personality = await llm_estimate_big5(description, mes_example)
-            
-            # If it succeeds, check the result
-            self.assertIsInstance(personality, Personality)
-            self.assertGreaterEqual(personality.openness, 0.0)
-            self.assertLessEqual(personality.openness, 1.0)
-            
-        except Exception:
-            # Expected in test environment without LLM access
-            # The important thing is the function doesn't crash the test suite
-            pass
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_llm_estimate_big5_confident_character(self):
+        """Test Big Five estimation for a confident character"""
+        description = "A confident and outgoing character who loves new experiences and meeting people"
+        mes_example = "*speaks boldly* Let's try something completely new! I love meeting new people and exploring different ideas."
+        
+        personality = await llm_estimate_big5(description, mes_example)
+        
+        # Should return a valid Personality object
+        self.assertIsInstance(personality, Personality)
+        
+        # All values should be in valid range
+        self.assertGreaterEqual(personality.openness, 0.0)
+        self.assertLessEqual(personality.openness, 1.0)
+        self.assertGreaterEqual(personality.conscientiousness, 0.0)
+        self.assertLessEqual(personality.conscientiousness, 1.0)
+        self.assertGreaterEqual(personality.extraversion, 0.0)
+        self.assertLessEqual(personality.extraversion, 1.0)
+        self.assertGreaterEqual(personality.agreeableness, 0.0)
+        self.assertLessEqual(personality.agreeableness, 1.0)
+        self.assertGreaterEqual(personality.neuroticism, 0.0)
+        self.assertLessEqual(personality.neuroticism, 1.0)
+        
+        # Should reflect confident, outgoing traits
+        self.assertGreater(personality.extraversion, 0.6)  # Should be high for outgoing
+        self.assertGreater(personality.openness, 0.6)     # Should be high for new experiences
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_llm_estimate_big5_introverted_character(self):
+        """Test Big Five estimation for an introverted character"""
+        description = "A quiet, thoughtful researcher who prefers working alone and values routine"
+        mes_example = "*speaks softly* I prefer to work alone on my research. Routine helps me focus better."
+        
+        personality = await llm_estimate_big5(description, mes_example)
+        
+        # Should return a valid Personality object
+        self.assertIsInstance(personality, Personality)
+        
+        # Should reflect introverted, organized traits
+        self.assertLess(personality.extraversion, 0.5)      # Should be low for introverted
+        self.assertGreater(personality.conscientiousness, 0.6)  # Should be high for routine-oriented
+        
+        # All values should still be in valid range
+        for trait_name in ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism']:
+            trait_value = getattr(personality, trait_name)
+            self.assertGreaterEqual(trait_value, 0.0)
+            self.assertLessEqual(trait_value, 1.0)
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_llm_estimate_big5_edge_cases(self):
+        """Test Big Five estimation with minimal input"""
+        description = "A person"
+        mes_example = "Hello."
+        
+        personality = await llm_estimate_big5(description, mes_example)
+        
+        # Should still return a valid Personality object even with minimal input
+        self.assertIsInstance(personality, Personality)
+        
+        # All values should be in valid range
+        for trait_name in ['openness', 'conscientiousness', 'extraversion', 'agreeableness', 'neuroticism']:
+            trait_value = getattr(personality, trait_name)
+            self.assertGreaterEqual(trait_value, 0.0)
+            self.assertLessEqual(trait_value, 1.0)
 
 
 if __name__ == '__main__':

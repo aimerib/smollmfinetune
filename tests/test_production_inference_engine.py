@@ -29,10 +29,9 @@ from app.inference_engine import (
 from app.inference_engine.session_manager import SessionNotFoundError
 
 
-@pytest_asyncio.fixture
-async def inference_engine():
+@pytest.fixture
+async def inference_engine(aiolib):
     """Create inference engine instance for testing"""
-    from app.inference_engine import ProductionInferenceEngine
     engine = ProductionInferenceEngine()
     await engine.initialize()
     yield engine
@@ -84,25 +83,21 @@ class TestProductionInferenceEngine:
         with patch.object(inference_engine, '_load_model', new_callable=AsyncMock) as mock_load:
             mock_load.return_value = mock_model
             
-            # Mock the process_request to return expected output
-            async def mock_process(request):
-                from app.inference_engine import TripleHeadOutput
-                output = TripleHeadOutput(
-                    generation_text="Hello, I'm your character!",
-                    control_tokens=[{"token": "<emotion_happy>", "probability": 0.8}],
-                    memory_vector=np.random.rand(768).tolist(),
-                    memory_metadata={
-                        "importance": 0.7,
-                        "emotional_valence": 0.5,
-                        "recency": 1.0,
-                        "coherence": 0.8
-                    }
-                )
-                return InferenceResponse.from_triple_head(
-                    request, output, 150.0, False
-                )
+            # Create a mock response object directly
+            mock_response = Mock(spec=InferenceResponse)
+            mock_response.generation_text = "Hello, I'm your character!"
+            mock_response.control_tokens = [{"token": "<emotion_happy>", "probability": 0.8}]
+            mock_response.memory_vector = np.random.rand(768).tolist()
+            mock_response.memory_metadata = {
+                "importance": 0.7,
+                "emotional_valence": 0.5,
+                "recency": 1.0,
+                "coherence": 0.8
+            }
             
-            with patch.object(inference_engine, '_process_request', new=mock_process):
+            with patch.object(inference_engine, '_process_request', new_callable=AsyncMock) as mock_process:
+                mock_process.return_value = mock_response
+                
                 request = InferenceRequest(
                     session_id="test-session",
                     character_id="test-char",

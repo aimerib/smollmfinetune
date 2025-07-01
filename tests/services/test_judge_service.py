@@ -5,11 +5,11 @@ Tests the centralized LLM-as-judge microservice including:
 - FastAPI endpoints for personality alignment and lore adherence
 - SQLite caching layer with SHA256 keys
 - Health check endpoint
-- Mock-based testing for LLM calls
+- Real LLM integration testing
 """
 
 import unittest
-from unittest.mock import Mock, patch, AsyncMock
+import pytest
 import json
 import hashlib
 import sqlite3
@@ -17,7 +17,6 @@ import tempfile
 import os
 from fastapi.testclient import TestClient
 import httpx
-import pytest
 
 
 class TestJudgeService(unittest.TestCase):
@@ -174,25 +173,30 @@ class TestJudgeService(unittest.TestCase):
     
     def test_dev_mode_random_scores(self):
         """Test that dev mode returns random scores when API key is missing"""
-        with patch.dict(os.environ, {}, clear=True):  # Clear all env vars
-            with patch('services.judge_service.main.call_llm_judge') as mock_llm:
-                # Should not be called in dev mode
-                mock_llm.return_value = None
-                
-                response = self.client.post("/personality_alignment", json={
-                    "text": self.test_response,
-                    "target": self.test_big_five
-                })
-                
-                self.assertEqual(response.status_code, 200)
-                data = response.json()
-                self.assertIn("score", data)
-                self.assertIn("dev_mode", data)
-                self.assertTrue(data["dev_mode"])
-                
-                # Score should be between 0 and 1
-                self.assertGreaterEqual(data["score"], 0.0)
-                self.assertLessEqual(data["score"], 1.0)
+        # Clear env vars to simulate missing API key
+        old_key = os.environ.get("OPENAI_API_KEY")
+        if old_key:
+            del os.environ["OPENAI_API_KEY"]
+        
+        try:
+            response = self.client.post("/personality_alignment", json={
+                "text": self.test_response,
+                "target": self.test_big_five
+            })
+            
+            self.assertEqual(response.status_code, 200)
+            data = response.json()
+            self.assertIn("score", data)
+            self.assertIn("dev_mode", data)
+            self.assertTrue(data["dev_mode"])
+            
+            # Score should be between 0 and 1
+            self.assertGreaterEqual(data["score"], 0.0)
+            self.assertLessEqual(data["score"], 1.0)
+        finally:
+            # Restore original key
+            if old_key:
+                os.environ["OPENAI_API_KEY"] = old_key
     
     def test_telemetry_logging(self):
         """Test that telemetry data is logged correctly"""
@@ -226,35 +230,116 @@ class TestJudgeService(unittest.TestCase):
 class TestJudgeServiceIntegration(unittest.TestCase):
     """Integration tests for the Judge Service"""
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     def test_end_to_end_personality_evaluation(self):
-        """Test end-to-end personality evaluation with real prompts"""
+        """Test end-to-end personality evaluation with real LLM calls"""
         # This test will initially fail - that's expected in TDD
         from services.judge_service.main import app
         
         client = TestClient(app)
         
-        # Mock the actual OpenAI/Anthropic API call
-        with patch('httpx.AsyncClient.post') as mock_post:
-            mock_response = Mock()
-            mock_response.json.return_value = {
-                "choices": [{"message": {"content": '{"alignment_score": 0.85}'}}]
+        # Test with high openness/extraversion response
+        response = client.post("/personality_alignment", json={
+            "text": "I absolutely love trying new cuisines and exploring different cultures! Meeting new people energizes me so much!",
+            "target": {
+                "openness": 0.9,
+                "conscientiousness": 0.5,
+                "extraversion": 0.8,
+                "agreeableness": 0.7,
+                "neuroticism": 0.2
             }
-            mock_response.status_code = 200
-            mock_post.return_value = mock_response
-            
-            response = client.post("/personality_alignment", json={
-                "text": "I absolutely love trying new cuisines and exploring different cultures!",
-                "target": {
-                    "openness": 0.9,
-                    "conscientiousness": 0.5,
-                    "extraversion": 0.8,
-                    "agreeableness": 0.7,
-                    "neuroticism": 0.2
-                }
-            })
-            
-            self.assertEqual(response.status_code, 200)
-            data = response.json()
-            self.assertIn("score", data)
-            self.assertGreaterEqual(data["score"], 0.0)
-            self.assertLessEqual(data["score"], 1.0) 
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("score", data)
+        self.assertIsInstance(data["score"], (int, float))
+        self.assertGreaterEqual(data["score"], 0.0)
+        self.assertLessEqual(data["score"], 1.0)
+        
+        # For high alignment, expect score > 0.6
+        if not data.get("dev_mode", False):  # Only check if not in dev mode
+            self.assertGreater(data["score"], 0.6)
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_end_to_end_lore_adherence_evaluation(self):
+        """Test end-to-end lore adherence evaluation with real LLM calls"""
+        from services.judge_service.main import app
+        
+        client = TestClient(app)
+        
+        # Test with lore-compliant response
+        response = client.post("/lore_adherence", json={
+            "text": "I cannot use magic here because it is strictly forbidden in the capital city.",
+            "target": "Magic is forbidden in the capital city of Whiterun."
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("score", data)
+        self.assertIsInstance(data["score"], (int, float))
+        self.assertGreaterEqual(data["score"], 0.0)
+        self.assertLessEqual(data["score"], 1.0)
+        
+        # For good lore adherence, expect score > 0.6
+        if not data.get("dev_mode", False):  # Only check if not in dev mode
+            self.assertGreater(data["score"], 0.6)
+        
+        # Test with lore-contradicting response
+        response = client.post("/lore_adherence", json={
+            "text": "Let me cast a powerful spell right here in the capital!",
+            "target": "Magic is forbidden in the capital city of Whiterun."
+        })
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("score", data)
+        
+        # For lore contradiction, expect score < 0.4
+        if not data.get("dev_mode", False):  # Only check if not in dev mode
+            self.assertLess(data["score"], 0.4)
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    def test_caching_with_real_requests(self):
+        """Test that caching works correctly with real LLM requests"""
+        from services.judge_service.main import app
+        
+        client = TestClient(app)
+        
+        # Make the same request twice
+        request_data = {
+            "text": "I enjoy quiet contemplation and reading books.",
+            "target": {
+                "openness": 0.7,
+                "conscientiousness": 0.8,
+                "extraversion": 0.3,
+                "agreeableness": 0.6,
+                "neuroticism": 0.2
+            }
+        }
+        
+        # First request
+        response1 = client.post("/personality_alignment", json=request_data)
+        self.assertEqual(response1.status_code, 200)
+        data1 = response1.json()
+        
+        # Second identical request (should use cache)
+        response2 = client.post("/personality_alignment", json=request_data)
+        self.assertEqual(response2.status_code, 200)
+        data2 = response2.json()
+        
+        # Results should be identical due to caching
+        if not data1.get("dev_mode", False):  # Only check if not in dev mode
+            self.assertEqual(data1["score"], data2["score"])
+        
+        # Both should be valid scores
+        self.assertGreaterEqual(data1["score"], 0.0)
+        self.assertLessEqual(data1["score"], 1.0)
+        self.assertGreaterEqual(data2["score"], 0.0)
+        self.assertLessEqual(data2["score"], 1.0) 

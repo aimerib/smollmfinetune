@@ -46,7 +46,7 @@ class OpenAIClient:
             auto_detect_model: If True, automatically detect the model from /v1/models endpoint on first use
         """
         self.api_key = api_key or os.getenv('OPENAI_API_KEY', "dummy")
-        self.base_url = base_url or os.getenv('OPENAI_BASE_URL', 'https://api.openai.com/v1')
+        self.base_url = base_url or os.getenv('OPENAI_BASE_URL', 'http://localhost:1234/v1')
         
         if not self.api_key:
             raise ValueError("OpenAI API key is required. Set OPENAI_API_KEY environment variable or pass api_key parameter.")

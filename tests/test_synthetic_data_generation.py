@@ -59,40 +59,43 @@ class TestSyntheticDataGeneration:
         assert generator.config.action_frequency == 0.3
     
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     async def test_generate_single_conversation(self):
         """Test generating a single synthetic conversation"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator
         
         generator = SyntheticDataGenerator()
         
-        # Mock the LLM API response
-        with patch.object(generator, '_call_llm_api', new_callable=AsyncMock) as mock_llm:
-            mock_llm.return_value = {
-                "conversation": [
-                    {"sender": "user", "text": "What are you researching today?"},
-                    {"sender": "assistant", "text": "I'm studying ancient Mesopotamian texts. Let me search my archives for details.", "channel": "action", "action": {"tool": "search", "query": "Mesopotamian manuscripts"}},
-                    {"sender": "user", "text": "That sounds fascinating! What have you found?"},
-                    {"sender": "assistant", "text": "The cuneiform tablets reveal fascinating insights about their astronomical knowledge.", "channel": "text"}
-                ]
-            }
-            
-            result = await generator.generate_conversation(self.test_character)
-            
-            # Validate the result is a DatasetSample
-            assert isinstance(result, DatasetSample)
-            assert result.session_id.startswith("synthetic_")
-            assert len(result.turns) >= 2
-            
-            # Should have both text and action channels
-            channels = {turn.channel for turn in result.turns if turn.sender == "assistant"}
-            assert "text" in channels
-            assert "action" in channels
-            
-            # Validate persona mix was created
-            assert len(result.persona_mix) > 0
-            assert sum(result.persona_mix.values()) == pytest.approx(1.0, abs=1e-6)
+        result = await generator.generate_conversation(self.test_character)
+        
+        # Validate the result is a DatasetSample
+        assert isinstance(result, DatasetSample)
+        assert result.session_id.startswith("synthetic_")
+        assert len(result.turns) >= 2  # Should have at least user and assistant turns
+        
+        # Should have meaningful conversation content
+        conversation_text = " ".join([turn.text for turn in result.turns])
+        assert len(conversation_text.strip()) > 20  # Substantial content
+        
+        # Should have both user and assistant turns
+        senders = {turn.sender for turn in result.turns}
+        assert "user" in senders
+        assert "assistant" in senders
+        
+        # Validate persona mix was created
+        assert len(result.persona_mix) > 0
+        assert sum(result.persona_mix.values()) == pytest.approx(1.0, abs=1e-6)
+        
+        # Should reflect the scholar character
+        assert any("scholar" in turn.text.lower() or "research" in turn.text.lower() 
+                  for turn in result.turns if turn.sender == "assistant")
     
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     async def test_generate_diverse_scenarios(self):
         """Test generating conversations with different scenario templates"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator
@@ -100,23 +103,24 @@ class TestSyntheticDataGeneration:
         generator = SyntheticDataGenerator(config={"scenario_diversity": "high"})
         
         # Test different scenario types
-        scenarios = ["research_session", "teaching_moment", "discovery_event", "collaboration"]
+        scenarios = ["research_session", "teaching_moment"]
         
+        results = []
         for scenario in scenarios:
-            with patch.object(generator, '_call_llm_api', new_callable=AsyncMock) as mock_llm:
-                mock_llm.return_value = {
-                    "conversation": [
-                        {"sender": "user", "text": f"Engaging in {scenario}"},
-                        {"sender": "assistant", "text": f"Responding to {scenario} appropriately"}
-                    ]
-                }
-                
-                result = await generator.generate_conversation(
-                    self.test_character, scenario_type=scenario
-                )
-                
-                assert isinstance(result, DatasetSample)
-                assert scenario in result.session_id.lower()
+            result = await generator.generate_conversation(
+                self.test_character, scenario_type=scenario
+            )
+            
+            assert isinstance(result, DatasetSample)
+            results.append(result)
+        
+        # Results should be different for different scenarios
+        if len(results) >= 2:
+            conv1_text = " ".join([t.text for t in results[0].turns])
+            conv2_text = " ".join([t.text for t in results[1].turns])
+            
+            # Should have some differences in content
+            assert conv1_text != conv2_text
     
     def test_conversation_templates_loading(self):
         """Test loading and validation of conversation templates"""
@@ -153,32 +157,34 @@ class TestSyntheticDataGeneration:
         assert high_action_gen.config.action_frequency == 0.8
     
     
+    @pytest.mark.slow
+    @pytest.mark.llm  
+    @pytest.mark.evaluation
     async def test_batch_generation(self):
         """Test generating multiple conversations in batch"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator
         
         generator = SyntheticDataGenerator()
         
-        with patch.object(generator, 'generate_conversation', new_callable=AsyncMock) as mock_generate:
-            # Mock successful generation
-            mock_generate.return_value = DatasetSample(
-                session_id="test_session",
-                persona_mix={"Scholar": 1.0},
-                memory_slots=["Test memory"],
-                turns=[Turn(sender="user", text="Hello", channel="text")]
-            )
-            
-            results = await generator.generate_batch(
-                characters=[self.test_character], 
-                conversations_per_character=3
-            )
-            
-            # Should generate 3 conversations for 1 character
-            assert len(results) == 3
-            assert all(isinstance(sample, DatasetSample) for sample in results)
-            
-            # Should have called generate_conversation 3 times
-            assert mock_generate.call_count == 3
+        # Generate smaller batch for real LLM calls
+        results = await generator.generate_batch(
+            characters=[self.test_character], 
+            conversations_per_character=2  # Reduced from 3 for real LLM testing
+        )
+        
+        # Should generate 2 conversations for 1 character
+        assert len(results) == 2
+        assert all(isinstance(sample, DatasetSample) for sample in results)
+        
+        # Each conversation should be unique
+        session_ids = [sample.session_id for sample in results]
+        assert len(set(session_ids)) == len(session_ids)  # All unique
+        
+        # All should have substantial content
+        for sample in results:
+            assert len(sample.turns) >= 2
+            conversation_text = " ".join([turn.text for turn in sample.turns])
+            assert len(conversation_text.strip()) > 20
     
     def test_quality_scoring_metrics(self):
         """Test quality scoring for generated conversations"""

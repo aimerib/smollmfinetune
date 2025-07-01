@@ -26,7 +26,9 @@ def test_evaluation_module_structure():
     assert eval_training_progress is not None
     assert run_evaluation_suite is not None
 
-
+@pytest.mark.slow
+@pytest.mark.llm
+@pytest.mark.evaluation
 def test_basic_generation_evaluation():
     """Test basic text generation evaluation"""
     from narrative_engine.evaluation.eval_basic_generation import BasicGenerationEvaluator
@@ -273,6 +275,8 @@ def test_checkpoint_blocking_criteria():
     assert results['evaluations']['basic_generation']['generation_success_rate'] == 0.0
 
 
+@pytest.mark.slow
+@pytest.mark.llm
 @pytest.mark.integration
 def test_evaluation_script_cli():
     """Test the command-line script interface"""

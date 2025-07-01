@@ -5,7 +5,6 @@ Tests the OpenAI-based memory generation for dataset augmentation.
 """
 
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 import asyncio
 from datetime import datetime
 
@@ -50,39 +49,14 @@ class TestMemoryGenerator:
             }
         }
     
-    @pytest.fixture
-    def mock_openai_response(self):
-        """Mock OpenAI response with structured output"""
-        mock_memory = GeneratedMemory(
-            memory_content="The user complimented my name, which made me feel appreciated",
-            turn_index=3,
-            surprise_score=0.7,
-            emotional_valence=0.8,
-            importance=0.7,
-            memory_type="emotional",
-            importance_level="high",
-            valence_category="positive",
-            reasoning="Receiving a personal compliment early in conversation is memorable"
-        )
-        
-        return MemoryBatch(
-            memories=[mock_memory],
-            overall_surprise=0.7,
-            emotional_arc="Friendly introduction leading to warm appreciation"
-        )
     
-    
-    async def test_generate_memories(self, sample_turns, sample_character, mock_openai_response):
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_generate_memories(self, sample_turns, sample_character):
         """Test basic memory generation"""
         # Arrange
         generator = MemoryGenerator(api_key="test-key")
-        
-        # Mock the OpenAI client
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.parsed = mock_openai_response
-        
-        generator.client.beta.chat.completions.parse = AsyncMock(return_value=mock_response)
         
         request = MemoryGenerationRequest(
             conversation_turns=sample_turns,
@@ -93,32 +67,41 @@ class TestMemoryGenerator:
         result = await generator.generate_memories(request)
         
         # Assert
-        assert len(result.memories) == 1
-        memory = result.memories[0]
+        assert isinstance(result, MemoryBatch)
+        assert len(result.memories) >= 1  # Should generate at least one memory
+        assert len(result.memories) <= 5  # Reasonable upper bound
         
-        assert memory.memory_content == "The user complimented my name, which made me feel appreciated"
-        assert memory.surprise_score == 0.7
-        assert memory.emotional_valence == 0.8
-        assert memory.importance == 0.7
-        assert memory.memory_type == "emotional"
+        for memory in result.memories:
+            assert isinstance(memory, GeneratedMemory)
+            assert isinstance(memory.memory_content, str)
+            assert len(memory.memory_content.strip()) > 10  # Meaningful content
+            assert 0.0 <= memory.surprise_score <= 1.0
+            assert 0.0 <= memory.emotional_valence <= 1.0
+            assert 0.0 <= memory.importance <= 1.0
+            assert memory.memory_type in ["episodic", "emotional", "factual", "social"]
+            assert memory.importance_level in ["low", "medium", "high"]
+            assert memory.valence_category in ["negative", "neutral", "positive"]
+            
+            # Check Method A tokens are generated
+            assert isinstance(memory.method_a_tokens, list)
+            assert len(memory.method_a_tokens) > 0
+            assert "<memory_form>" in memory.method_a_tokens
+            
+            # Check Method B vector is generated
+            assert memory.method_b_vector is not None
+            assert len(memory.method_b_vector) == 768
+            assert memory.method_b_metadata is not None
+            assert "decay_rate" in memory.method_b_metadata
         
-        # Check Method A tokens
-        assert "<memory_form>" in memory.method_a_tokens
-        assert "<memory_importance_high>" in memory.method_a_tokens
-        assert "<memory_type_emotional>" in memory.method_a_tokens
-        assert "<memory_valence_positive>" in memory.method_a_tokens
-        
-        # Check Method B vector
-        assert memory.method_b_vector is not None
-        assert len(memory.method_b_vector) == 768
-        assert memory.method_b_metadata is not None
-        assert "decay_rate" in memory.method_b_metadata
+        # Check overall batch properties
+        assert 0.0 <= result.overall_surprise <= 1.0
+        assert isinstance(result.emotional_arc, str)
+        assert len(result.emotional_arc.strip()) > 5
     
     def test_token_mapping(self):
         """Test that token mappings are correct"""
         # Arrange
-        with patch('narrative_engine.memory_generator.AsyncOpenAI'):
-            generator = MemoryGenerator(api_key="test-key")
+        generator = MemoryGenerator(api_key="test-key")
         
         # Assert
         assert generator.importance_token_map["high"] == "<memory_importance_high>"
@@ -128,8 +111,7 @@ class TestMemoryGenerator:
     def test_pseudo_embedding_generation(self):
         """Test pseudo-embedding generation for Method B"""
         # Arrange
-        with patch('narrative_engine.memory_generator.AsyncOpenAI'):
-            generator = MemoryGenerator(api_key="test-key")
+        generator = MemoryGenerator(api_key="test-key")
         memory = GeneratedMemory(
             memory_content="Test memory",
             turn_index=0,
@@ -155,15 +137,13 @@ class TestMemoryGenerator:
         assert abs(norm - 1.0) < 0.01  # Should be unit vector
     
     
-    async def test_method_a_only(self, sample_turns, sample_character, mock_openai_response):
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_method_a_only(self, sample_turns, sample_character):
         """Test generating only Method A tokens"""
         # Arrange
         generator = MemoryGenerator(api_key="test-key")
-        
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.parsed = mock_openai_response
-        generator.client.beta.chat.completions.parse = AsyncMock(return_value=mock_response)
         
         request = MemoryGenerationRequest(
             conversation_turns=sample_turns,
@@ -176,21 +156,20 @@ class TestMemoryGenerator:
         result = await generator.generate_memories(request)
         
         # Assert
-        memory = result.memories[0]
-        assert len(memory.method_a_tokens) > 0
-        assert memory.method_b_vector is None
-        assert memory.method_b_metadata is None
+        assert len(result.memories) > 0
+        for memory in result.memories:
+            assert len(memory.method_a_tokens) > 0
+            assert memory.method_b_vector is None
+            assert memory.method_b_metadata is None
     
     
-    async def test_method_b_only(self, sample_turns, sample_character, mock_openai_response):
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_method_b_only(self, sample_turns, sample_character):
         """Test generating only Method B vectors"""
         # Arrange
         generator = MemoryGenerator(api_key="test-key")
-        
-        mock_response = MagicMock()
-        mock_response.choices = [MagicMock()]
-        mock_response.choices[0].message.parsed = mock_openai_response
-        generator.client.beta.chat.completions.parse = AsyncMock(return_value=mock_response)
         
         request = MemoryGenerationRequest(
             conversation_turns=sample_turns,
@@ -203,17 +182,17 @@ class TestMemoryGenerator:
         result = await generator.generate_memories(request)
         
         # Assert
-        memory = result.memories[0]
-        assert len(memory.method_a_tokens) == 0
-        assert memory.method_b_vector is not None
-        assert len(memory.method_b_vector) == 768
-        assert memory.method_b_metadata is not None
+        assert len(result.memories) > 0
+        for memory in result.memories:
+            assert len(memory.method_a_tokens) == 0
+            assert memory.method_b_vector is not None
+            assert len(memory.method_b_vector) == 768
+            assert memory.method_b_metadata is not None
     
     def test_system_prompt_generation(self, sample_character):
         """Test system prompt includes character information"""
         # Arrange
-        with patch('narrative_engine.memory_generator.AsyncOpenAI'):
-            generator = MemoryGenerator(api_key="test-key")
+        generator = MemoryGenerator(api_key="test-key")
         
         # Act
         prompt = generator._build_system_prompt(sample_character)
@@ -228,8 +207,7 @@ class TestMemoryGenerator:
     def test_user_prompt_generation(self, sample_turns):
         """Test user prompt includes conversation"""
         # Arrange
-        with patch('narrative_engine.memory_generator.AsyncOpenAI'):
-            generator = MemoryGenerator(api_key="test-key")
+        generator = MemoryGenerator(api_key="test-key")
         
         # Act
         prompt = generator._build_user_prompt(sample_turns)
@@ -239,12 +217,41 @@ class TestMemoryGenerator:
         assert "ASSISTANT: Hello Alex!" in prompt
         assert "emotional weight" in prompt
         assert "1-3 memories" in prompt
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_memory_quality_and_relevance(self, sample_turns, sample_character):
+        """Test that generated memories are relevant to the conversation"""
+        # Arrange
+        generator = MemoryGenerator(api_key="test-key")
+        
+        request = MemoryGenerationRequest(
+            conversation_turns=sample_turns,
+            character_profile=sample_character,
+        )
+        
+        # Act
+        result = await generator.generate_memories(request)
+        
+        # Assert
+        memories_text = " ".join([mem.memory_content.lower() for mem in result.memories])
+        
+        # Should reference elements from the conversation
+        conversation_elements = ["alex", "clara", "name", "compliment", "pretty", "meet"]
+        assert any(element in memories_text for element in conversation_elements)
+        
+        # Should reflect character's personality (high agreeableness = positive response to compliment)
+        assert any(keyword in memories_text for keyword in ["appreciate", "kind", "thank", "happy", "pleased"])
 
 
 class TestMemoryDatasetGeneration:
     """Test dataset-level memory generation"""
     
     
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
     async def test_generate_memories_for_dataset(self, tmp_path):
         """Test generating memories for multiple conversations"""
         # Arrange
@@ -273,63 +280,76 @@ class TestMemoryDatasetGeneration:
             "personality_traits": {"openness": 0.7}
         }
         
-        # Mock the generator
-        with patch('narrative_engine.memory_generator.MemoryGenerator') as MockGenerator:
-            mock_instance = MockGenerator.return_value
+        # Act
+        output_path = tmp_path / "memories.json"
+        result = await generate_memories_for_dataset(
+            conversations, 
+            character,
+            output_path
+        )
+        
+        # Assert
+        assert len(result) == 2  # Should process both conversations
+        assert output_path.exists()
+        
+        # Check each batch
+        for batch in result:
+            assert isinstance(batch, MemoryBatch)
+            assert len(batch.memories) > 0
+            assert batch.conversation_id is not None
+        
+        # Check saved file
+        import json
+        with open(output_path) as f:
+            saved_data = json.load(f)
+        
+        assert saved_data["character_id"] == "test_char"
+        assert saved_data["total_conversations"] == 2
+        assert saved_data["total_memories"] >= 2  # At least one memory per conversation
+        assert len(saved_data["batches"]) == 2
+        
+        # Check that memories are relevant to their conversations
+        for i, batch_data in enumerate(saved_data["batches"]):
+            memories_text = " ".join([mem["memory_content"].lower() for mem in batch_data["memories"]])
             
-            # Create mock responses
-            mock_batch1 = MagicMock()
-            mock_batch1.memories = [
-                MemoryAnnotation(
-                    conversation_window=[Turn(sender="user", text="Hello!")],
-                    memory_content="User greeted me",
-                    surprise_score=0.3,
-                    emotional_valence=0.5,
-                    importance=0.4,
-                    memory_type="episodic",
-                    character_id="test_char",
-                    method_a_tokens=["<memory_form>"],
-                )
-            ]
-            mock_batch1.conversation_id = "conv_1"
-            mock_batch1.to_training_format.return_value = {"test": "data1"}
-            
-            mock_batch2 = MagicMock()
-            mock_batch2.memories = [
-                MemoryAnnotation(
-                    conversation_window=[Turn(sender="user", text="Tell me a joke")],
-                    memory_content="User asked for humor",
-                    surprise_score=0.5,
-                    emotional_valence=0.6,
-                    importance=0.5,
-                    memory_type="episodic",
-                    character_id="test_char",
-                    method_a_tokens=["<memory_form>"],
-                )
-            ]
-            mock_batch2.conversation_id = "conv_2"
-            mock_batch2.to_training_format.return_value = {"test": "data2"}
-            
-            mock_instance.generate_memories = AsyncMock(side_effect=[mock_batch1, mock_batch2])
-            
-            # Act
-            output_path = tmp_path / "memories.json"
-            result = await generate_memories_for_dataset(
-                conversations, 
-                character,
-                output_path
-            )
-            
-            # Assert
-            assert len(result) == 2
-            assert output_path.exists()
-            
-            # Check saved file
-            import json
-            with open(output_path) as f:
-                saved_data = json.load(f)
-            
-            assert saved_data["character_id"] == "test_char"
-            assert saved_data["total_conversations"] == 2
-            assert saved_data["total_memories"] == 2
-            assert len(saved_data["batches"]) == 2 
+            if i == 0:  # First conversation about greeting
+                assert any(keyword in memories_text for keyword in ["hello", "greeting", "meet"])
+            else:  # Second conversation about joke
+                assert any(keyword in memories_text for keyword in ["joke", "funny", "humor", "scarecrow"])
+    
+    @pytest.mark.slow
+    @pytest.mark.llm
+    @pytest.mark.evaluation
+    async def test_memory_consistency_across_conversations(self, sample_character):
+        """Test that memory generation is consistent across similar conversations"""
+        # Arrange
+        generator = MemoryGenerator(api_key="test-key")
+        
+        # Similar conversations
+        turns1 = [
+            Turn(sender="user", text="Hi, nice to meet you!"),
+            Turn(sender="assistant", text="Hello! Nice to meet you too!"),
+        ]
+        
+        turns2 = [
+            Turn(sender="user", text="Hello there, good to see you!"),
+            Turn(sender="assistant", text="Hi! Good to see you as well!"),
+        ]
+        
+        request1 = MemoryGenerationRequest(conversation_turns=turns1, character_profile=sample_character)
+        request2 = MemoryGenerationRequest(conversation_turns=turns2, character_profile=sample_character)
+        
+        # Act
+        result1 = await generator.generate_memories(request1)
+        result2 = await generator.generate_memories(request2)
+        
+        # Assert
+        # Both should generate memories
+        assert len(result1.memories) > 0 and len(result2.memories) > 0
+        
+        # Both should have similar characteristics for similar conversations
+        all_memories = result1.memories + result2.memories
+        memory_types = [mem.memory_type for mem in all_memories]
+        
+        # Should mostly be social/episodic memories for greetings
+        assert any(mem_type in ["social", "episodic"] for mem_type in memory_types) 
