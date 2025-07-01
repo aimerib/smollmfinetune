@@ -54,6 +54,9 @@ Your role as an AI assistant is to help build this story machine. Every componen
 |      |                         | new models after it.                                   |    |
 |------|-------------------------|--------------------------------------------------------|----|
 | R6   | TTS/STT                 | Give characters a voice                                |    |
+|------|-------------------------|--------------------------------------------------------|----|
+| R7   | Advanced Features       | Advanced features, streaming, memory palaces, etc.     |    |
+|------|-------------------------|--------------------------------------------------------|----|
 
 We are currently **here → R4**.
 
