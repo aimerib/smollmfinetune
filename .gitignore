@@ -75,4 +75,6 @@ datasets/
 *.db-*
 .coverage
 
+htmlcov/
+
 telemetry*
