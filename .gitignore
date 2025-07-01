@@ -79,3 +79,5 @@ datasets/
 htmlcov/
 
 telemetry*
+*results.json
+spot_costs.json
