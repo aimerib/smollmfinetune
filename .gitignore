@@ -51,6 +51,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+.*_cache/
 
 # Streamlit
 .streamlit/
