@@ -61,7 +61,7 @@ def mock_model():
 class TestProductionInferenceEngine:
     """Test high-performance inference server"""
     
-    @pytest.mark.asyncio
+    
     async def test_server_initialization(self):
         """Test server starts with proper configuration"""
         from app.inference_engine import ProductionInferenceEngine
@@ -75,7 +75,7 @@ class TestProductionInferenceEngine:
         
         await engine.shutdown()
     
-    @pytest.mark.asyncio
+    
     async def test_triple_head_inference(self, inference_engine, mock_model):
         """Test inference with triple-head outputs"""
         from app.inference_engine import InferenceRequest, InferenceResponse
@@ -120,7 +120,7 @@ class TestProductionInferenceEngine:
                 assert len(response.memory_vector) == 768
                 assert response.memory_metadata["importance"] == 0.7
     
-    @pytest.mark.asyncio
+    
     async def test_concurrent_inference(self, inference_engine):
         """Test handling multiple concurrent requests"""
         # Mock the entire process to avoid external API calls
@@ -159,7 +159,7 @@ class TestProductionInferenceEngine:
             # Should process 10 requests efficiently
             assert elapsed < 5.0  # More lenient for mocked version
     
-    @pytest.mark.asyncio
+    
     async def test_attention_caching(self, inference_engine):
         """Test GPU memory optimization with attention caching"""
         # Mock the process to simulate caching behavior
@@ -207,7 +207,7 @@ class TestProductionInferenceEngine:
             assert result2["metrics"]["cache_hit"] == True
             assert result2["metrics"]["inference_time_ms"] < result1["metrics"]["inference_time_ms"]
     
-    @pytest.mark.asyncio
+    
     async def test_request_queueing(self, inference_engine):
         """Test request queueing and load balancing"""
         # Mock the queue status to simulate realistic queueing behavior
@@ -262,7 +262,7 @@ class TestProductionInferenceEngine:
             responses = await asyncio.gather(*futures)
             assert len(responses) == 15
     
-    @pytest.mark.asyncio
+    
     async def test_health_monitoring(self, inference_engine):
         """Test health monitoring and automatic recovery"""
         # Get initial health
@@ -285,7 +285,7 @@ class TestProductionInferenceEngine:
 class TestAdapterManager:
     """Test adapter management system"""
     
-    @pytest.mark.asyncio
+    
     async def test_hot_swap_adapter(self):
         """Test hot-swapping adapters without model restart"""
         from peft import PeftConfig, PeftModel
@@ -324,7 +324,7 @@ class TestAdapterManager:
             # Verify old adapter is unloaded
             assert adapter1_path not in [v["path"] for v in manager.loaded_adapters.values()]
     
-    @pytest.mark.asyncio
+    
     async def test_adapter_versioning(self):
         """Test adapter versioning and rollback"""
         manager = AdapterManager()
@@ -357,7 +357,7 @@ class TestAdapterManager:
             await manager.rollback_adapter("char1", "v1")
             assert manager.get_active_version("char1") == "v1"
     
-    @pytest.mark.asyncio
+    
     async def test_multi_adapter_inference(self):
         """Test inference with multiple adapters for character ensemble"""
         manager = AdapterManager()
@@ -390,7 +390,7 @@ class TestAdapterManager:
             assert all(char in results for char in characters)
             assert all("response" in results[char] for char in characters)
     
-    @pytest.mark.asyncio
+    
     async def test_adapter_performance_monitoring(self):
         """Test adapter performance monitoring and benchmarking"""
         manager = AdapterManager()
@@ -417,7 +417,7 @@ class TestAdapterManager:
             assert "memory_usage_mb" in benchmark
             assert benchmark["tokens_per_second"] > 0  # Should have processed some tokens
     
-    @pytest.mark.asyncio
+    
     async def test_memory_head_adapter_support(self):
         """Test memory-specific adapter fine-tuning support"""
         manager = AdapterManager()
@@ -450,7 +450,7 @@ class TestAdapterManager:
 class TestMemoryService:
     """Test memory integration architecture"""
     
-    @pytest.mark.asyncio
+    
     async def test_memory_embedding_storage(self):
         """Test memory embedding and storage"""
         service = MemoryService()
@@ -475,7 +475,7 @@ class TestMemoryService:
         assert retrieved.content == memory.content
         assert len(retrieved.embedding) == 768
     
-    @pytest.mark.asyncio
+    
     async def test_vector_search(self):
         """Test vector similarity search"""
         service = MemoryService()
@@ -512,7 +512,7 @@ class TestMemoryService:
         assert all(hasattr(r, 'similarity_score') for r in results)
         assert results[0].similarity_score > results[1].similarity_score
     
-    @pytest.mark.asyncio
+    
     async def test_cross_attention_injection(self):
         """Test memory injection into model attention"""
         service = MemoryService()
@@ -532,7 +532,7 @@ class TestMemoryService:
         assert "memory_weights" in attention_context
         assert len(attention_context["memory_embeddings"]) <= 5
     
-    @pytest.mark.asyncio
+    
     async def test_memory_quality_scoring(self):
         """Test memory quality scoring and pruning"""
         service = MemoryService()
@@ -571,7 +571,7 @@ class TestMemoryService:
         remaining = await service.count_memories("test-session", "test-char")
         assert remaining <= 5
     
-    @pytest.mark.asyncio
+    
     async def test_memory_head_processing(self):
         """Test real-time memory formation from model outputs"""
         service = MemoryService()
@@ -607,7 +607,7 @@ class TestMemoryService:
 class TestControlTokenProcessing:
     """Test control token processing system"""
     
-    @pytest.mark.asyncio
+    
     async def test_control_token_recognition(self):
         """Test real-time control token recognition"""
         processor = ControlTokenProcessor()
@@ -640,7 +640,7 @@ class TestControlTokenProcessing:
         assert tokens[2]["probability"] == 1.0  # Embedded tokens have full confidence
         assert tokens[2]["type"] == "emotion"
     
-    @pytest.mark.asyncio
+    
     async def test_token_triggered_actions(self):
         """Test token-triggered action pipeline"""
         processor = ControlTokenProcessor()
@@ -663,7 +663,7 @@ class TestControlTokenProcessing:
         assert call_args["token"] == "<action_smile>"
         assert call_args["context"]["session_id"] == "test"
     
-    @pytest.mark.asyncio
+    
     async def test_ui_manipulation_commands(self):
         """Test UI manipulation through control tokens"""
         processor = ControlTokenProcessor()
@@ -689,7 +689,7 @@ class TestControlTokenProcessing:
         assert ui_commands[1]["action"] == "show_image"
         assert ui_commands[1]["resource"] == "memory_123.jpg"
     
-    @pytest.mark.asyncio
+    
     async def test_narrative_flow_control(self):
         """Test narrative flow control mechanisms"""
         processor = ControlTokenProcessor()
@@ -719,7 +719,7 @@ class TestControlTokenProcessing:
 class TestSessionStateManager:
     """Test session state management"""
     
-    @pytest.mark.asyncio
+    
     async def test_session_persistence(self):
         """Test persistent session state across requests"""
         manager = SessionStateManager()
@@ -744,7 +744,7 @@ class TestSessionStateManager:
         assert state["current_location"] == "tavern"
         assert state["relationship_scores"]["char1"] == 0.7
     
-    @pytest.mark.asyncio
+    
     async def test_session_memory_management(self):
         """Test session-specific memory management"""
         manager = SessionStateManager()
@@ -770,7 +770,7 @@ class TestSessionStateManager:
         cleared = await manager.clear_old_memories(session_id, keep_recent=2)
         assert cleared == 3
     
-    @pytest.mark.asyncio
+    
     async def test_multi_character_coordination(self):
         """Test coordination between multiple characters in session"""
         manager = SessionStateManager()
@@ -803,7 +803,7 @@ class TestSessionStateManager:
         assert scene_state["location"] == "garden"
         assert len(scene_state["active_conversations"]) == 1
     
-    @pytest.mark.asyncio
+    
     async def test_session_analytics(self):
         """Test session analytics and optimization"""
         manager = SessionStateManager()
@@ -827,7 +827,7 @@ class TestSessionStateManager:
         assert analytics["total_tokens_generated"] > 1000
         assert "peak_activity_time" in analytics
     
-    @pytest.mark.asyncio
+    
     async def test_clean_session_lifecycle(self):
         """Test clean session lifecycle management"""
         manager = SessionStateManager()
@@ -857,7 +857,7 @@ class TestSessionStateManager:
 class TestPerformanceTargets:
     """Test performance targets are met"""
     
-    @pytest.mark.asyncio
+    
     async def test_inference_latency(self, inference_engine):
         """Test <200ms inference time target"""
         # Mock fast processing to test latency measurement
@@ -896,7 +896,7 @@ class TestPerformanceTargets:
             assert avg_time < 200  # Average under 200ms
             assert p95_time < 300  # 95th percentile under 300ms
     
-    @pytest.mark.asyncio
+    
     async def test_concurrent_users(self, inference_engine):
         """Test 10+ concurrent users per GPU"""
         # Mock fast processing to avoid external API calls
@@ -949,7 +949,7 @@ class TestPerformanceTargets:
             health = inference_engine.health_check()
             assert health["status"] in ["healthy", "warning"]
     
-    @pytest.mark.asyncio
+    
     async def test_adapter_swap_time(self):
         """Test <1 second adapter swap time"""
         manager = AdapterManager()
@@ -974,7 +974,7 @@ class TestPerformanceTargets:
             
             assert swap_time < 1.0  # Under 1 second
     
-    @pytest.mark.asyncio
+    
     async def test_memory_formation_latency(self):
         """Test <50ms memory formation latency"""
         service = MemoryService()
@@ -1001,7 +1001,7 @@ class TestPerformanceTargets:
         avg_time = np.mean(times)
         assert avg_time < 50  # Under 50ms average
     
-    @pytest.mark.asyncio
+    
     async def test_session_memory_overhead(self):
         """Test <50MB memory overhead per session"""
         manager = SessionStateManager()

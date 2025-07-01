@@ -71,7 +71,7 @@ class TestMemoryGenerator:
             emotional_arc="Friendly introduction leading to warm appreciation"
         )
     
-    @pytest.mark.asyncio
+    
     async def test_generate_memories(self, sample_turns, sample_character, mock_openai_response):
         """Test basic memory generation"""
         # Arrange
@@ -154,7 +154,7 @@ class TestMemoryGenerator:
         norm = np.linalg.norm(embedding)
         assert abs(norm - 1.0) < 0.01  # Should be unit vector
     
-    @pytest.mark.asyncio
+    
     async def test_method_a_only(self, sample_turns, sample_character, mock_openai_response):
         """Test generating only Method A tokens"""
         # Arrange
@@ -181,7 +181,7 @@ class TestMemoryGenerator:
         assert memory.method_b_vector is None
         assert memory.method_b_metadata is None
     
-    @pytest.mark.asyncio
+    
     async def test_method_b_only(self, sample_turns, sample_character, mock_openai_response):
         """Test generating only Method B vectors"""
         # Arrange
@@ -244,7 +244,7 @@ class TestMemoryGenerator:
 class TestMemoryDatasetGeneration:
     """Test dataset-level memory generation"""
     
-    @pytest.mark.asyncio
+    
     async def test_generate_memories_for_dataset(self, tmp_path):
         """Test generating memories for multiple conversations"""
         # Arrange

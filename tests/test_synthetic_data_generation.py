@@ -58,7 +58,7 @@ class TestSyntheticDataGeneration:
         assert generator.config.conversation_length == 6
         assert generator.config.action_frequency == 0.3
     
-    @pytest.mark.asyncio
+    
     async def test_generate_single_conversation(self):
         """Test generating a single synthetic conversation"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator
@@ -92,7 +92,7 @@ class TestSyntheticDataGeneration:
             assert len(result.persona_mix) > 0
             assert sum(result.persona_mix.values()) == pytest.approx(1.0, abs=1e-6)
     
-    @pytest.mark.asyncio
+    
     async def test_generate_diverse_scenarios(self):
         """Test generating conversations with different scenario templates"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator
@@ -152,7 +152,7 @@ class TestSyntheticDataGeneration:
         assert low_action_gen.config.action_frequency == 0.1
         assert high_action_gen.config.action_frequency == 0.8
     
-    @pytest.mark.asyncio
+    
     async def test_batch_generation(self):
         """Test generating multiple conversations in batch"""
         from scripts.generate_synthetic_conversations import SyntheticDataGenerator

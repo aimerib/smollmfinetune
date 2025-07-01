@@ -26,7 +26,7 @@ class TestCharacterVoiceConsistencyEvaluator:
         assert evaluator.similarity_threshold == 0.85
         assert evaluator.use_embeddings is True
     
-    @pytest.mark.asyncio
+    
     async def test_voice_consistency_single_character(self):
         """Test voice consistency scoring for a single character using LLM analysis"""
         from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
@@ -68,7 +68,7 @@ class TestCharacterVoiceConsistencyEvaluator:
                 assert len(results['character_traits']) == 3
                 assert results['embedding_similarity'] == 0.89
     
-    @pytest.mark.asyncio
+    
     async def test_voice_consistency_inconsistent_character(self):
         """Test detection of inconsistent character voice using LLM analysis"""
         from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
@@ -112,7 +112,7 @@ class TestCharacterVoiceConsistencyEvaluator:
                 assert "inconsistent" in results['speaking_style'].lower()
                 assert results['embedding_similarity'] == 0.31
     
-    @pytest.mark.asyncio
+    
     async def test_voice_consistency_across_conversations(self):
         """Test voice consistency across multiple conversations using LLM analysis"""
         from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
@@ -199,7 +199,7 @@ class TestEmotionalArcEvaluator:
             'neutral', 'excitement', 'contentment', 'frustration', 'anxiety'
         ]
     
-    @pytest.mark.asyncio
+    
     async def test_emotional_arc_tracking(self):
         """Test tracking emotional arc through a conversation using LLM analysis"""
         from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
@@ -260,7 +260,7 @@ class TestEmotionalArcEvaluator:
             assert results['emotional_variance'] > 0.7  # Shows emotional range
             assert results['turn_count'] == 3
     
-    @pytest.mark.asyncio
+    
     async def test_emotional_arc_naturalness(self):
         """Test evaluation of emotional arc naturalness using LLM analysis"""
         from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
@@ -319,7 +319,7 @@ class TestEmotionalArcEvaluator:
             assert unnaturalness['abrupt_transitions'] == 3
             assert unnaturalness['emotion_flow_pattern'] == 'erratic'
     
-    @pytest.mark.asyncio
+    
     async def test_emotional_pattern_analysis(self):
         """Test emotional pattern analysis across multiple conversations"""
         from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
@@ -563,7 +563,7 @@ class TestUserSatisfactionPredictor:
         assert hasattr(predictor, 'client')
         assert predictor.feature_extractor is not None
     
-    @pytest.mark.asyncio
+    
     async def test_satisfaction_prediction_from_conversation(self):
         """Test predicting user satisfaction from conversation features using LLM analysis"""
         from narrative_engine.evaluation.eval_user_satisfaction import UserSatisfactionPredictor
@@ -611,7 +611,7 @@ class TestUserSatisfactionPredictor:
             assert len(prediction['key_strengths']) > 2
             assert 'feature_importance' in prediction
     
-    @pytest.mark.asyncio
+    
     async def test_satisfaction_correlation_analysis(self):
         """Test correlation between features and satisfaction using LLM analysis"""
         from narrative_engine.evaluation.eval_user_satisfaction import UserSatisfactionPredictor
@@ -656,7 +656,7 @@ class TestUserSatisfactionPredictor:
             assert 'top_predictive_features' in correlations
             assert len(correlations['insights']) > 2
     
-    @pytest.mark.asyncio
+    
     async def test_improvement_suggestions(self):
         """Test generation of improvement suggestions using LLM"""
         from narrative_engine.evaluation.eval_user_satisfaction import UserSatisfactionPredictor

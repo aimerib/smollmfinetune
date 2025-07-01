@@ -51,7 +51,7 @@ class TestDatasetGeneration:
         """Create a mock DatasetManager."""
         return MockDatasetManager()
     
-    @pytest.mark.asyncio
+    
     async def test_generate_dataset_returns_correct_number_of_samples(self, mock_dataset_manager, dummy_character):
         """Test that generate_dataset returns the correct number of samples."""
         # Test the basic acceptance criteria: correct number of samples
@@ -64,7 +64,7 @@ class TestDatasetGeneration:
         assert isinstance(result, list), "Result should be a list"
         assert len(result) == 5, f"Expected 5 samples, got {len(result)}"
     
-    @pytest.mark.asyncio
+    
     async def test_generate_dataset_sample_structure(self, mock_dataset_manager, dummy_character):
         """Test that each sample has the correct structure."""
         # Test the acceptance criteria: each sample has messages list length >= 3
@@ -99,7 +99,7 @@ class TestDatasetGeneration:
                 assert isinstance(message["content"], str), f"Sample {i}, message {j} content should be a string"
                 assert len(message["content"]) > 0, f"Sample {i}, message {j} content should not be empty"
     
-    @pytest.mark.asyncio
+    
     async def test_generate_dataset_no_exceptions_raised(self, mock_dataset_manager, dummy_character):
         """Test that no exceptions are raised during generation."""
         # Test the acceptance criteria: no exception raised
@@ -113,7 +113,7 @@ class TestDatasetGeneration:
         except Exception as e:
             pytest.fail(f"generate_dataset raised an unexpected exception: {e}")
     
-    @pytest.mark.asyncio
+    
     async def test_generate_dataset_different_sample_counts(self, mock_dataset_manager, dummy_character):
         """Test with different sample counts to verify flexibility."""
         for num_samples in [1, 3, 5, 10]:

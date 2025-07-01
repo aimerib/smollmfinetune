@@ -346,7 +346,7 @@ class TestStateQuery:
 class TestConcurrency:
     """Test concurrent access patterns"""
     
-    @pytest.mark.asyncio
+    
     async def test_concurrent_updates(self, state_manager):
         """Test that concurrent updates don't cause race conditions"""
         # Create entity

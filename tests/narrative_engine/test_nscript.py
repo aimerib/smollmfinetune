@@ -339,7 +339,7 @@ class TestTriggerMonitor:
         assert len(activated_scripts) == 1
         assert activated_scripts[0].script_id == "location_test"
     
-    @pytest.mark.asyncio
+    
     async def test_memory_formation_trigger(self):
         """Test triggers based on memory formation events."""
         # Mock memory formation event
@@ -378,7 +378,7 @@ class TestTriggerMonitor:
         assert len(activated_scripts) == 1
         assert activated_scripts[0].script_id == "memory_trigger_test"
     
-    @pytest.mark.asyncio
+    
     async def test_emotional_state_trigger(self):
         """Test triggers based on emotional state changes."""
         emotional_data = {
@@ -473,7 +473,7 @@ class TestActionExecutor:
         )
         self.state_manager.create_entity(test_agent)
     
-    @pytest.mark.asyncio
+    
     async def test_execute_triple_head_action(self):
         """Test execution of triple-head coordinated actions."""
         action = NScriptAction(
@@ -523,7 +523,7 @@ class TestActionExecutor:
         assert "triple-head action executed" in result.message.lower()
         assert self.mock_narrative_model.generate_with_triple_head_control.called
     
-    @pytest.mark.asyncio
+    
     async def test_execute_control_injection(self):
         """Test execution of control injection actions."""
         action = NScriptAction(
@@ -550,7 +550,7 @@ class TestActionExecutor:
         assert "control injection" in result.message.lower()
         assert self.mock_narrative_model.inject_control_state.called
     
-    @pytest.mark.asyncio
+    
     async def test_execute_memory_formation(self):
         """Test execution of memory formation actions."""
         action = NScriptAction(
@@ -582,7 +582,7 @@ class TestActionExecutor:
         assert "memory formation" in result.message.lower()
         assert self.mock_narrative_model.form_explicit_memory.called
     
-    @pytest.mark.asyncio
+    
     async def test_execute_head_synchronization(self):
         """Test execution of head synchronization actions."""
         action = NScriptAction(
@@ -612,7 +612,7 @@ class TestActionExecutor:
         assert "synchronization" in result.message.lower()
         assert self.mock_narrative_model.synchronize_heads.called
     
-    @pytest.mark.asyncio  
+      
     async def test_execute_generation_override(self):
         """Test execution of generation override actions."""
         action = NScriptAction(
@@ -640,7 +640,7 @@ class TestActionExecutor:
         assert "generation override" in result.message.lower()
         assert self.mock_narrative_model.override_generation_params.called
     
-    @pytest.mark.asyncio
+    
     async def test_action_execution_with_invalid_target(self):
         """Test action execution fails gracefully with invalid target."""
         action = NScriptAction(
@@ -654,7 +654,7 @@ class TestActionExecutor:
         assert not result.success
         assert "not found" in result.message.lower()
     
-    @pytest.mark.asyncio
+    
     async def test_action_execution_with_model_error(self):
         """Test action execution handles model errors gracefully."""
         action = NScriptAction(
@@ -698,7 +698,7 @@ class TestNScriptIntegration:
         self.state_manager.create_entity(player)
         self.state_manager.create_entity(dragon)
     
-    @pytest.mark.asyncio
+    
     async def test_complete_script_execution_flow(self):
         """Test complete flow from trigger to action execution."""
         # Load a complete script

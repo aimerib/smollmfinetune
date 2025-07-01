@@ -41,7 +41,7 @@ class TestCharacterManagementAI:
             tags=["fantasy", "warrior", "hero"]
         )
     
-    @pytest.mark.asyncio
+    
     async def test_llm_suggest_description_structured_output(self, sample_character_core):
         """Test description suggestions with structured output"""
         from app.pages.character_management import llm_suggest_description
@@ -75,7 +75,7 @@ class TestCharacterManagementAI:
             assert "response_format" in call_args.kwargs
             assert call_args.kwargs["response_format"]["type"] == "json_schema"
     
-    @pytest.mark.asyncio
+    
     async def test_llm_suggest_description_fallback(self, sample_character_core):
         """Test description suggestions fallback when structured output fails"""
         from app.pages.character_management import llm_suggest_description
@@ -98,7 +98,7 @@ class TestCharacterManagementAI:
             # Verify fallback was called
             assert mock_client.generate.call_count == 2
     
-    @pytest.mark.asyncio
+    
     async def test_llm_suggest_goals_with_personality(self, sample_character_core):
         """Test goal suggestions that consider personality traits"""
         from app.pages.character_management import llm_suggest_goals
@@ -121,7 +121,7 @@ class TestCharacterManagementAI:
             prompt = call_args.args[0] if call_args.args else call_args.kwargs.get('prompt', '')
             assert "Agreeableness" in prompt or "agreeableness" in prompt.lower()
     
-    @pytest.mark.asyncio
+    
     async def test_llm_suggest_scenario_with_context(self, sample_character_core):
         """Test scenario suggestions that use character context"""
         from app.pages.character_management import llm_suggest_scenario
@@ -145,7 +145,7 @@ class TestCharacterManagementAI:
             assert "Test Character" in prompt
             assert "Medieval fantasy" in prompt or "medieval fantasy" in prompt.lower()
     
-    @pytest.mark.asyncio
+    
     async def test_llm_suggest_examples_with_character_voice(self, sample_character_core):
         """Test dialogue example suggestions that capture character voice"""
         from app.pages.character_management import llm_suggest_examples
@@ -169,7 +169,7 @@ class TestCharacterManagementAI:
             prompt = call_args.args[0] if call_args.args else call_args.kwargs.get('prompt', '')
             assert "cooperative and trusting" in prompt.lower() or "agreeableness" in prompt.lower()
     
-    @pytest.mark.asyncio
+    
     async def test_error_handling_with_fallback(self, sample_character_core):
         """Test that AI functions gracefully handle errors and provide fallbacks"""
         from app.pages.character_management import llm_suggest_description
@@ -203,7 +203,7 @@ class TestCharacterManagementAI:
         assert "cooperative and trusting" in description  # High agreeableness
         assert "emotionally stable" in description  # Low neuroticism
     
-    @pytest.mark.asyncio
+    
     async def test_client_response_format_parameter(self, sample_character_core):
         """Test that the response_format parameter is properly passed to the client"""
         from app.pages.character_management import llm_suggest_description

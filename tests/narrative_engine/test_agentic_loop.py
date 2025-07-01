@@ -156,7 +156,7 @@ class TestBaseAgent:
         assert agent_state.current_plan == "Greet nearby NPCs"
         assert agent_state.active_since < datetime.now()
     
-    @pytest.mark.asyncio
+    
     async def test_base_agent_perceive(self, mock_state_manager):
         """Test agent perception gathering"""
         agent = BaseAgent(
@@ -175,7 +175,7 @@ class TestBaseAgent:
         mock_state_manager.get_entity.assert_called_with("npc_tom")
         mock_state_manager.query_by_location.assert_called_with("Village Square")
     
-    @pytest.mark.asyncio
+    
     async def test_base_agent_think(self, mock_narrative_model):
         """Test agent decision making"""
         agent = BaseAgent(
@@ -200,7 +200,7 @@ class TestBaseAgent:
         # The think method should parse the model output into a structured action
         mock_narrative_model.generate_with_control.assert_called_once()
     
-    @pytest.mark.asyncio
+    
     async def test_base_agent_act_move_action(self, mock_state_manager):
         """Test agent action execution - movement"""
         agent = BaseAgent(
@@ -218,7 +218,7 @@ class TestBaseAgent:
         # Verify state manager was called to update location
         mock_state_manager.update_entity.assert_called()
     
-    @pytest.mark.asyncio
+    
     async def test_base_agent_act_speak_action(self, mock_state_manager):
         """Test agent action execution - speaking"""
         agent = BaseAgent(
@@ -297,7 +297,7 @@ class TestScheduler:
         assert scheduler.is_running is False
         assert len(scheduler.active_agents) == 0
     
-    @pytest.mark.asyncio
+    
     async def test_scheduler_register_agent(self, mock_state_manager, mock_agents):
         """Test agent registration"""
         scheduler = Scheduler(state_manager=mock_state_manager)
@@ -308,7 +308,7 @@ class TestScheduler:
         assert "npc_tom" in scheduler.active_agents
         assert scheduler.active_agents["npc_tom"] == tom_agent
     
-    @pytest.mark.asyncio
+    
     async def test_scheduler_single_tick(self, mock_state_manager, mock_agents):
         """Test a single scheduler tick"""
         scheduler = Scheduler(
@@ -329,7 +329,7 @@ class TestScheduler:
         assert any(agent.think.called for agent in mock_agents.values()) 
         assert any(agent.act.called for agent in mock_agents.values())
     
-    @pytest.mark.asyncio
+    
     async def test_scheduler_agent_selection_round_robin(self, mock_state_manager, mock_agents):
         """Test round-robin agent selection"""
         scheduler = Scheduler(
@@ -350,7 +350,7 @@ class TestScheduler:
         # Should be different agents (round-robin)
         assert first_tick_agent != second_tick_agent
     
-    @pytest.mark.asyncio
+    
     async def test_scheduler_error_handling(self, mock_state_manager, mock_agents):
         """Test scheduler handles agent errors gracefully"""
         scheduler = Scheduler(state_manager=mock_state_manager)
@@ -368,7 +368,7 @@ class TestScheduler:
         # Error should be logged but not crash scheduler
         assert scheduler.is_running is False  # Not started yet, but shouldn't crash
     
-    @pytest.mark.asyncio 
+     
     async def test_scheduler_run_integration(self, mock_state_manager, mock_agents):
         """Test full scheduler run loop (brief test)"""
         scheduler = Scheduler(
@@ -396,7 +396,7 @@ class TestScheduler:
 class TestNarrativeEngineIntegration:
     """Test integration with the R4 Narrative Engine"""
     
-    @pytest.mark.asyncio
+    
     async def test_action_parsing_from_model_output(self):
         """Test parsing model text output into structured actions"""
         # Mock model output
@@ -414,7 +414,7 @@ class TestNarrativeEngineIntegration:
         assert isinstance(action, MoveToAction)
         assert action.target_location == "Forest"
     
-    @pytest.mark.asyncio
+    
     async def test_prompt_construction_for_thinking(self):
         """Test that agent constructs proper prompts for the R4 model"""
         mock_model = AsyncMock()
@@ -456,7 +456,7 @@ class TestNarrativeEngineIntegration:
 class TestAgenticLoopIntegration:
     """Integration test for the complete agentic loop"""
     
-    @pytest.mark.asyncio
+    
     async def test_complete_agent_lifecycle(self):
         """Test a complete perceive -> think -> act cycle"""
         # Set up real StateManager with test data
