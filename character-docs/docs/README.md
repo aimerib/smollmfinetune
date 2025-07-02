@@ -6,6 +6,22 @@ sidebar_position: 1
 
 A comprehensive platform for creating, training, and deploying AI characters with persistent personalities and memory.
 
+## 🆕 New Architecture (v2.0)
+
+We've migrated from Streamlit to a modern, production-ready stack:
+
+<div style={{background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', borderRadius: '12px', color: 'white', marginBottom: '2rem'}}>
+  <h3 style={{marginTop: 0}}>Modern Tech Stack</h3>
+  <ul style={{marginBottom: 0}}>
+    <li><strong>Frontend</strong>: React with TypeScript, Tailwind CSS</li>
+    <li><strong>Backend</strong>: FastAPI with async/await throughout</li>
+    <li><strong>Real-time</strong>: WebSocket support for live updates</li>
+    <li><strong>Task Queue</strong>: Celery with Redis for async operations</li>
+    <li><strong>Database</strong>: SQLAlchemy with SQLite/PostgreSQL</li>
+    <li><strong>Caching</strong>: Redis for performance optimization</li>
+  </ul>
+</div>
+
 ## Core Concepts
 
 The platform is built on these key principles:
@@ -30,23 +46,52 @@ Follow these guides in order:
 - **Core Documentation**: Architecture, concepts, and features
 - **Advanced**: Specialized topics for developers
 
-## Platform Components
+## Platform Architecture
 
-### Architecture Overview
+### Overview
 
-The platform consists of three main components:
+The platform consists of four main components:
 
-**The Devkit** - Creative tools for character development:
-- Conversational character builder
-- Interactive personality editor
-- AI-powered dataset generation
-- Real-time training dashboard
-
-**The Runtime** - Production inference and client:
-- High-performance inference engine
-- React-based chat client
-- Real-time emotion visualization
-- Memory formation tracking
+```mermaid
+graph TB
+    subgraph "Frontend"
+        RC[React Client]
+        WB[World Builder]
+        DS[Dataset Studio]
+        CB[Character Builder]
+    end
+    
+    subgraph "Backend"
+        API[FastAPI Server]
+        WS[WebSocket Handler]
+        AUTH[Auth System]
+    end
+    
+    subgraph "Infrastructure"
+        DB[(Database)]
+        REDIS[(Redis Cache)]
+        CELERY[Celery Workers]
+    end
+    
+    subgraph "AI Pipeline"
+        INF[Inference Engine]
+        TRAIN[Training Pipeline]
+        EVAL[Evaluation System]
+    end
+    
+    RC --> API
+    WB --> API
+    DS --> WS
+    CB --> API
+    
+    API --> DB
+    API --> REDIS
+    API --> CELERY
+    
+    CELERY --> TRAIN
+    API --> INF
+    TRAIN --> EVAL
+```
 
 ### Key Features
 
@@ -55,6 +100,18 @@ The platform consists of three main components:
 - Interactive Big Five personality trait visualization
 - World integration for character consistency
 - Real-time character synthesis and analysis
+
+**World Building**
+- Structured world creation with settings, rules, history, cultures, and locations
+- Dynamic rule system for physics, magic, and technology
+- Culture and location management with rich descriptions
+- World-character integration for consistency
+
+**Dataset Generation**
+- Real-time progress tracking with WebSocket updates
+- Configurable generation parameters (temperature, batch size, quality modes)
+- Topic-based conversation generation
+- Interactive quality control and curation
 
 **Training Pipeline**
 - Supervised Fine-Tuning (SFT) for initial character voice training
@@ -71,33 +128,58 @@ The platform consists of three main components:
 ## Quick Setup
 
 ```bash
-# Launch everything
-./launch-client.sh
+# Launch everything with Docker
+./start-devkit.sh
 
 # Or run components separately:
-cd app && ./startup.sh                    # Devkit
-python scripts/run_inference_server.py   # Inference Server  
-cd client && npm start                    # React Client
+cd backend && uvicorn app.main:app --reload   # Backend API
+cd client && npm start                         # React Client
+docker run -d redis:alpine                     # Redis
+celery -A backend.app.celery_app worker       # Celery Worker
 ```
 
-## Complete Workflow
+## API Endpoints
 
-```mermaid
-graph LR
-    A[Setup Platform] --> B[Create World]
-    B --> C[Design Character]
-    C --> D[Generate Dataset]
-    D --> E[Train Model]
-    E --> F[Test Character]
-    F --> G[Deploy Client]
-    G --> H[User Interaction]
-```
+The new FastAPI backend provides comprehensive REST APIs:
 
-## Platform Architecture
+- **Authentication**: `/api/v1/auth/*` - User registration, login, JWT tokens
+- **Worlds**: `/api/v1/worlds/*` - CRUD operations for world management
+- **Characters**: `/api/v1/characters/*` - Character creation and management
+- **Datasets**: `/api/v1/datasets/*` - Dataset generation with WebSocket progress
+- **Training**: `/api/v1/training/*` - Training job management
+- **Inference**: `/api/v1/inference/*` - Character chat and interaction
 
-1. **Character Devkit** (Streamlit) - Creative tools for character development
-2. **Inference Engine** (FastAPI) - Optimized model serving
-3. **React Client** - User-facing chat interface
+## Technology Highlights
+
+### Frontend Excellence
+- **React 18** with TypeScript for type safety
+- **Tailwind CSS** with custom design system
+- **Real-time updates** via WebSocket
+- **Responsive design** for all screen sizes
+- **Beautiful animations** with Framer Motion
+
+### Backend Power
+- **FastAPI** for high-performance async APIs
+- **SQLAlchemy 2.0** with async support
+- **Redis** for caching and pub/sub
+- **Celery** for distributed task processing
+- **JWT authentication** with refresh tokens
+
+### DevOps Ready
+- **Docker** containers for all services
+- **Docker Compose** for local development
+- **GitHub Actions** for CI/CD
+- **Comprehensive test coverage**
+- **Production-ready configurations**
+
+## Migration from v1.0
+
+If you're coming from the Streamlit-based v1.0:
+
+1. **Data Migration**: Use the provided migration scripts to move your data
+2. **API Integration**: New REST APIs replace Streamlit's state management
+3. **UI Improvements**: Enjoy the responsive, modern React interface
+4. **Performance**: Experience 5-10x faster response times
 
 ## Current Status
 
@@ -105,11 +187,13 @@ graph LR
 - ✅ Ring 2: Runtime Packets  
 - ✅ Ring 3: Multi-User Platform
 - ✅ Ring 4: Production Inference
-- 🔄 Ring 5: Experience Polish
+- 🆕 Ring 5: Modern Web Platform (NEW!)
+- 🔄 Ring 6: TTS/STT Integration (Coming Soon)
 
 ## Getting Help
 
 - **GitHub Issues**: Report bugs or request features
-- **API Documentation**: Technical integration details
+- **API Documentation**: Available at `/docs` when running the backend
+- **Discord Community**: Join our community for support
 
-[Get Started](./setup-guide) | [Core Concepts](./core-concepts) 
+[Get Started](./setup-guide) | [Core Concepts](./core-concepts) | [API Reference](/api/docs) 

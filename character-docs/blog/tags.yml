@@ -48,6 +48,51 @@ character-design:
   permalink: /character-design
   description: Character creation methodologies
 
+features:
+  label: Features
+  permalink: /features
+  description: Platform features and capabilities
+
+visualization:
+  label: Visualization
+  permalink: /visualization
+  description: Data visualization and monitoring
+
+monitoring:
+  label: Monitoring
+  permalink: /monitoring
+  description: System monitoring and observability
+
+directors-view:
+  label: Director's View
+  permalink: /directors-view
+  description: Director's View feature and insights
+
+announcement:
+  label: Announcement
+  permalink: /announcement
+  description: Platform announcements and updates
+
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: Technical architecture and design
+
+react:
+  label: React
+  permalink: /react
+  description: React framework and components
+
+fastapi:
+  label: FastAPI
+  permalink: /fastapi
+  description: FastAPI backend framework
+
+platform:
+  label: Platform
+  permalink: /platform
+  description: Platform updates and news
+
 hola:
   label: Hola
   permalink: /hola
