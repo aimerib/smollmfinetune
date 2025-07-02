@@ -44,7 +44,12 @@
             "ON_MEMORY_FORMATION", 
             "ON_EMOTIONAL_STATE",
             "ON_GENERATION_QUALITY",
-            "ON_HEAD_COORDINATION"
+            "ON_HEAD_COORDINATION",
+            "ON_RELATIONSHIP_CHANGE",
+            "ON_EMOTIONAL_PATTERN",
+            "ON_MEMORY_SIGNIFICANCE",
+            "ON_AFFINITY_THRESHOLD",
+            "ON_SOCIAL_GROUP_CHANGE"
           ]
         },
         "location_id": {"type": "string"},
@@ -82,7 +87,12 @@
             "GENERATION_OVERRIDE",
             "CONTROL_INJECTION",
             "MEMORY_FORMATION",
-            "HEAD_SYNCHRONIZATION"
+            "HEAD_SYNCHRONIZATION",
+            "TRIGGER_CHAIN",
+            "PROBABILITY_BRANCH",
+            "MULTI_CHARACTER_ORCHESTRATION",
+            "DYNAMIC_VARIABLE_UPDATE",
+            "RELATIONSHIP_MODIFY"
           ]
         },
         "target_agent_id": {"type": "string"},

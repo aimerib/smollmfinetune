@@ -430,6 +430,7 @@ def render_sidebar(pg):
             ("World & Data", [
                 ("🌍 World Management", "pages/world_management.py"),
                 ("🎨 Dataset Studio", "pages/dataset_studio.py"),
+                ("🌊 N-Script Studio", "pages/nscript_studio.py"),
             ]),
             ("Training & Testing", [
                 ("⚙️ Training Config", "pages/training_config.py"),
@@ -691,6 +692,7 @@ def main():
         "World & Data": [
             st.Page("pages/world_management.py", title="🌍 World Management", icon="🌍"),
             st.Page("pages/dataset_studio.py", title="🎨 Dataset Studio", icon="🎨"),
+            st.Page("pages/nscript_studio.py", title="🌊 N-Script Studio", icon="🌊"),
         ],
         "Training & Testing": [
             st.Page("pages/training_config.py", title="⚙️ Training Config", icon="⚙️"),
