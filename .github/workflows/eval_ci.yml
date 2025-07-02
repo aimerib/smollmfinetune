@@ -21,6 +21,7 @@ jobs:
       PIP_CACHE_DIR: ~/.cache/pip
       TRANSFORMERS_CACHE: ~/.cache/huggingface/transformers
       HF_DATASETS_CACHE: ~/.cache/huggingface/datasets
+      HF_HOME: ~/.cache/huggingface
     
     strategy:
       matrix:
@@ -39,6 +40,13 @@ jobs:
           app/requirements.txt
           app/requirements-runpod.txt
           app/requirements-prod.txt
+    
+    - name: Create HuggingFace cache directories
+      run: |
+        mkdir -p ~/.cache/huggingface/transformers
+        mkdir -p ~/.cache/huggingface/datasets
+        mkdir -p ~/.cache/huggingface/hub
+        chmod -R 755 ~/.cache/huggingface
     
     - name: Cache pip dependencies
       uses: actions/cache@v4
@@ -72,6 +80,25 @@ jobs:
       run: |
         python -c "import scripts.run_sft_ci; print('✅ CI training script importable')"
         python -c "import scripts.run_basic_evaluation; print('✅ Evaluation script importable')"
+    
+    - name: Pre-download model files
+      run: |
+        echo "📥 Pre-downloading model files to avoid cache issues..."
+        python -c "
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import os
+        
+        model_name = 'HuggingFaceTB/SmolLM2-135M-Instruct'
+        cache_dir = os.path.expanduser('~/.cache/huggingface')
+        
+        print(f'Downloading tokenizer for {model_name}...')
+        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        
+        print(f'Downloading model for {model_name}...')
+        model = AutoModelForCausalLM.from_pretrained(model_name, cache_dir=cache_dir)
+        
+        print('✅ Model files downloaded successfully')
+        "
     
     - name: Run lightweight training
       run: |
