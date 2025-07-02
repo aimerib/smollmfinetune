@@ -131,8 +131,7 @@ jobs:
         echo "🧠 Running evaluation harness..."
         python scripts/run_basic_evaluation.py \
           --checkpoint-path ci_training_output \
-          --output-json ci_evaluation_results.json \
-          --quick-mode
+          --output-json ci_evaluation_results.json
         echo "✅ Evaluation completed"
     
     - name: Parse evaluation results
