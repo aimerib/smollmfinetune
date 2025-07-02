@@ -20,6 +20,12 @@ import {
 import websocketService, { EventType } from '../services/websocketService';
 import { useDirectorsViewStore } from '../stores/directorsViewStore';
 
+// Relationship Components
+import { RelationshipGraph } from '../components/DirectorsView/RelationshipGraph';
+import { RelationshipPanel, RelationshipMetrics } from '../components/DirectorsView/RelationshipPanel';
+import { RelationshipTimeline } from '../components/DirectorsView/RelationshipTimeline';
+import { RelationshipNode, RelationshipEdge } from '../types/relationships';
+
 // Styled Components with elegant dark theme
 const Container = styled.div`
   height: 100vh;
@@ -365,8 +371,16 @@ const DirectorsView: React.FC = () => {
     memories: true,
     emotions: true,
     metrics: false,
-    connections: true
+    connections: true,
+    relationships: false
   });
+  
+  // Relationship visualization state
+  const [viewMode, setViewMode] = useState<'world' | 'relationships'>('world');
+  const [relationshipNodes, setRelationshipNodes] = useState<RelationshipNode[]>([]);
+  const [relationshipEdges, setRelationshipEdges] = useState<RelationshipEdge[]>([]);
+  const [selectedRelationship, setSelectedRelationship] = useState<RelationshipEdge | null>(null);
+  const [affinityFilter, setAffinityFilter] = useState({ min: -1, max: 1 });
 
   const { worldState, memories, updateWorldState } = useDirectorsViewStore();
   const worldMapRef = useRef<HTMLDivElement>(null);
@@ -383,8 +397,78 @@ const DirectorsView: React.FC = () => {
     };
     connect();
     
-    return () => websocketService.disconnect();
+    // Subscribe to relationship events
+    const unsubscribeRelationship = websocketService.on(
+      EventType.RELATIONSHIP_UPDATE,
+      (event) => {
+        // Update relationship edges when we receive updates
+        setRelationshipEdges(prev => {
+          const updated = [...prev];
+          const index = updated.findIndex(
+            e => e.source === event.speaker_id && e.target === event.target_id
+          );
+          
+          if (index >= 0) {
+            // Update existing relationship
+            updated[index] = {
+              ...updated[index],
+              affinity: updated[index].affinity + (event.affinity_change || 0),
+              interaction_count: updated[index].interaction_count + 1,
+              last_interaction: event.timestamp,
+              emotional_history: [...updated[index].emotional_history, ...(event.emotional_impact || [])]
+            };
+          }
+          
+          return updated;
+        });
+      }
+    );
+    
+    return () => {
+      websocketService.disconnect();
+      unsubscribeRelationship();
+    };
   }, []);
+  
+  // Fetch relationship data when switching to relationship mode
+  useEffect(() => {
+    const fetchRelationshipData = async () => {
+      if (viewMode === 'relationships') {
+        try {
+          const response = await fetch('http://localhost:8000/api/relationships/graph');
+          if (response.ok) {
+            const data = await response.json();
+            setRelationshipNodes(data.nodes);
+            setRelationshipEdges(data.edges);
+          }
+        } catch (error) {
+          console.error('Failed to fetch relationship data:', error);
+          // Fallback to extracting from world state if API fails
+          if (worldState) {
+            const nodes: RelationshipNode[] = worldState.characters.map(char => ({
+              id: char.id,
+              name: char.name,
+              personality: {
+                openness: char.custom_data?.personality?.openness || 0.5,
+                conscientiousness: char.custom_data?.personality?.conscientiousness || 0.5,
+                extraversion: char.custom_data?.personality?.extraversion || 0.5,
+                agreeableness: char.custom_data?.personality?.agreeableness || 0.5,
+                neuroticism: char.custom_data?.personality?.neuroticism || 0.5
+              },
+              emotional_state: char.custom_data?.emotional_state || { neutral: 1.0 },
+              position: { x: Math.random() * 800, y: Math.random() * 600 },
+              size: 40 + (char.relationship_count || 0) * 5
+            }));
+            
+            setRelationshipNodes(nodes);
+            setRelationshipEdges([]);
+          }
+        }
+      }
+    };
+    
+    fetchRelationshipData();
+  }, [viewMode, worldState]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -408,6 +492,9 @@ const DirectorsView: React.FC = () => {
           break;
         case 'c':
           setActiveFilters(prev => ({ ...prev, connections: !prev.connections }));
+          break;
+        case 'r':
+          setViewMode(prev => prev === 'relationships' ? 'world' : 'relationships');
           break;
         case '?':
           setShowKeyboardHints(prev => !prev);
@@ -519,6 +606,14 @@ const DirectorsView: React.FC = () => {
             {React.createElement(FiActivity as React.ComponentType<any>, { size: 16 })}
             Metrics
           </ToggleButton>
+          <ToggleButton 
+            active={viewMode === 'relationships'}
+            onClick={() => setViewMode(viewMode === 'relationships' ? 'world' : 'relationships')}
+            title="Toggle Relationship View (R)"
+          >
+            {React.createElement(FiUser as React.ComponentType<any>, { size: 16 })}
+            Relationships
+          </ToggleButton>
         </ViewToggle>
         
         <StatusBadge type={isConnected ? 'online' : 'offline'}>
@@ -529,10 +624,11 @@ const DirectorsView: React.FC = () => {
 
       <MainContent>
         <WorldCanvas>
-          <WorldMap 
-            ref={worldMapRef}
-            style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
-          >
+          {viewMode === 'world' ? (
+            <WorldMap 
+              ref={worldMapRef}
+              style={{ transform: `scale(${zoom})`, transformOrigin: 'center center' }}
+            >
             {/* Render Connection Lines */}
             {activeFilters.connections && (
               <ConnectionLine>
@@ -656,10 +752,51 @@ const DirectorsView: React.FC = () => {
               )}
             </AnimatePresence>
           </WorldMap>
+          ) : (
+            // Relationship View Mode
+            <RelationshipGraph
+              nodes={relationshipNodes}
+              edges={relationshipEdges}
+              onNodeSelect={(nodeId) => setSelectedEntity(nodeId)}
+              onEdgeSelect={(edge) => setSelectedRelationship(edge)}
+              affinityFilter={affinityFilter}
+            />
+          )}
         </WorldCanvas>
 
         <ContextPanel isOpen={isPanelOpen}>
-          {selectedData ? (
+          {viewMode === 'relationships' ? (
+            // Relationship Mode Panel
+            <>
+              {selectedRelationship ? (
+                <RelationshipPanel 
+                  selectedRelationship={selectedRelationship}
+                  relationshipHistory={[]} // TODO: Fetch from WebSocket
+                />
+              ) : (
+                <RelationshipMetrics 
+                  metrics={{
+                    totalRelationships: relationshipEdges.length,
+                    averageAffinity: relationshipEdges.reduce((sum, edge) => sum + edge.affinity, 0) / (relationshipEdges.length || 1),
+                    strongBonds: relationshipEdges.filter(e => e.affinity > 0.7).length,
+                    conflicts: relationshipEdges.filter(e => e.affinity < -0.3).length,
+                    recentChanges: [],
+                    socialClusters: []
+                  }}
+                />
+              )}
+              
+              {selectedEntity && (
+                <PanelSection>
+                  <SectionTitle>Character Relationships</SectionTitle>
+                  <RelationshipTimeline 
+                    agentPair={[selectedEntity, selectedRelationship?.target || selectedRelationship?.source || '']}
+                    initialEvents={[]}
+                  />
+                </PanelSection>
+              )}
+            </>
+          ) : selectedData ? (
             <>
               <PanelSection>
                 <SectionTitle>
@@ -847,6 +984,7 @@ const DirectorsView: React.FC = () => {
               <div>M - Toggle Memories</div>
               <div>E - Toggle Emotions</div>
               <div>C - Toggle Connections</div>
+              <div>R - Toggle Relationship View</div>
               <div>P - Toggle Panel</div>
               <div>+/- - Zoom In/Out</div>
               <div>Esc - Deselect</div>

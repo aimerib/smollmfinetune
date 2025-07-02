@@ -12,6 +12,7 @@ export enum EventType {
   EMOTION_CHANGED = 'emotion_changed',
   SUBTEXT_ADDED = 'subtext_added',
   TRIPLE_HEAD_METRICS = 'triple_head_metrics',
+  RELATIONSHIP_UPDATE = 'relationship_update',
 }
 
 // Interfaces
@@ -67,6 +68,19 @@ export interface TripleHeadMetricsEvent {
       coordination_score: number;
     };
   };
+}
+
+export interface RelationshipUpdateEvent {
+  event_type: EventType.RELATIONSHIP_UPDATE;
+  timestamp: string;
+  source: string;
+  speaker_id: string;
+  target_id: string;
+  interaction_type: string;
+  affinity_change: number;
+  emotional_impact: string[];
+  memory_significance: number;
+  narrative_context?: string;
 }
 
 export interface WorldSnapshot {
@@ -186,7 +200,7 @@ class WebSocketService {
   /**
    * Subscribe to specific event types
    */
-  on<T extends StateUpdateEvent | MemoryFormationEvent | EmotionChangeEvent | TripleHeadMetricsEvent>(
+  on<T extends StateUpdateEvent | MemoryFormationEvent | EmotionChangeEvent | TripleHeadMetricsEvent | RelationshipUpdateEvent>(
     eventType: EventType,
     callback: EventCallback<T>
   ): () => void {
@@ -201,6 +215,13 @@ class WebSocketService {
     return () => {
       handlers.delete(callback);
     };
+  }
+  
+  /**
+   * Subscribe to relationship update events
+   */
+  onRelationshipEvent(callback: (event: RelationshipUpdateEvent) => void): () => void {
+    return this.on(EventType.RELATIONSHIP_UPDATE, callback);
   }
   
   /**
@@ -298,6 +319,7 @@ class WebSocketService {
       'memory_formed': EventType.MEMORY_FORMED,
       'emotion_changed': EventType.EMOTION_CHANGED,
       'triple_head_metrics': EventType.TRIPLE_HEAD_METRICS,
+      'relationship_update': EventType.RELATIONSHIP_UPDATE,
     };
     
     const eventType = eventTypeMap[messageType];

@@ -2,8 +2,6 @@
 
 - **Ring:** R5
 - **Status:** Not Started
-- **Author:** Principal Engineer AI
-- **Effort:** Large
 - **Related-Tasks:** R5-5, R4-6, R5-2
 
 ---
