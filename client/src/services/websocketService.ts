@@ -1,11 +1,9 @@
 /**
  * WebSocket Service for Director's View
  * 
- * Handles real-time communication with the backend for world state updates,
- * memory formation events, emotional changes, and triple-head metrics.
+ * Manages real-time communication with the FastAPI backend for live updates
+ * on character states, memories, emotions, and metrics.
  */
-
-import { io, Socket } from 'socket.io-client';
 
 // Event types
 export enum EventType {
@@ -76,14 +74,14 @@ export interface WorldSnapshot {
     id: string;
     name: string;
     type: string;
-    attributes: Record<string, any>;
+    custom_data: Record<string, any>;
   }>;
   characters: Array<{
     id: string;
     name: string;
     type: string;
     location: string;
-    attributes: Record<string, any>;
+    custom_data: Record<string, any>;
     memory_count: number;
     relationship_count: number;
   }>;
@@ -99,7 +97,7 @@ export interface WorldSnapshot {
 type EventCallback<T> = (event: T) => void;
 
 class WebSocketService {
-  private socket: Socket | null = null;
+  private socket: WebSocket | null = null;
   private wsUrl: string;
   private reconnectAttempts = 0;
   private maxReconnectAttempts = 5;
@@ -115,7 +113,7 @@ class WebSocketService {
    * Connect to the WebSocket server
    */
   async connect(): Promise<void> {
-    if (this.socket?.connected) {
+    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
       console.log('WebSocket already connected');
       return;
     }
@@ -123,44 +121,46 @@ class WebSocketService {
     return new Promise((resolve, reject) => {
       try {
         // Create WebSocket connection using native WebSocket
-        const ws = new WebSocket(`${this.wsUrl}/ws/director`);
+        console.log(`Connecting to WebSocket: ${this.wsUrl}/ws/director`);
+        this.socket = new WebSocket(`${this.wsUrl}/ws/director`);
         
-        ws.onopen = () => {
-          console.log('WebSocket connected');
+        this.socket.onopen = () => {
+          console.log('WebSocket connected successfully');
           this.connected = true;
           this.reconnectAttempts = 0;
           
           // Send subscription message
-          ws.send(JSON.stringify({
+          const subscribeMessage = {
             type: 'subscribe',
             topics: ['state_updates', 'memory_events', 'emotion_events', 'metrics']
-          }));
+          };
+          console.log('Sending subscription:', subscribeMessage);
+          this.socket!.send(JSON.stringify(subscribeMessage));
           
           resolve();
         };
         
-        ws.onmessage = (event) => {
+        this.socket.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
+            console.log('Received WebSocket message:', data);
             this.handleMessage(data);
           } catch (error) {
             console.error('Failed to parse WebSocket message:', error);
           }
         };
         
-        ws.onerror = (error) => {
+        this.socket.onerror = (error) => {
           console.error('WebSocket error:', error);
-          reject(error);
+          this.connected = false;
+          reject(new Error('WebSocket connection failed'));
         };
         
-        ws.onclose = () => {
-          console.log('WebSocket disconnected');
+        this.socket.onclose = (event) => {
+          console.log('WebSocket disconnected:', event.code, event.reason);
           this.connected = false;
           this.handleDisconnect();
         };
-        
-        // Store WebSocket instance
-        this.socket = ws as any;
         
         // Start heartbeat
         this.startHeartbeat();
@@ -208,7 +208,7 @@ class WebSocketService {
    */
   send(message: any): void {
     if (this.socket && this.connected) {
-      (this.socket as any).send(JSON.stringify(message));
+      this.socket.send(JSON.stringify(message));
     } else {
       console.warn('WebSocket not connected, message not sent:', message);
     }

@@ -2,7 +2,7 @@
 
 ## 🎬 Overview
 
-The Director's View is a revolutionary real-time monitoring and debugging console for AI character simulations. It provides a "god view" of your digital world, visualizing character states, memory formation, emotional changes, and triple-head model performance in an immersive 3D interface.
+The Director's View is a revolutionary real-time monitoring and debugging console for AI character simulations. It provides a "god view" of your digital world, visualizing character states, memory formation, emotional changes, and triple-head model performance in an elegant 2D interface.
 
 ## 🏗️ Architecture
 
@@ -15,32 +15,33 @@ We've split from the monolithic Streamlit architecture to a modern FastAPI + Rea
 - **Async Python**: High-performance concurrent operations
 
 ### Frontend (React + TypeScript)
-- **Three.js**: Immersive 3D world visualization
-- **Socket.io Client**: Real-time WebSocket connection
+- **Clean 2D Visualization**: Elegant, performant 2D world representation
+- **WebSocket Client**: Real-time updates without polling
 - **Zustand**: Lightweight state management
-- **Material-UI**: Beautiful, responsive components
-- **Plotly**: Advanced data visualization
+- **Emotion/styled-components**: Beautiful, themeable UI
+- **Framer Motion**: Smooth, meaningful animations
 
 ## ✨ Features
 
-### 🌍 3D World Visualization
-- Interactive node-graph showing locations and characters
-- Character sprites colored by personality traits
-- Real-time position updates and movement animations
-- Click-to-select entities for detailed information
+### 🌍 2D World Visualization
+- Clean circular layout showing locations and characters
+- Character indicators with personality-based styling
+- Real-time position updates with smooth transitions
+- Click-to-select for detailed information
+- Activity indicators for ongoing interactions
 
-### 💭 Memory Formation Bubbles
-- Floating 3D bubbles appear when memories form
-- Color-coded by emotional valence (red=negative, green=positive)
+### 💭 Memory Formation Display
+- Floating memory bubbles that rise from characters
+- Color-coded by emotional valence (warm/cool gradients)
 - Size indicates importance
-- Emoji overlays for quick memory type recognition
 - Fade animation based on memory persistence
+- Memory count tracking per character
 
 ### 🎭 Emotional State Tracking
-- Real-time emotion bars with decay visualization
-- Surprise score history with sparkline charts
-- Emotional momentum indicators
-- Active emotion tokens display
+- Real-time emotion indicators with visual feedback
+- Current mood display in context panel
+- Emotional transitions during conversations
+- Personality trait visualization
 
 ### 🧠 Triple-Head Architecture Monitoring
 - **Generation Head**: Content quality, coherence scores
@@ -50,13 +51,37 @@ We've split from the monolithic Streamlit architecture to a modern FastAPI + Rea
 
 ### 📜 Subtext Log
 - Real-time internal monologue display
-- Character thoughts and motivations
-- Scrollable history with timestamps
+- Character thoughts and decision-making process
+- Timestamp tracking for forensic analysis
 
-### 📊 Memory Timeline
-- Chronological view of formed memories
-- Filter by memory type (episodic, semantic, emotional, procedural)
-- Click to view full memory details
+### ⌨️ Keyboard Shortcuts
+- `Space`: Play/Pause simulation
+- `M`: Toggle memory display
+- `E`: Toggle emotion display
+- `T`: Toggle metrics
+- `C`: Toggle connection lines
+- `Z/X`: Zoom in/out
+- `?`: Show keyboard shortcuts
+
+## 🚧 Current Integration Status
+
+**Important**: The Director's View currently operates with simulated data for demonstration purposes. Full integration with actual character inference is in progress.
+
+### What's Working:
+- ✅ Beautiful, responsive UI
+- ✅ WebSocket connection infrastructure
+- ✅ Event-driven architecture
+- ✅ State management and updates
+- ✅ Smooth animations and transitions
+
+### What's Pending:
+- ⏳ Connection to real character inference
+- ⏳ Actual memory formation from narrative engine
+- ⏳ Real emotion state from control tokens
+- ⏳ Live triple-head metrics
+- ⏳ Integration with trained models
+
+See our [Integration Guide](./character-docs/docs/directors-view-integration.md) for detailed plans.
 
 ## 🚀 Getting Started
 
@@ -86,9 +111,9 @@ We've split from the monolithic Streamlit architecture to a modern FastAPI + Rea
    - Begin world simulation with demo characters
 
 3. **Open your browser**
-   - Navigate to http://localhost:3001
-   - The 3D world will load with demo characters
-   - Watch as characters move, form memories, and experience emotions!
+   - Navigate to http://localhost:3001/directors-view
+   - The 2D world will load with demo characters
+   - Watch as simulated events demonstrate the interface!
 
 ### Manual Setup
 
@@ -158,18 +183,18 @@ client/
 
 ## 🎮 Using the Director's View
 
-1. **Navigate the World**: Use mouse to orbit, zoom, and pan the 3D scene
-2. **Select Entities**: Click on characters or locations for details
-3. **Monitor Memories**: Watch for floating bubbles when memories form
-4. **Track Emotions**: Observe the emotion panel for state changes
-5. **Read Subtext**: Follow character thoughts in the bottom panel
-6. **Analyze Metrics**: Use the triple-head dashboard for model insights
+1. **Navigate the World**: Click and drag to pan, use zoom controls or scroll
+2. **Select Entities**: Click on characters for detailed information
+3. **Monitor Activity**: Watch for activity indicators during interactions
+4. **Track State**: Observe the context panel for character details
+5. **Toggle Filters**: Use top bar to show/hide different data layers
+6. **Control Playback**: Use timeline controls to pause/resume
 
 ## 🔮 Future Enhancements
 
-- **VR Support**: Immersive virtual reality mode
-- **Time Scrubbing**: Replay past events
-- **Multi-User Collaboration**: Shared viewing sessions
+- **Real Model Integration**: Connect to actual character inference
+- **Time Scrubbing**: Replay past conversations
+- **Multi-Character Orchestration**: Watch characters interact
 - **Advanced Filtering**: Complex event queries
 - **Performance Profiling**: Model inference metrics
 - **Export Tools**: Save visualizations and reports

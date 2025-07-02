@@ -35,7 +35,7 @@ const sidebars: SidebarsConfig = {
       type: 'category',
       label: 'Advanced',
       collapsed: true,
-      items: ['advanced-features', 'deploy', 'nscript', 'checkpoint_sharding', 'triple_head_dpo_training', 'spot_orchestrator'],
+      items: ['advanced-features', 'deploy', 'nscript', 'checkpoint_sharding', 'triple_head_dpo_training', 'spot_orchestrator', 'directors-view-integration'],
     }
   ],
 };

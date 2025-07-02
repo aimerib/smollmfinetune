@@ -9,6 +9,7 @@ import logging
 import asyncio
 from contextlib import asynccontextmanager
 from typing import Dict, Any
+from datetime import datetime
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,12 +18,12 @@ import structlog
 from prometheus_client import make_asgi_app
 
 # Import routers
-from app.routers import state, memories, emotions, metrics
-from app.websocket.manager import WebSocketManager
-from app.services.event_bus import EventBus
-from app.services.state_service import StateService
-from app.services.memory_service import MemoryService
-from app.services.emotion_service import EmotionService
+from app.routers import state, memories, emotions, metrics, inference
+from app.websocket.manager import websocket_manager
+from app.services.event_bus import event_bus
+from app.services.state_service import state_service
+from app.services.memory_service import memory_service
+from app.services.emotion_service import emotion_service
 
 # Configure structured logging
 structlog.configure(
@@ -43,14 +44,6 @@ structlog.configure(
 )
 
 logger = structlog.get_logger()
-
-
-# Global instances
-websocket_manager = WebSocketManager()
-event_bus = EventBus()
-state_service = StateService()
-memory_service = MemoryService() 
-emotion_service = EmotionService()
 
 
 @asynccontextmanager
@@ -78,8 +71,8 @@ async def lifespan(app: FastAPI):
 
 # Create FastAPI app
 app = FastAPI(
-    title="Character Creation Platform API",
-    description="Real-time monitoring and control for AI character simulations",
+    title="Character Creation Devkit - Director's View API",
+    description="Real-time monitoring and control interface for AI character simulations",
     version="1.0.0",
     lifespan=lifespan
 )
@@ -102,6 +95,7 @@ app.include_router(state.router, prefix="/api/state", tags=["state"])
 app.include_router(memories.router, prefix="/api/memories", tags=["memories"])
 app.include_router(emotions.router, prefix="/api/emotions", tags=["emotions"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
+app.include_router(inference.router, tags=["inference"])  # No prefix for direct endpoints
 
 # WebSocket endpoint
 from app.websocket.director import director_websocket
@@ -116,6 +110,12 @@ async def root():
         "service": "directors-view-api",
         "version": "1.0.0"
     }
+
+
+@app.get("/health")
+async def health_check():
+    """Health check endpoint"""
+    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
 
 
 @app.exception_handler(Exception)

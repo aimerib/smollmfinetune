@@ -354,6 +354,39 @@ Now that you've mastered the client:
 
 1. **[Advanced Features](./advanced-features)** - Unlock hidden capabilities
 
+## 🚀 Production Deployment
+
+For production deployment:
+
+1. Build the client:
+   ```bash
+   npm run build
+   ```
+
+2. The build output will be in the `build/` directory
+
+3. Serve using your preferred static hosting solution (Nginx, Apache, Vercel, Netlify, etc.)
+
+## 🔧 Current Integration Status
+
+### Chat Interface
+The chat interface is currently a demonstration UI. Full integration requires:
+- Connection to real inference API endpoints
+- Loading actual trained character models
+- Integration with RuntimePromptConstructor
+- Session management with conversation history
+
+### Director's View
+The Director's View shows real-time monitoring capabilities but currently uses simulated data. Full integration requires:
+- Connection to actual inference events
+- Real memory formation tracking
+- Emotion state updates from control tokens
+- Triple-head metrics from NarrativeLLM
+
+See the [Director's View Integration Guide](./directors-view-integration) for detailed integration plans.
+
+## 📝 Contributing
+
 ---
 :::tip[🌈 Enjoy the Magic!]
 <div>

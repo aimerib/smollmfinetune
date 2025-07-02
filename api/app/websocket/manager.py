@@ -220,4 +220,7 @@ class WebSocketManager:
                 }
                 for client_id, conn in self.active_connections.items()
             ]
-        } 
+        }
+
+# Global instance
+websocket_manager = WebSocketManager() 

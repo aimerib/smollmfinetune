@@ -15,7 +15,7 @@ import structlog
 # Add parent directories to path for imports
 sys.path.append(str(Path(__file__).parent.parent.parent.parent))
 
-from narrative_engine.state_manager import StateManager, EntityState, StateQuery
+from narrative_engine.state_manager import StateManager, EntityState, StateQuery, StateUpdate
 from app.services.event_bus import event_bus, StateUpdateEvent
 
 logger = structlog.get_logger()
@@ -106,7 +106,7 @@ class StateService:
                 entity_id=loc["id"],
                 entity_type=loc["type"],
                 location="world",
-                attributes={"name": loc["name"]}
+                custom_data={"name": loc["name"]}
             )
             self.state_manager.create_entity(entity)
         
@@ -115,13 +115,11 @@ class StateService:
                 entity_id=char["id"],
                 entity_type=char["type"],
                 location=char["location"],
-                attributes={
+                custom_data={
                     "name": char["name"],
                     "mood": char["mood"],
                     "personality_traits": char["personality_traits"]
-                },
-                memories=[],
-                relationships={}
+                }
             )
             self.state_manager.create_entity(entity)
             
@@ -149,23 +147,23 @@ class StateService:
             if entity.entity_type == "location":
                 locations.append({
                     "id": entity_id,
-                    "name": entity.attributes.get("name", entity_id),
+                    "name": entity.custom_data.get("name", entity_id),
                     "type": "location",
-                    "attributes": entity.attributes
+                    "custom_data": entity.custom_data
                 })
             elif entity.entity_type == "character":
                 characters.append({
                     "id": entity_id,
-                    "name": entity.attributes.get("name", entity_id),
+                    "name": entity.custom_data.get("name", entity_id),
                     "type": "character",
                     "location": entity.location,
-                    "attributes": entity.attributes,
+                    "custom_data": entity.custom_data,
                     "memory_count": len(entity.memories),
                     "relationship_count": len(entity.relationships)
                 })
         
         # Get recent subtext
-        recent_subtext = self.state_manager.get_recent_subtext(limit=20)
+        recent_subtext = self.state_manager.get_subtext(limit=20)
         
         return {
             "locations": locations,
@@ -174,7 +172,7 @@ class StateService:
             "recent_subtext": [
                 {
                     "agent_id": entry.agent_id,
-                    "text": entry.text,
+                    "text": entry.subtext,
                     "timestamp": entry.timestamp.isoformat()
                 }
                 for entry in recent_subtext
@@ -192,22 +190,22 @@ class StateService:
         details = entity.to_dict()
         
         # Add subtext history
-        subtext_history = self.state_manager.get_agent_subtext(entity_id, limit=10)
+        subtext_history = self.state_manager.get_subtext(agent_id=entity_id, limit=10)
         details["subtext_history"] = [
             {
-                "text": entry.text,
+                "text": entry.subtext,
                 "timestamp": entry.timestamp.isoformat()
             }
             for entry in subtext_history
         ]
         
         # Add recent events
-        recent_events = self.state_manager.get_recent_events(entity_id=entity_id, limit=10)
+        recent_events = self.state_manager.get_recent_events(limit=10)
         details["recent_events"] = [
             {
-                "action": event.action,
+                "event_type": event.event_type,
                 "timestamp": event.timestamp.isoformat(),
-                "data": event.data
+                "changes": event.changes
             }
             for event in recent_events
         ]
@@ -217,8 +215,11 @@ class StateService:
     async def update_entity_state(self, entity_id: str, changes: Dict[str, Any]):
         """Update an entity's state and broadcast the change"""
         try:
+            # Create StateUpdate object
+            update = StateUpdate(entity_id=entity_id, changes=changes)
+            
             # Update in state manager
-            self.state_manager.update_entity(entity_id, changes)
+            self.state_manager.update_entity(update)
             
             # Publish event
             event = StateUpdateEvent(
@@ -257,7 +258,7 @@ class StateService:
                     # Add subtext about movement
                     entity = self.state_manager.get_entity(char_id)
                     if entity:
-                        name = entity.attributes.get("name", char_id)
+                        name = entity.custom_data.get("name", char_id)
                         self.state_manager.add_subtext(
                             char_id,
                             f"*{name} walks to the {new_location.replace('_', ' ')}*"
@@ -270,11 +271,11 @@ class StateService:
                     
                     entity = self.state_manager.get_entity(char_id)
                     if entity:
-                        attributes = entity.attributes.copy()
+                        attributes = entity.custom_data.copy()
                         attributes["mood"] = new_mood
                         await self.update_entity_state(
                             char_id,
-                            {"attributes": attributes}
+                            {"custom_data": attributes}
                         )
                 
                 await asyncio.sleep(5)  # Activity every 5 seconds

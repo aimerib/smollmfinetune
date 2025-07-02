@@ -40,9 +40,37 @@ if [ ! -d "venv" ]; then
     python3 -m venv venv
 fi
 
-source venv/bin/activate
-echo "Installing API dependencies..."
-pip install -r requirements.txt >/dev/null 2>&1
+# Check if we're in an activated conda environment
+if [ ! -z "$CONDA_DEFAULT_ENV" ]; then
+    echo "Using active conda environment: $CONDA_DEFAULT_ENV"
+    echo "Installing API dependencies..."
+    pip install -r requirements.txt >/dev/null 2>&1
+elif command -v conda >/dev/null 2>&1; then
+    echo "Creating conda environment..."
+    conda create -n directors-view python=3.11 -y >/dev/null 2>&1
+    echo "Activating conda environment..."
+    source $(conda info --base)/etc/profile.d/conda.sh
+    conda activate directors-view
+    echo "Installing API dependencies..."
+    pip install -r requirements.txt >/dev/null 2>&1
+else
+    echo -e "${RED}Warning: conda not available. Will use uv instead.${NC}"
+    echo "Press Enter to continue with uv, or Ctrl+C to cancel..."
+    read -r
+    
+    # Check if uv is available, install if not
+    if ! command -v uv >/dev/null 2>&1; then
+        echo "Installing uv..."
+        curl -LsSf https://astral.sh/uv/install.sh | sh
+        source $HOME/.cargo/env
+    fi
+    
+    echo "Creating uv virtual environment..."
+    uv venv
+    source .venv/bin/activate
+    echo "Installing API dependencies with uv..."
+    uv pip install -r requirements.txt >/dev/null 2>&1
+fi
 
 # Start FastAPI in background
 uvicorn app.main:app --reload --port 8000 &

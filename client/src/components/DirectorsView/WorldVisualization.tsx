@@ -74,13 +74,13 @@ const CharacterSprite: React.FC<{
   
   // Get personality-based color
   const getCharacterColor = () => {
-    const traits = character.attributes?.personality_traits;
+    const traits = character.custom_data?.personality_traits;
     if (!traits) return '#10b981';
     
     // Map personality to color
-    const r = traits.extraversion || 0.5;
-    const g = traits.agreeableness || 0.5;
-    const b = traits.openness || 0.5;
+    const r = (traits.extraversion || 0.5) * 0.8 + 0.2; // Keep it bright
+    const g = (traits.agreeableness || 0.5) * 0.8 + 0.2;
+    const b = (traits.openness || 0.5) * 0.8 + 0.2;
     
     return new THREE.Color(r, g, b);
   };
@@ -136,7 +136,7 @@ const CharacterSprite: React.FC<{
         anchorX="center"
         anchorY="middle"
       >
-        {character.attributes?.mood || 'neutral'}
+        {character.custom_data?.mood || 'neutral'}
       </Text>
     </group>
   );

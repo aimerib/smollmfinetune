@@ -142,13 +142,12 @@ const MemoryBubble: React.FC<MemoryBubbleProps> = ({ memory, position, onComplet
         
         {/* Memory preview (first few words) */}
         <Text
-          position={[0, -0.8, 0]}
-          fontSize={0.15}
+          position={[0, 0, 1.2]}
+          fontSize={0.2}
           color="white"
           anchorX="center"
           anchorY="middle"
           maxWidth={2}
-          opacity={opacity}
         >
           {memory.content.slice(0, 30) + '...'}
         </Text>

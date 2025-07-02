@@ -1,9 +1,7 @@
 import axios from 'axios';
-import io, { Socket } from 'socket.io-client';
 
 // Configuration - in production, these would come from environment variables
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000';
-const WS_URL = process.env.REACT_APP_WS_URL || 'ws://localhost:8000';
 
 interface InferenceResponse {
   generation_text: string;
@@ -42,34 +40,11 @@ interface SessionState {
 }
 
 class ChatService {
-  private socket: Socket | null = null;
   private sessionStates: Map<string, SessionState> = new Map();
 
   constructor() {
-    this.initializeWebSocket();
-  }
-
-  private initializeWebSocket() {
-    // Initialize WebSocket connection for real-time updates
-    this.socket = io(WS_URL, {
-      transports: ['websocket'],
-      autoConnect: false
-    });
-
-    this.socket.on('emotion_update', (data) => {
-      // Handle real-time emotion updates
-      window.dispatchEvent(new CustomEvent('emotion_update', { detail: data }));
-    });
-
-    this.socket.on('memory_formed', (data) => {
-      // Handle memory formation events
-      window.dispatchEvent(new CustomEvent('memory_formed', { detail: data }));
-    });
-
-    this.socket.on('proactive_message', (data) => {
-      // Handle proactive agent messages
-      window.dispatchEvent(new CustomEvent('proactive_message', { detail: data }));
-    });
+    // No WebSocket initialization - using REST API only
+    console.log('ChatService initialized with REST API only');
   }
 
   async startSession(characterId: string): Promise<string> {
@@ -87,13 +62,8 @@ class ChatService {
       });
 
       const sessionId = response.data.session_id;
+      console.log('Session created:', sessionId);
       
-      // Connect WebSocket for this session
-      if (this.socket) {
-        this.socket.connect();
-        this.socket.emit('join_session', { session_id: sessionId });
-      }
-
       return sessionId;
     } catch (error) {
       console.error('Failed to start session:', error);
@@ -136,19 +106,14 @@ class ChatService {
   async endSession(sessionId: string): Promise<void> {
     try {
       await axios.post(`${API_BASE_URL}/sessions/${sessionId}/end`);
-      
-      // Disconnect WebSocket for this session
-      if (this.socket) {
-        this.socket.emit('leave_session', { session_id: sessionId });
-        this.socket.disconnect();
-      }
+      console.log('Session ended:', sessionId);
     } catch (error) {
       console.error('Failed to end session:', error);
       throw error;
     }
   }
 
-  // Mobile-optimized methods
+  // Character packet download
   async downloadCharacterPacket(characterId: string): Promise<Blob> {
     try {
       const response = await axios.get(
@@ -162,6 +127,7 @@ class ChatService {
     }
   }
 
+  // Proactive mode toggle
   async enableProactiveMode(sessionId: string, enabled: boolean): Promise<void> {
     try {
       await axios.post(`${API_BASE_URL}/sessions/${sessionId}/proactive`, {
@@ -179,8 +145,8 @@ class ChatService {
     }
   }
 
-  // Streaming support for mobile
-  streamMessage(
+  // Simplified streaming (no WebSocket needed for now)
+  async streamMessage(
     sessionId: string,
     characterId: string,
     message: string,
@@ -188,44 +154,31 @@ class ChatService {
     onComplete: (response: InferenceResponse) => void,
     onError: (error: Error) => void
   ) {
-    if (!this.socket) {
-      onError(new Error('WebSocket not initialized'));
-      return;
+    try {
+      // For now, just use regular sendMessage and call onComplete
+      // In the future, this could use Server-Sent Events or WebSocket streaming
+      const response = await this.sendMessage(sessionId, characterId, message);
+      
+      // Simulate streaming by chunking the response
+      const text = response.generation_text;
+      const words = text.split(' ');
+      
+      for (let i = 0; i < words.length; i++) {
+        setTimeout(() => {
+          onChunk(words[i] + ' ');
+          if (i === words.length - 1) {
+            onComplete(response);
+          }
+        }, i * 50); // 50ms delay between words
+      }
+    } catch (error) {
+      onError(error as Error);
     }
-
-    this.socket.emit('stream_inference', {
-      session_id: sessionId,
-      character_id: characterId,
-      prompt: message
-    });
-
-    this.socket.on('stream_chunk', (data) => {
-      onChunk(data.chunk);
-    });
-
-    this.socket.on('stream_complete', (data) => {
-      onComplete(data);
-      // Clean up listeners
-      this.socket?.off('stream_chunk');
-      this.socket?.off('stream_complete');
-      this.socket?.off('stream_error');
-    });
-
-    this.socket.on('stream_error', (error) => {
-      onError(new Error(error.message));
-      // Clean up listeners
-      this.socket?.off('stream_chunk');
-      this.socket?.off('stream_complete');
-      this.socket?.off('stream_error');
-    });
   }
 
-  // Clean up on unmount
+  // Clean up (no WebSocket to disconnect)
   disconnect() {
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
-    }
+    console.log('ChatService disconnected');
   }
 }
 

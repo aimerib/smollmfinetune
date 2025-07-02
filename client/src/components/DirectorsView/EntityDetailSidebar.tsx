@@ -5,8 +5,8 @@
  */
 
 import React from 'react';
-import { Box, Typography, Divider, Chip } from '@mui/material';
-import { LocationOn, Person, Mood, Psychology } from '@mui/icons-material';
+import { Typography, Chip } from '@mui/material';
+import { Person, LocationOn, Mood, Psychology } from '@mui/icons-material';
 import { WorldSnapshot } from '../../services/websocketService';
 
 interface EntityDetailSidebarProps {
@@ -39,81 +39,79 @@ const EntityDetailSidebar: React.FC<EntityDetailSidebarProps> = ({ entityId, wor
   const isCharacter = entity.type === 'character';
   
   return (
-    <Box>
+    <div style={{ padding: '16px' }}>
       {/* Entity Type Icon */}
-      <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: '16px' }}>
         {isCharacter ? (
-          <Person sx={{ mr: 1, color: 'primary.main' }} />
+          <Person style={{ marginRight: '8px', color: '#1976d2' }} />
         ) : (
-          <LocationOn sx={{ mr: 1, color: 'secondary.main' }} />
+          <LocationOn style={{ marginRight: '8px', color: '#9c27b0' }} />
         )}
         <Typography variant="h5">
           {entity.name}
         </Typography>
-      </Box>
+      </div>
       
       {/* Entity ID */}
-      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>
+      <Typography variant="caption" color="text.secondary" style={{ display: 'block', marginBottom: '16px' }}>
         ID: {entity.id}
       </Typography>
       
-      <Divider sx={{ mb: 2 }} />
+      <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid #424242' }} />
       
       {/* Character-specific details */}
       {isCharacter && character && (
-        <>
+        <div>
           {/* Location */}
-          <Box sx={{ mb: 2 }}>
+          <div style={{ marginBottom: '16px' }}>
             <Typography variant="subtitle2" gutterBottom>
-              <LocationOn fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+              <LocationOn fontSize="small" style={{ verticalAlign: 'middle', marginRight: '4px' }} />
               Location
             </Typography>
             <Typography variant="body2">
               {character.location}
             </Typography>
-          </Box>
+          </div>
           
           {/* Mood */}
-          {character.attributes?.mood && (
-            <Box sx={{ mb: 2 }}>
+          {character.custom_data?.mood && (
+            <div style={{ marginBottom: '16px' }}>
               <Typography variant="subtitle2" gutterBottom>
-                <Mood fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                <Mood fontSize="small" style={{ verticalAlign: 'middle', marginRight: '4px' }} />
                 Current Mood
               </Typography>
               <Chip 
-                label={character.attributes.mood}
+                label={character.custom_data.mood}
                 size="small"
-                sx={{ textTransform: 'capitalize' }}
+                style={{ textTransform: 'capitalize' }}
               />
-            </Box>
+            </div>
           )}
           
           {/* Personality Traits */}
-          {character.attributes?.personality_traits && (
-            <Box sx={{ mb: 2 }}>
+          {character.custom_data?.personality_traits && (
+            <div style={{ marginBottom: '16px' }}>
               <Typography variant="subtitle2" gutterBottom>
-                <Psychology fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.5 }} />
+                <Psychology fontSize="small" style={{ verticalAlign: 'middle', marginRight: '4px' }} />
                 Personality Traits
               </Typography>
-              <Box sx={{ mt: 1 }}>
-                {Object.entries(character.attributes.personality_traits).map(([trait, value]) => (
-                  <Box key={trait} sx={{ mb: 0.5 }}>
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <Typography variant="caption" sx={{ textTransform: 'capitalize' }}>
-                        {trait.replace('_', ' ')}
-                      </Typography>
-                      <Typography variant="caption" color="primary">
-                        {(value * 100).toFixed(0)}%
-                      </Typography>
-                    </Box>
-                  </Box>
+              <div style={{ marginTop: '8px' }}>
+                {Object.entries(character.custom_data.personality_traits).map(([trait, value]) => (
+                  <div key={trait} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <Typography variant="body2" style={{ textTransform: 'capitalize', opacity: 0.8 }}>
+                      {trait}
+                    </Typography>
+                    <Typography variant="caption" color="primary">
+                      {typeof value === 'number' ? (value * 100).toFixed(0) : '0'}%
+                    </Typography>
+                  </div>
                 ))}
-              </Box>
-            </Box>
+              </div>
+            </div>
           )}
           
           {/* Stats */}
-          <Box sx={{ mb: 2 }}>
+          <div style={{ marginBottom: '16px' }}>
             <Typography variant="subtitle2" gutterBottom>
               Statistics
             </Typography>
@@ -123,24 +121,24 @@ const EntityDetailSidebar: React.FC<EntityDetailSidebarProps> = ({ entityId, wor
             <Typography variant="body2">
               Relationships: {character.relationship_count}
             </Typography>
-          </Box>
-        </>
+          </div>
+        </div>
       )}
       
       {/* Location-specific details */}
       {!isCharacter && location && (
-        <>
-          <Box sx={{ mb: 2 }}>
+        <div>
+          <div style={{ marginBottom: '16px' }}>
             <Typography variant="subtitle2" gutterBottom>
               Type
             </Typography>
             <Typography variant="body2">
               {location.type}
             </Typography>
-          </Box>
+          </div>
           
           {/* Characters at this location */}
-          <Box sx={{ mb: 2 }}>
+          <div style={{ marginBottom: '16px' }}>
             <Typography variant="subtitle2" gutterBottom>
               Characters Present
             </Typography>
@@ -151,28 +149,28 @@ const EntityDetailSidebar: React.FC<EntityDetailSidebarProps> = ({ entityId, wor
                   key={c.id}
                   label={c.name}
                   size="small"
-                  sx={{ mr: 0.5, mb: 0.5 }}
+                  style={{ marginRight: '4px', marginBottom: '4px' }}
                 />
               ))
             }
-          </Box>
-        </>
+          </div>
+        </div>
       )}
       
       {/* Additional attributes */}
-      {entity.attributes && Object.keys(entity.attributes).length > 0 && (
-        <Box>
+      {entity.custom_data && Object.keys(entity.custom_data).length > 0 && (
+        <div>
           <Typography variant="subtitle2" gutterBottom>
             Attributes
           </Typography>
-          <Box sx={{ fontSize: '0.875rem' }}>
+          <div style={{ fontSize: '0.875rem' }}>
             <pre style={{ margin: 0, fontFamily: 'monospace' }}>
-              {JSON.stringify(entity.attributes, null, 2)}
+              {JSON.stringify(entity.custom_data, null, 2)}
             </pre>
-          </Box>
-        </Box>
+          </div>
+        </div>
       )}
-    </Box>
+    </div>
   );
 };
 

@@ -1,18 +1,16 @@
 import React from 'react';
 import styled from '@emotion/styled';
-import { motion } from 'framer-motion';
-import { FiArrowLeft, FiMoreVertical } from 'react-icons/fi';
+import { FiArrowLeft } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 
-const Header = styled(motion.header)`
+const Header = styled.div`
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 1.5rem;
-  background: rgba(0, 0, 0, 0.2);
-  backdrop-filter: blur(20px);
-  border-radius: 20px;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
 `;
 
 const LeftSection = styled.div`
@@ -21,178 +19,140 @@ const LeftSection = styled.div`
   gap: 1rem;
 `;
 
-const BackButton = styled(motion.button)`
-  width: 40px;
-  height: 40px;
+const BackButton = styled.button`
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
   border: none;
   background: rgba(255, 255, 255, 0.1);
-  color: white;
+  color: rgba(255, 255, 255, 0.7);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: all 0.2s ease;
   
   &:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    color: white;
   }
 `;
 
 const CharacterInfo = styled.div`
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
 `;
 
-// Emotion to gradient mapping
-function getEmotionGradient(emotion: string): string {
-  const emotionGradients: Record<string, string> = {
-    happy: 'linear-gradient(135deg, #F6D365 0%, #FDA085 100%)',
-    sad: 'linear-gradient(135deg, #4FACFE 0%, #00F2FE 100%)',
-    angry: 'linear-gradient(135deg, #FA709A 0%, #FEE140 100%)',
-    curious: 'linear-gradient(135deg, #A8EDEA 0%, #FED6E3 100%)',
-    excited: 'linear-gradient(135deg, #F093FB 0%, #F5576C 100%)',
-    neutral: 'linear-gradient(135deg, #E0C3FC 0%, #8EC5FC 100%)'
-  };
-  
-  return emotionGradients[emotion] || emotionGradients.neutral;
-}
-
-const CharacterAvatar = styled(motion.div)<{ emoji: string; emotion: string }>`
-  width: 60px;
-  height: 60px;
+const CharacterAvatar = styled.div`
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
-  background: ${props => getEmotionGradient(props.emotion)};
+  background: #8b45c1;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 2rem;
-  position: relative;
-  
-  &::before {
-    content: '${props => props.emoji}';
-  }
-  
-  &::after {
-    content: '';
-    position: absolute;
-    inset: -3px;
-    border-radius: 50%;
-    background: ${props => getEmotionGradient(props.emotion)};
-    opacity: 0.3;
-    filter: blur(10px);
-  }
+  font-size: 1.3rem;
 `;
 
-const CharacterDetails = styled.div``;
+const CharacterDetails = styled.div`
+  display: flex;
+  flex-direction: column;
+`;
 
 const CharacterName = styled.h2`
-  font-size: 1.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
   margin: 0;
   color: white;
 `;
 
-const StatusText = styled.div`
-  font-size: 0.875rem;
-  color: var(--text-secondary);
+const CharacterStatus = styled.span`
+  font-size: 0.75rem;
+  color: rgba(255, 255, 255, 0.6);
+`;
+
+const StatusIndicator = styled.div`
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  font-size: 0.75rem;
+  color: #22c55e;
 `;
 
-const OnlineIndicator = styled.span`
-  width: 8px;
-  height: 8px;
+const StatusDot = styled.div`
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #4caf50;
-  display: inline-block;
+  background: #22c55e;
+  box-shadow: 0 0 4px rgba(34, 197, 94, 0.5);
 `;
-
-const OptionsButton = styled(motion.button)`
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  border: none;
-  background: rgba(255, 255, 255, 0.1);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.3s ease;
-  
-  &:hover {
-    background: rgba(255, 255, 255, 0.2);
-  }
-`;
-
-// Character data
-const characterData: Record<string, { name: string; emoji: string; tagline: string }> = {
-  alice: {
-    name: 'Alice',
-    emoji: '🧚‍♀️',
-    tagline: 'Adventurer & Dreamer'
-  },
-  max: {
-    name: 'Max',
-    emoji: '🤖',
-    tagline: 'Tech Enthusiast'
-  },
-  luna: {
-    name: 'Luna',
-    emoji: '🌙',
-    tagline: 'Dream Guide'
-  }
-};
 
 interface CharacterHeaderProps {
   characterId: string;
-  emotion: string;
+  emotion?: string;
 }
 
-const CharacterHeader: React.FC<CharacterHeaderProps> = ({ characterId, emotion }) => {
+const CharacterHeader: React.FC<CharacterHeaderProps> = ({ 
+  characterId, 
+  emotion = 'neutral' 
+}) => {
   const navigate = useNavigate();
-  const character = characterData[characterId] || characterData.alice;
-
+  
+  const getCharacterData = (id: string) => {
+    switch (id) {
+      case 'alice':
+        return {
+          name: 'Alice',
+          emoji: '🧚‍♀️',
+          status: 'Curious Wanderer'
+        };
+      case 'max':
+        return {
+          name: 'Max',
+          emoji: '🤖',
+          status: 'Tech Enthusiast'
+        };
+      case 'luna':
+        return {
+          name: 'Luna',
+          emoji: '🌙',
+          status: 'Mystical Guide'
+        };
+      default:
+        return {
+          name: 'Character',
+          emoji: '✨',
+          status: 'AI Companion'
+        };
+    }
+  };
+  
+  const character = getCharacterData(characterId);
+  
   return (
-    <Header
-      initial={{ opacity: 0, y: -20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5 }}
-    >
+    <Header>
       <LeftSection>
-        <BackButton
-          whileHover={{ scale: 1.1 }}
-          whileTap={{ scale: 0.9 }}
-          onClick={() => navigate('/')}
-        >
-          <FiArrowLeft size={20} />
+        <BackButton onClick={() => navigate('/')}>
+          {React.createElement(FiArrowLeft as React.ComponentType<any>, { size: 16 })}
         </BackButton>
         
         <CharacterInfo>
-          <CharacterAvatar
-            emoji={character.emoji}
-            emotion={emotion}
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ duration: 2, repeat: Infinity }}
-          />
+          <CharacterAvatar>
+            {character.emoji}
+          </CharacterAvatar>
+          
           <CharacterDetails>
             <CharacterName>{character.name}</CharacterName>
-            <StatusText>
-              <OnlineIndicator />
-              {character.tagline}
-            </StatusText>
+            <CharacterStatus>{character.status}</CharacterStatus>
           </CharacterDetails>
         </CharacterInfo>
       </LeftSection>
       
-      <OptionsButton
-        whileHover={{ scale: 1.1 }}
-        whileTap={{ scale: 0.9 }}
-      >
-        <FiMoreVertical size={20} />
-      </OptionsButton>
+      <StatusIndicator>
+        <StatusDot />
+        Online
+      </StatusIndicator>
     </Header>
   );
 };
