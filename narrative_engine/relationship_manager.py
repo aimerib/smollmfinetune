@@ -4,7 +4,7 @@ Relationship Manager for Narrative Engine
 Manages character relationships, affinity tracking, and social dynamics
 """
 
-from typing import Dict, List, Optional, Tuple, Set
+from typing import Dict, List, Optional, Tuple, Set, Any
 from datetime import datetime
 from dataclasses import dataclass, field
 from collections import deque
@@ -103,7 +103,7 @@ class RelationshipManager:
             
         return self.relationships[key]
     
-    async def get_relationship(
+    def get_relationship(
         self, 
         source_id: str, 
         target_id: str
