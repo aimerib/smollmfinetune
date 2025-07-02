@@ -551,6 +551,309 @@ class BaseAgent:
             )
 
 
+class ProactiveAgent(BaseAgent):
+    """
+    Enhanced agent implementation that uses the triple-head architecture
+    for generation, emotional control, and memory formation.
+    
+    Features:
+    - Enhanced perception with memory and emotional context
+    - Triple-head thinking (generation + control + memory)
+    - Emotional state persistence and recirculation
+    - Memory formation and retrieval integration
+    """
+    
+    def __init__(self, agent_id: str, character_data: Dict[str, Any], narrative_model=None):
+        """
+        Initialize ProactiveAgent with character data.
+        
+        Args:
+            agent_id: Unique identifier for the agent
+            character_data: Dict containing personality, goals, memories, emotional_state
+            narrative_model: Triple-head NarrativeLLM model
+        """
+        # Extract data from character_data
+        personality = character_data.get("personality", {})
+        goals = character_data.get("goals", [])
+        memories = character_data.get("memories", [])
+        emotional_state = character_data.get("emotional_state", {})
+        
+        # Initialize base agent
+        super().__init__(
+            agent_id=agent_id,
+            narrative_model=narrative_model,
+            goals=goals,
+            personality_traits=personality
+        )
+        
+        # Enhanced properties for ProactiveAgent
+        self.emotional_state = emotional_state.copy()
+        self.emotional_momentum = []  # Control tokens from previous turn
+        self.memory_context = memories.copy()  # Recent memories for context
+        
+        logger.info(f"Initialized ProactiveAgent {agent_id} with {len(goals)} goals, "
+                   f"{len(memories)} memories, and {len(emotional_state)} emotional states")
+    
+    async def perceive(self, state_manager: StateManager) -> Perception:
+        """
+        Enhanced perception that includes memory and emotional context.
+        
+        Args:
+            state_manager: The runtime state manager
+            
+        Returns:
+            Enhanced Perception with memory and emotional context
+        """
+        # Get base perception
+        perception = await super().perceive(state_manager)
+        
+        # Enhance with memory context
+        recent_memories = state_manager.get_character_memories(self.agent_id, limit=5)
+        memory_context = [
+            f"{mem.get('content', 'Unknown memory')} (importance: {mem.get('importance', 0.5):.1f})"
+            for mem in recent_memories
+        ]
+        
+        # Get current emotional state from entity or use agent's state
+        entity = state_manager.get_entity(self.agent_id)
+        if entity and "emotional_state" in entity.custom_data:
+            current_emotional_state = entity.custom_data["emotional_state"]
+        else:
+            current_emotional_state = self.emotional_state
+        
+        # Get emotional momentum from entity or use agent's momentum
+        if entity and "emotional_momentum" in entity.custom_data:
+            current_momentum = entity.custom_data["emotional_momentum"]
+        else:
+            current_momentum = self.emotional_momentum
+        
+        # Enhance perception with memory and emotional context
+        perception.agent_state.update({
+            "memory_context": memory_context,
+            "emotional_state": current_emotional_state,
+            "emotional_momentum": current_momentum
+        })
+        
+        logger.debug(f"Agent {self.agent_id} enhanced perception with {len(memory_context)} memories "
+                    f"and {len(current_emotional_state)} emotional states")
+        
+        return perception
+    
+    async def think(self, perception: Perception) -> ThinkResult:
+        """
+        Enhanced thinking using triple-head architecture.
+        
+        Args:
+            perception: Current perception of the world
+            
+        Returns:
+            Enhanced ThinkResult with emotional state, memory formation, and recirculation
+        """
+        if not self.narrative_model:
+            # Fallback to base behavior if no model
+            base_result = await super().think(perception)
+            return ThinkResult(
+                action=base_result.action,
+                subtext=base_result.subtext,
+                emotional_state={},
+                memory_formation=None,
+                next_recirculation=[]
+            )
+        
+        # Construct enhanced prompt for triple-head model
+        enhanced_prompt = self._construct_enhanced_thinking_prompt(perception)
+        
+        # Get recirculation tokens from previous turn
+        recirculation_tokens = perception.agent_state.get("emotional_momentum", self.emotional_momentum)
+        
+        try:
+            # Call triple-head model with enhanced parameters
+            model_output = await self.narrative_model.generate_with_control(
+                input_ids=None,  # TODO: Tokenize prompt
+                user_input=enhanced_prompt,
+                previous_context="",
+                max_new_tokens=200,
+                temperature=0.7,
+                recirculation_tokens=recirculation_tokens,
+                generate_memory=True
+            )
+            
+            # Extract generated text and parse action
+            generated_text = model_output.get('generated_text', '')
+            
+            # Parse action from generation head
+            try:
+                from .subtext_parser import parse_subtext_and_action
+                subtext, action_text = parse_subtext_and_action(generated_text)
+                action = self._parse_action_from_model_output({'generated_text': action_text})
+            except Exception:
+                # Fallback: treat entire output as action
+                subtext = "Thinking about the situation..."
+                action = self._parse_action_from_model_output(model_output)
+            
+            # Extract emotional state from control head
+            emotional_state = model_output.get('emotional_state', {})
+            
+            # Extract memory formation from memory head
+            memory_formation = None
+            if model_output.get('generated_memory'):
+                memory_data = model_output['generated_memory']
+                memory_formation = {
+                    'content': f"Experience from {perception.current_location}: {generated_text[:100]}...",
+                    'embedding': memory_data.get('embedding', []),
+                    'importance': memory_data.get('importance', 0.5),
+                    'surprise': memory_data.get('surprise', 0.3),
+                    'valence': memory_data.get('valence', 0.0),
+                    'persistence': memory_data.get('persistence', 0.5)
+                }
+            
+            # Get recirculation tokens for next turn
+            next_recirculation = model_output.get('next_recirculation', [])
+            
+            result = ThinkResult(
+                action=action,
+                subtext=subtext,
+                emotional_state=emotional_state,
+                memory_formation=memory_formation,
+                next_recirculation=next_recirculation
+            )
+            
+            logger.debug(f"Agent {self.agent_id} completed triple-head thinking: "
+                        f"action={action.action_type}, emotions={len(emotional_state)}, "
+                        f"memory={memory_formation is not None}")
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced agent thinking: {e}")
+            # Fallback to base behavior
+            base_result = await super().think(perception)
+            return ThinkResult(
+                action=base_result.action,
+                subtext=base_result.subtext,
+                emotional_state={},
+                memory_formation=None,
+                next_recirculation=[]
+            )
+    
+    async def act(self, think_result: ThinkResult, state_manager: StateManager) -> ActionResult:
+        """
+        Enhanced action execution with memory formation and emotional state updates.
+        
+        Args:
+            think_result: Enhanced ThinkResult from thinking
+            state_manager: The runtime state manager
+            
+        Returns:
+            ActionResult with enhanced processing
+        """
+        # Execute the base action
+        action_result = await super().act(think_result.action, state_manager)
+        
+        if not action_result.success:
+            return action_result
+        
+        try:
+            # Process memory formation if present
+            if think_result.memory_formation:
+                memory_data = think_result.memory_formation.copy()
+                # Add timestamp if not present
+                if 'timestamp' not in memory_data:
+                    memory_data['timestamp'] = datetime.now().isoformat()
+                
+                state_manager.add_memory_to_character(self.agent_id, memory_data)
+                logger.debug(f"Formed memory for {self.agent_id}: {memory_data.get('content', 'Unknown')[:50]}...")
+            
+            # Update emotional state
+            if think_result.emotional_state:
+                self.emotional_state.update(think_result.emotional_state)
+                
+                # Update entity's emotional state
+                update = StateUpdate(
+                    entity_id=self.agent_id,
+                    changes={"emotional_state": self.emotional_state}
+                )
+                state_manager.update_entity(update)
+            
+            # Update emotional momentum for next turn
+            if think_result.next_recirculation:
+                self.emotional_momentum = think_result.next_recirculation
+                
+                # Update entity's emotional momentum
+                update = StateUpdate(
+                    entity_id=self.agent_id,
+                    changes={"emotional_momentum": self.emotional_momentum}
+                )
+                state_manager.update_entity(update)
+            
+            # Log subtext for the "Iceberg Model"
+            if think_result.subtext:
+                state_manager.add_subtext(self.agent_id, think_result.subtext)
+            
+            logger.debug(f"Agent {self.agent_id} completed enhanced action processing")
+            
+        except Exception as e:
+            logger.error(f"Error in enhanced action processing for {self.agent_id}: {e}")
+            # Don't fail the action if enhancement processing fails
+        
+        return action_result
+    
+    def _construct_enhanced_thinking_prompt(self, perception: Perception) -> str:
+        """Construct enhanced prompt with memory and emotional context"""
+        prompt_parts = [
+            f"You are {self.agent_id}, an autonomous agent with a rich inner life.",
+            f"Current location: {perception.current_location}",
+        ]
+        
+        # Add personality traits
+        if self.personality_traits:
+            trait_desc = ", ".join([
+                f"{trait}: {value:.1f}" 
+                for trait, value in self.personality_traits.items()
+            ])
+            prompt_parts.append(f"Personality traits: {trait_desc}")
+        
+        # Add goals
+        if self.goals:
+            prompt_parts.append(f"Goals: {', '.join(self.goals)}")
+        
+        # Add memory context
+        memory_context = perception.agent_state.get("memory_context", [])
+        if memory_context:
+            prompt_parts.append(f"Recent memories: {'; '.join(memory_context[:3])}")
+        
+        # Add emotional state
+        emotional_state = perception.agent_state.get("emotional_state", {})
+        if emotional_state:
+            emotion_desc = ", ".join([
+                f"{emotion}: {strength:.1f}" 
+                for emotion, strength in emotional_state.items()
+            ])
+            prompt_parts.append(f"Current emotional state: {emotion_desc}")
+        
+        # Add perception
+        if perception.nearby_agents:
+            prompt_parts.append(f"Nearby agents: {', '.join(perception.nearby_agents)}")
+        
+        if perception.recent_events:
+            prompt_parts.append(f"Recent events: {'; '.join(perception.recent_events)}")
+        
+        # Add world context
+        if perception.world_context:
+            context_desc = ", ".join([
+                f"{k}: {v}" for k, v in perception.world_context.items()
+            ])
+            prompt_parts.append(f"World context: {context_desc}")
+        
+        prompt_parts.append(
+            "\nConsider your goals, memories, and emotional state. "
+            "Decide what to do next and provide your internal thoughts. "
+            "You can move to a location, speak to someone, take an item, or update your goals."
+        )
+        
+        return "\n".join(prompt_parts)
+
+
 # === Scheduler ===
 
 class Scheduler:
