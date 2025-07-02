@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import Enum
 import threading
 import logging
+import asyncio
 from copy import deepcopy
 import json
 
@@ -96,9 +97,10 @@ class StateTransaction:
 class EventLog:
     """Represents a logged state change event"""
     event_id: str
-    event_type: str  # entity_created, entity_updated, entity_deleted
+    event_type: str  # entity_created, entity_updated, entity_deleted, SpeakToAction, etc.
     entity_id: str
     changes: Optional[Dict[str, Any]] = None
+    details: Optional[Dict[str, Any]] = None  # Additional event details
     timestamp: datetime = field(default_factory=datetime.now)
     metadata: Dict[str, Any] = field(default_factory=dict)
 
@@ -283,6 +285,9 @@ class StateManager:
             self.backend = InMemoryBackend()
         else:
             raise NotImplementedError(f"Backend {self.backend_type} not yet implemented")
+        
+        # Event subscription system
+        self._event_subscribers: List[Callable[[EventLog], None]] = []
         
         logger.info(f"Initialized StateManager with {self.backend_type.value} backend")
     
@@ -484,3 +489,58 @@ class StateManager:
             List of recent SubtextEntry objects
         """
         return self.get_subtext(agent_id=agent_id, limit=limit)
+    
+    def subscribe_to_events(self, callback: Callable[[EventLog], None]) -> None:
+        """
+        Subscribe to state events.
+        
+        Args:
+            callback: Function to call when events occur
+        """
+        self._event_subscribers.append(callback)
+        logger.debug(f"Added event subscriber, total: {len(self._event_subscribers)}")
+    
+    def unsubscribe_from_events(self, callback: Callable[[EventLog], None]) -> None:
+        """
+        Unsubscribe from state events.
+        
+        Args:
+            callback: Function to remove from subscribers
+        """
+        if callback in self._event_subscribers:
+            self._event_subscribers.remove(callback)
+            logger.debug(f"Removed event subscriber, total: {len(self._event_subscribers)}")
+    
+    def log_event(self, event_type: str, entity_id: str, details: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Log an event and notify subscribers.
+        
+        Args:
+            event_type: Type of event (e.g., "SpeakToAction")
+            entity_id: ID of the entity involved
+            details: Additional event details
+        """
+        # Create event log
+        event_log = EventLog(
+            event_id=f"event_{datetime.now().isoformat()}",
+            event_type=event_type,
+            entity_id=entity_id,
+            details=details,
+            metadata=details or {}
+        )
+        
+        # Add to backend events
+        self.backend.events.append(event_log)
+        
+        # Notify subscribers
+        for subscriber in self._event_subscribers:
+            try:
+                # Call subscribers asynchronously if they're async
+                if asyncio.iscoroutinefunction(subscriber):
+                    asyncio.create_task(subscriber(event_log))
+                else:
+                    subscriber(event_log)
+            except Exception as e:
+                logger.error(f"Error notifying event subscriber: {e}")
+        
+        logger.debug(f"Logged event {event_type} for entity {entity_id}")
