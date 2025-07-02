@@ -73,9 +73,13 @@ Example: `R0-1_restore_dataset_generation.md`
 
 ### Testing Standards - TDD
 - **All tests** go in `/tests/` directory (not in `/app/`)
+- **React tests** go in `client/src/__tests__/` directory
 - **Comprehensive coverage** required for new components
-- **Run tests** with `./scripts/run_tests.sh` script (never raw pytest)
-- **Test structure**: `test_<module_name>.py` matches `utils/<module_name>.py`
+- **Run Python tests** with `./scripts/run_tests.sh` script (never raw pytest)
+- **Run React tests** with `./scripts/run_react_tests.sh` script
+- **Test structure**: 
+  - Python: `test_<module_name>.py` matches `utils/<module_name>.py`
+  - React: `__tests__/<component_name>.test.tsx` matches component files
 - **TDD Enabled**: The codebase now has proper separation of concerns, modular design, and comprehensive test coverage. Future development should follow TDD practices.
 
 ### Test Classification & Markers ⚠️
@@ -86,6 +90,11 @@ Tests are classified using pytest markers for proper CI/CD separation:
 - Use: `./scripts/run_tests.sh fast` 
 - **MANDATORY**: All tasks must pass fast tests before completion
 
+**React Tests** (Run in CI):
+- Component tests, integration tests, service tests
+- Use: `./scripts/run_react_tests.sh ci`
+- **MANDATORY**: All React changes must have corresponding tests
+
 **Model Validation Tests** (Manual/Model CI only):
 - Tests requiring LLM calls or model inference
 - Markers: `@pytest.mark.slow`, `@pytest.mark.llm`, `@pytest.mark.evaluation`
@@ -93,9 +102,11 @@ Tests are classified using pytest markers for proper CI/CD separation:
 - **NOT for platform CI**: These test model quality, not platform functionality
 
 ### CI/CD Workflows
-1. **Platform CI** (Feature branches → main): Only fast tests (`./scripts/run_tests.sh fast`)
+1. **Platform CI** (Feature branches → main)
+   - Python tests: `./scripts/run_tests.sh fast`
+   - React tests: `./scripts/run_react_tests.sh ci`
 2. **Model Validation CI** (Manual trigger): LLM/evaluation tests for model releases
-3. **Pre-commit**: Fast tests + sample critical slow tests
+3. **Pre-commit**: Fast tests + React tests + sample critical slow tests
 
 ### Multi-Layer TDD Approach ✅ 
 We follow a **three-circle TDD methodology**:
