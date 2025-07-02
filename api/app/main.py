@@ -18,7 +18,7 @@ import structlog
 from prometheus_client import make_asgi_app
 
 # Import routers
-from app.routers import state, memories, emotions, metrics, inference
+from app.routers import state, memories, emotions, metrics, inference, directors_chair
 from app.websocket.manager import websocket_manager
 from app.services.event_bus import event_bus
 from app.services.state_service import state_service
@@ -96,6 +96,7 @@ app.include_router(memories.router, prefix="/api/memories", tags=["memories"])
 app.include_router(emotions.router, prefix="/api/emotions", tags=["emotions"])
 app.include_router(metrics.router, prefix="/api/metrics", tags=["metrics"])
 app.include_router(inference.router, tags=["inference"])  # No prefix for direct endpoints
+app.include_router(directors_chair.router, tags=["directors-chair"])  # Directors Chair endpoints
 
 # WebSocket endpoint
 from app.websocket.director import director_websocket
