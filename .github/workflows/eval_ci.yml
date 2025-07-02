@@ -137,7 +137,7 @@ jobs:
     
     - name: Upload artifacts
       if: always()  # Upload even if previous steps failed
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ci-evaluation-results
         path: |
