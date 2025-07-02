@@ -15,6 +15,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15  # Ensure job doesn't run too long
     
+    env:
+      # Cache keys for deterministic caching
+      CACHE_VERSION: "v1"
+      PIP_CACHE_DIR: ~/.cache/pip
+      TRANSFORMERS_CACHE: ~/.cache/huggingface/transformers
+      HF_DATASETS_CACHE: ~/.cache/huggingface/datasets
+    
     strategy:
       matrix:
         python-version: ["3.11"]
@@ -28,7 +35,31 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip'
-        cache-dependency-path: 'app/requirements.txt'
+        cache-dependency-path: |
+          app/requirements.txt
+          app/requirements-runpod.txt
+          app/requirements-prod.txt
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-${{ hashFiles('app/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-
+          ${{ runner.os }}-pip-
+    
+    - name: Cache HuggingFace models and datasets
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/huggingface/transformers
+          ~/.cache/huggingface/datasets
+          ~/.cache/huggingface/hub
+        key: ${{ runner.os }}-hf-${{ env.CACHE_VERSION }}-${{ hashFiles('scripts/run_sft_ci.py', 'scripts/run_basic_evaluation.py') }}
+        restore-keys: |
+          ${{ runner.os }}-hf-${{ env.CACHE_VERSION }}-
+          ${{ runner.os }}-hf-
     
     - name: Install dependencies
       run: |
