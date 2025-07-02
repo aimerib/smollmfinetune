@@ -58,3 +58,5 @@ pytest-aio
 # Memory Generation
 openai>=1.0.0
 tiktoken>=0.5.0
+
+rich
