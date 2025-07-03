@@ -35,6 +35,7 @@ const Navigation: React.FC = () => {
     { label: 'Characters', path: '/creator/characters', icon: '🎭' },
     { label: 'Worlds', path: '/creator/worlds', icon: '🌍' },
     { label: 'Training', path: '/creator/training', icon: '🧠' },
+    { label: 'Diffusion', path: '/creator/diffusion-training', icon: '🌊' },
     { label: 'Play', path: '/play', icon: '🎮' }
   ];
 

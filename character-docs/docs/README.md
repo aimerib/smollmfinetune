@@ -38,7 +38,8 @@ Follow these guides in order:
 1. **[Setup Guide](./setup-guide.md)**: Install and configure the platform
 2. **[Getting Started](./getting-started.md)**: Create and train your first character
 3. **[Training Guide](./training-guide.md)**: Deep dive into SFT and RLHF training pipelines
-4. **[Client Guide](./client-guide.md)**: Use the production client for character interactions
+4. **[🌊 Diffusion Training Wizard](./diffusion-training-wizard.md)**: NEW! Multimodal diffusion model training
+5. **[Client Guide](./client-guide.md)**: Use the production client for character interactions
 
 ## Documentation Structure
 

@@ -1,0 +1,449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enhanced Diffusion Trainer - WebSocket Test</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #2d3748;
+            margin-bottom: 10px;
+        }
+        
+        .status-panel {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 20px;
+            background: #f7fafc;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border-left: 4px solid #4299e1;
+        }
+        
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.connected { background-color: #48bb78; }
+        .status-dot.connecting { background-color: #ed8936; }
+        .status-dot.disconnected { background-color: #e53e3e; }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background: #4299e1;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #3182ce;
+        }
+        
+        .btn-secondary {
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+        
+        .btn-secondary:hover {
+            background: #cbd5e0;
+        }
+        
+        .messages-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        .messages-panel {
+            background: #f7fafc;
+            border-radius: 8px;
+            padding: 20px;
+            height: 400px;
+            overflow-y: auto;
+        }
+        
+        .message {
+            background: white;
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 6px;
+            border-left: 3px solid #4299e1;
+            font-size: 14px;
+        }
+        
+        .message-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+        
+        .message-type {
+            background: #e2e8f0;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .message-time {
+            font-size: 11px;
+            color: #718096;
+            margin-left: auto;
+        }
+        
+        .message-content {
+            color: #2d3748;
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4299e1;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #718096;
+            margin-top: 5px;
+        }
+        
+        .code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Monaco', 'Consolas', monospace;
+            font-size: 13px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌊 Enhanced Diffusion Trainer WebSocket Test</h1>
+            <p>Test real-time connection to the enhanced diffusion training system</p>
+        </div>
+        
+        <div class="status-panel">
+            <div class="status-indicator">
+                <div class="status-dot disconnected" id="statusDot"></div>
+                <span id="statusText">Disconnected</span>
+                <span id="statusUrl">ws://localhost:8765</span>
+            </div>
+            <div class="controls">
+                <button class="btn-primary" onclick="connect()" id="connectBtn">Connect</button>
+                <button class="btn-secondary" onclick="disconnect()" id="disconnectBtn" disabled>Disconnect</button>
+                <button class="btn-secondary" onclick="clearMessages()">Clear</button>
+            </div>
+        </div>
+        
+        <div class="code">
+            <strong>Start the enhanced trainer:</strong><br>
+            python scripts/enhanced_diffusion_training_demo.py --mode async
+        </div>
+        
+        <div class="messages-container">
+            <div>
+                <h3>📨 Live Updates</h3>
+                <div class="messages-panel" id="messagesPanel">
+                    <div style="text-align: center; color: #718096; margin-top: 50px;">
+                        <p>🔌 No messages yet</p>
+                        <p style="font-size: 12px;">Connect to see live training updates</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div>
+                <h3>📊 Training Metrics</h3>
+                <div class="stats-grid" id="statsGrid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="currentStep">---</div>
+                        <div class="stat-label">Current Step</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalLoss">---</div>
+                        <div class="stat-label">Total Loss</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="learningRate">---</div>
+                        <div class="stat-label">Learning Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="gpuMemory">---</div>
+                        <div class="stat-label">GPU Memory (GB)</div>
+                    </div>
+                </div>
+                
+                <div class="messages-panel" style="margin-top: 20px; height: 200px;">
+                    <h4>🔧 Connection Info</h4>
+                    <div id="connectionInfo">
+                        <p><strong>WebSocket URL:</strong> ws://localhost:8765</p>
+                        <p><strong>Protocol:</strong> Enhanced Diffusion Trainer</p>
+                        <p><strong>Features:</strong> Real-time updates, Multi-GPU support, Advanced sampling</p>
+                        <p><strong>Status:</strong> <span id="detailedStatus">Ready to connect</span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        
+        function updateStatus(status, message) {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const connectBtn = document.getElementById('connectBtn');
+            const disconnectBtn = document.getElementById('disconnectBtn');
+            const detailedStatus = document.getElementById('detailedStatus');
+            
+            statusDot.className = `status-dot ${status}`;
+            statusText.textContent = message;
+            detailedStatus.textContent = message;
+            
+            if (status === 'connected') {
+                connectBtn.disabled = true;
+                disconnectBtn.disabled = false;
+            } else {
+                connectBtn.disabled = false;
+                disconnectBtn.disabled = true;
+            }
+        }
+        
+        function addMessage(type, content, timestamp = null) {
+            const messagesPanel = document.getElementById('messagesPanel');
+            const time = timestamp ? new Date(timestamp * 1000) : new Date();
+            
+            // Clear placeholder if this is the first message
+            if (messagesPanel.children.length === 1 && messagesPanel.children[0].style.textAlign === 'center') {
+                messagesPanel.innerHTML = '';
+            }
+            
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'message';
+            messageDiv.innerHTML = `
+                <div class="message-header">
+                    <span class="message-type">${type.replace('_', ' ')}</span>
+                    <span class="message-time">${time.toLocaleTimeString()}</span>
+                </div>
+                <div class="message-content">${content}</div>
+            `;
+            
+            messagesPanel.appendChild(messageDiv);
+            messagesPanel.scrollTop = messagesPanel.scrollHeight;
+            
+            // Keep only last 50 messages
+            while (messagesPanel.children.length > 50) {
+                messagesPanel.removeChild(messagesPanel.firstChild);
+            }
+        }
+        
+        function updateMetrics(data) {
+            if (data.step !== undefined) {
+                document.getElementById('currentStep').textContent = data.step;
+            }
+            if (data.loss !== undefined) {
+                document.getElementById('totalLoss').textContent = data.loss.toFixed(4);
+            }
+            if (data.learning_rate !== undefined) {
+                document.getElementById('learningRate').textContent = data.learning_rate.toExponential(1);
+            }
+            if (data.gpu_memory !== undefined) {
+                document.getElementById('gpuMemory').textContent = data.gpu_memory.toFixed(1);
+            }
+        }
+        
+        function connect() {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                return;
+            }
+            
+            updateStatus('connecting', 'Connecting...');
+            
+            try {
+                ws = new WebSocket('ws://localhost:8765');
+                
+                ws.onopen = () => {
+                    updateStatus('connected', 'Connected');
+                    reconnectAttempts = 0;
+                    addMessage('connection', '🔗 Connected to enhanced diffusion trainer');
+                    
+                    // Send ping to test connection
+                    ws.send(JSON.stringify({ type: 'ping' }));
+                };
+                
+                ws.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        console.log('Received:', data);
+                        
+                        let content = '';
+                        
+                        switch (data.type) {
+                            case 'connection_established':
+                                content = '✅ Connection established successfully';
+                                break;
+                            case 'training_step':
+                                updateMetrics(data);
+                                content = `Step ${data.step}: Loss ${data.loss?.toFixed(4)} | LR ${data.learning_rate?.toExponential(1)}`;
+                                if (data.gpu_memory) {
+                                    content += ` | GPU: ${data.gpu_memory.toFixed(1)}GB`;
+                                }
+                                break;
+                            case 'epoch_start':
+                                content = `🚀 Started epoch ${data.epoch}/${data.total_epochs}`;
+                                break;
+                            case 'epoch_end':
+                                content = `✅ Completed epoch ${data.epoch} in ${data.epoch_time?.toFixed(1)}s (avg loss: ${data.avg_loss?.toFixed(4)})`;
+                                break;
+                            case 'checkpoint_saved':
+                                content = `💾 Checkpoint saved at step ${data.step}`;
+                                break;
+                            case 'best_model_saved':
+                                content = `🎉 New best model! Loss: ${data.best_loss?.toFixed(4)}`;
+                                break;
+                            case 'training_complete':
+                                content = `🏁 Training completed! Total steps: ${data.total_steps}`;
+                                break;
+                            case 'validation_progress':
+                                content = `🔍 Validation progress: ${data.batch}/${data.total_batches} batches`;
+                                break;
+                            case 'pong':
+                                content = '🏓 Pong received';
+                                break;
+                            default:
+                                content = JSON.stringify(data, null, 2);
+                        }
+                        
+                        addMessage(data.type, content, data.timestamp);
+                        
+                    } catch (error) {
+                        console.error('Failed to parse message:', error);
+                        addMessage('error', `Failed to parse message: ${error.message}`);
+                    }
+                };
+                
+                ws.onerror = (error) => {
+                    console.error('WebSocket error:', error);
+                    updateStatus('disconnected', 'Connection error');
+                    addMessage('error', '❌ WebSocket connection error');
+                };
+                
+                ws.onclose = (event) => {
+                    console.log('WebSocket closed:', event.code, event.reason);
+                    updateStatus('disconnected', 'Disconnected');
+                    addMessage('connection', `🔌 Connection closed (${event.code}: ${event.reason || 'Normal closure'})`);
+                    
+                    // Auto-reconnect logic
+                    if (event.code !== 1000 && reconnectAttempts < maxReconnectAttempts) {
+                        reconnectAttempts++;
+                        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+                        
+                        addMessage('connection', `🔄 Reconnecting in ${delay/1000}s (attempt ${reconnectAttempts}/${maxReconnectAttempts})`);
+                        
+                        setTimeout(() => {
+                            if (ws.readyState === WebSocket.CLOSED) {
+                                connect();
+                            }
+                        }, delay);
+                    }
+                };
+                
+            } catch (error) {
+                console.error('Failed to create WebSocket:', error);
+                updateStatus('disconnected', 'Failed to connect');
+                addMessage('error', `❌ Failed to create connection: ${error.message}`);
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close(1000, 'User requested disconnect');
+                ws = null;
+            }
+            reconnectAttempts = maxReconnectAttempts; // Prevent auto-reconnect
+        }
+        
+        function clearMessages() {
+            const messagesPanel = document.getElementById('messagesPanel');
+            messagesPanel.innerHTML = `
+                <div style="text-align: center; color: #718096; margin-top: 50px;">
+                    <p>🔌 No messages yet</p>
+                    <p style="font-size: 12px;">Connect to see live training updates</p>
+                </div>
+            `;
+        }
+        
+        // Auto-connect on page load
+        // connect();
+    </script>
+</body>
+</html> 

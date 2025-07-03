@@ -6,6 +6,7 @@ import CharacterBuilder from './pages/CharacterBuilder';
 import WorldBuilder from './pages/WorldBuilder';
 import DatasetStudio from './pages/DatasetStudio';
 import MultimodalStudio from './pages/MultimodalStudio';
+import DiffusionTraining from './pages/DiffusionTraining';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import DirectorsView from './pages/DirectorsView';
@@ -29,6 +30,7 @@ function App() {
                       <Route path="dataset-studio" element={<DatasetStudio />} />
           <Route path="multimodal-studio" element={<MultimodalStudio />} />
           <Route path="training" element={<div>Training Dashboard (TODO)</div>} />
+          <Route path="diffusion-training" element={<DiffusionTraining />} />
           <Route path="projects" element={<div>All Projects (TODO)</div>} />
           <Route path="project/:id" element={<div>Project Details (TODO)</div>} />
           <Route path="new-project" element={<div>New Project (TODO)</div>} />
