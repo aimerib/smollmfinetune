@@ -8,7 +8,6 @@ import React, { useState, useEffect } from 'react';
 import styled from '@emotion/styled';
 import { motion, AnimatePresence } from 'framer-motion';
 import { format } from 'date-fns';
-import { FiMessageCircle, FiHeart, FiAlertCircle, FiChevronDown } from 'react-icons/fi';
 import websocketService from '../../services/websocketService';
 import { RelationshipHistoryEvent } from '../../types/relationships';
 
@@ -112,15 +111,15 @@ interface RelationshipTimelineProps {
 const getInteractionIcon = (type: string) => {
   switch (type) {
     case 'conversation':
-      return <FiMessageCircle data-testid="icon-conversation" />;
+      return <span data-testid="icon-conversation">💬</span>;
     case 'support':
-      return <FiHeart data-testid="icon-support" />;
+      return <span data-testid="icon-support">❤️</span>;
     case 'conflict':
-      return <FiAlertCircle data-testid="icon-conflict" />;
+      return <span data-testid="icon-conflict">⚠️</span>;
     case 'greeting':
-      return <FiMessageCircle data-testid="icon-greeting" />;
+      return <span data-testid="icon-greeting">👋</span>;
     default:
-      return <FiMessageCircle />;
+      return <span>💬</span>;
   }
 };
 
@@ -219,10 +218,14 @@ export const RelationshipTimeline: React.FC<RelationshipTimelineProps> = ({
                     role="button"
                     aria-label="expand"
                   >
-                    <FiChevronDown style={{ 
+                    <span style={{ 
                       transform: isExpanded ? 'rotate(180deg)' : 'none',
-                      transition: 'transform 0.2s'
-                    }} />
+                      transition: 'transform 0.2s',
+                      display: 'inline-block',
+                      fontSize: '14px'
+                    }}>
+                      ▼
+                    </span>
                   </ExpandButton>
                 </div>
               </EventHeader>

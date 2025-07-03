@@ -5,6 +5,7 @@ import CreatorDashboard from './pages/CreatorDashboard';
 import CharacterBuilder from './pages/CharacterBuilder';
 import WorldBuilder from './pages/WorldBuilder';
 import DatasetStudio from './pages/DatasetStudio';
+import MultimodalStudio from './pages/MultimodalStudio';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import DirectorsView from './pages/DirectorsView';
@@ -26,6 +27,7 @@ function App() {
           <Route path="worlds" element={<div>Worlds List (TODO)</div>} />
           <Route path="world-builder" element={<WorldBuilder />} />
                       <Route path="dataset-studio" element={<DatasetStudio />} />
+          <Route path="multimodal-studio" element={<MultimodalStudio />} />
           <Route path="training" element={<div>Training Dashboard (TODO)</div>} />
           <Route path="projects" element={<div>All Projects (TODO)</div>} />
           <Route path="project/:id" element={<div>Project Details (TODO)</div>} />

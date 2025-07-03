@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import '../styles/design-system.css';
 
 interface Character {
@@ -58,6 +58,7 @@ interface GenerationProgress {
 
 const DatasetStudio: React.FC = () => {
   const { characterId } = useParams();
+  const navigate = useNavigate();
   const wsRef = useRef<WebSocket | null>(null);
   const [activeView, setActiveView] = useState<'configure' | 'jobs'>('configure');
   const [characters, setCharacters] = useState<Character[]>([]);

@@ -50,22 +50,34 @@ export interface TrainingStatus {
     status: string;
     progress: number;
     queue_length?: number;
+    queue_position?: number;
     eta?: string;
-    metrics?: any;
+    metrics?: {
+      current_loss?: number;
+      best_loss?: number;
+    };
   };
   control_head?: {
     status: string;
     progress: number;
     queue_length?: number;
+    queue_position?: number;
     eta?: string;
-    metrics?: any;
+    metrics?: {
+      current_loss?: number;
+      best_loss?: number;
+    };
   };
   memory_head?: {
     status: string;
     progress: number;
     queue_length?: number;
+    queue_position?: number;
     eta?: string;
-    metrics?: any;
+    metrics?: {
+      current_loss?: number;
+      best_loss?: number;
+    };
   };
   overall_progress?: number;
 }

@@ -400,12 +400,12 @@ const DirectorsView: React.FC = () => {
     // Subscribe to relationship events
     const unsubscribeRelationship = websocketService.on(
       EventType.RELATIONSHIP_UPDATE,
-      (event) => {
+      (event: any) => {
         // Update relationship edges when we receive updates
         setRelationshipEdges(prev => {
           const updated = [...prev];
           const index = updated.findIndex(
-            e => e.source === event.speaker_id && e.target === event.target_id
+            e => e.source === (event.speaker_id || event.source) && e.target === (event.target_id || event.target)
           );
           
           if (index >= 0) {

@@ -135,18 +135,18 @@ export const TrainingProgressIndicator: React.FC<Props> = ({
     // Check for training completion
     if (!trainingStatus || !previousStatus) return;
     
-    Object.keys(trainingStatus).forEach(headType => {
-      if (headType.endsWith('_head')) {
-        const currentHead = trainingStatus[headType as keyof TrainingStatus];
-        const previousHead = previousStatus[headType as keyof TrainingStatus];
-        
-        if (
-          currentHead?.status === 'completed' &&
-          previousHead?.status === 'training' &&
-          onTrainingComplete
-        ) {
-          onTrainingComplete(headType);
-        }
+    const headTypes = ['generation_head', 'control_head', 'memory_head'] as const;
+    
+    headTypes.forEach(headType => {
+      const currentHead = trainingStatus[headType];
+      const previousHead = previousStatus[headType];
+      
+      if (
+        currentHead?.status === 'completed' &&
+        previousHead?.status === 'training' &&
+        onTrainingComplete
+      ) {
+        onTrainingComplete(headType);
       }
     });
 

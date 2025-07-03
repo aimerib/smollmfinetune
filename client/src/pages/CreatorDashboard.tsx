@@ -77,6 +77,13 @@ const CreatorDashboard: React.FC = () => {
       color: 'var(--orange-400)'
     },
     {
+      icon: '🎵',
+      title: 'Multimodal Studio',
+      description: 'Generate voice and speech datasets for character training',
+      path: '/creator/multimodal-studio',
+      color: 'var(--orange-500)'
+    },
+    {
       icon: '🎬',
       title: "Director's Chair",
       description: 'Fine-tune characters through live conversation',
@@ -121,7 +128,7 @@ const CreatorDashboard: React.FC = () => {
       <section className="quick-actions-section">
         <div className="container">
           <h2 className="section-title">Quick Actions</h2>
-          <div className="grid grid-cols-4 quick-actions-grid">
+          <div className="grid grid-cols-5 quick-actions-grid">
             {quickActions.map((action, index) => (
               <Link
                 key={index}
