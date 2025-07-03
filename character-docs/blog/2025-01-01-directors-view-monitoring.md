@@ -9,13 +9,10 @@ tags: [features, visualization, monitoring, directors-view]
 
 Imagine being able to peek inside the mind of an AI character as they interact with users. To see memories forming in real-time, emotions shifting with each exchange, and the intricate dance of neural networks creating believable responses. This is the vision behind the Director's View - our revolutionary monitoring console for AI character simulations.
 
-<!--truncate-->
-
+<!-- truncate -->
 ## The Vision: From Black Box to Glass Box
 
 Traditional chatbots are black boxes. You send a message, get a response, and have no idea what happened in between. But our AI characters are different - they have internal states, form memories, experience emotions, and make decisions based on complex personality models. The Director's View makes all of this visible.
-
-![Director's View Concept](./img/directors-view-concept.png)
 
 ## What Makes It Special?
 

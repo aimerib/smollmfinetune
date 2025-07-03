@@ -2,11 +2,12 @@
 TTS Integration for Multimodal NarrativeLM
 
 This module provides integration with various TTS systems for speech synthesis,
-including Orpheus-TTS, XTTS, Bark, and others.
+including Kokoro-TTS (fast), Orpheus-TTS (expressive), XTTS, Bark, and others.
 """
 
 import asyncio
 import logging
+import time
 import numpy as np
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple, Union
@@ -39,20 +40,132 @@ class TTSProvider(ABC):
         pass
 
 
-class OrpheusTTS(TTSProvider):
-    """Orpheus-TTS integration (3B finetuned model)"""
+class KokoroTTS(TTSProvider):
+    """Kokoro-TTS integration (82M parameters, fast and high-quality)"""
     
-    def __init__(self, model_path: str = "canopylabs/orpheus-3b-0.1-ft"):
+    def __init__(self, model_name: str = "hexgrad/Kokoro-82M"):
+        self.model_name = model_name
+        self.pipeline = None
+        self.sample_rate = 24000  # Kokoro uses 24kHz
+        
+        # Available voices from VOICES.md
+        self.available_voices = [
+            "af_heart", "af_bella", "af_sarah", "af_nicole",  # Female voices
+            "am_adam", "am_eric", "am_michael", "am_daniel",   # Male voices
+        ]
+        
+    def _load_pipeline(self):
+        """Load Kokoro pipeline lazily"""
+        if self.pipeline is None:
+            try:
+                logger.info(f"Loading Kokoro-TTS pipeline...")
+                from kokoro import KPipeline
+                self.pipeline = KPipeline(lang_code='a')  # 'a' for American English
+                logger.info("Kokoro-TTS pipeline loaded successfully")
+            except ImportError:
+                logger.error("Kokoro not installed. Run: pip install kokoro>=0.9.2")
+                raise
+            except Exception as e:
+                logger.error(f"Failed to load Kokoro pipeline: {e}")
+                raise
+    
+    async def synthesize(
+        self, 
+        text: str, 
+        voice_id: Optional[str] = None,
+        emotion_tags: Optional[List[str]] = None,
+        **kwargs
+    ) -> Tuple[np.ndarray, int]:
+        """Synthesize speech using Kokoro-TTS"""
+        self._load_pipeline()
+        
+        # Select voice (default to af_heart for female, am_adam for male)
+        selected_voice = voice_id or "af_heart"
+        if selected_voice not in self.available_voices:
+            logger.warning(f"Voice {selected_voice} not available, using af_heart")
+            selected_voice = "af_heart"
+        
+        # Note: Kokoro doesn't use emotion tags directly - it's optimized for speed
+        # Emotion should be conveyed through text content and voice selection
+        
+        try:
+            logger.info(f"Synthesizing with Kokoro: {text[:50]}... (voice: {selected_voice})")
+            
+            # Generate audio using Kokoro pipeline
+            generator = self.pipeline(text, voice=selected_voice)
+            
+            # Kokoro returns a generator, we need to collect all audio
+            audio_chunks = []
+            for i, (gs, ps, audio_chunk) in enumerate(generator):
+                audio_chunks.append(audio_chunk)
+                logger.debug(f"Generated chunk {i}: {gs}, {ps}")
+            
+            # Concatenate all chunks
+            if audio_chunks:
+                audio = np.concatenate(audio_chunks)
+            else:
+                # Fallback empty audio
+                audio = np.zeros(int(self.sample_rate * 0.1))  # 100ms silence
+            
+            return audio.astype(np.float32), self.sample_rate
+            
+        except Exception as e:
+            logger.error(f"Kokoro synthesis failed: {e}")
+            # Generate fallback audio
+            return self._generate_fallback_audio(text)
+    
+    def _generate_fallback_audio(self, text: str) -> Tuple[np.ndarray, int]:
+        """Generate fallback audio if Kokoro fails"""
+        duration = len(text) * 0.05  # 50ms per character
+        sr = self.sample_rate
+        t = np.linspace(0, duration, int(sr * duration))
+        
+        # Simple sine wave fallback
+        audio = 0.3 * np.sin(2 * np.pi * 220 * t)  # 220Hz tone
+        logger.warning("Using fallback audio synthesis")
+        
+        return audio.astype(np.float32), sr
+    
+    def get_available_voices(self) -> List[Dict[str, Any]]:
+        """Get available Kokoro voices"""
+        voices = []
+        for voice_id in self.available_voices:
+            # Infer gender and name from voice ID
+            if voice_id.startswith('af_'):
+                gender = 'female'
+                name = voice_id.replace('af_', '').title()
+            elif voice_id.startswith('am_'):
+                gender = 'male' 
+                name = voice_id.replace('am_', '').title()
+            else:
+                gender = 'neutral'
+                name = voice_id.title()
+                
+            voices.append({
+                "id": voice_id,
+                "name": f"Kokoro {name}",
+                "gender": gender,
+                "provider": "kokoro"
+            })
+        
+        return voices
+
+
+class OrpheusTTS(TTSProvider):
+    """Orpheus-TTS integration (3B parameters, expressive with emotion tags)"""
+    
+    def __init__(self, model_path: str = "canopylabs/orpheus-3b-0.1-ft", use_production_service: bool = True):
         self.model_path = model_path
+        self.use_production_service = use_production_service
+        self.production_service = None
         self.model = None
         self.tokenizer = None
-        self.vocoder = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.sample_rate = 22050  # Standard TTS sample rate
         
-        # Emotion tag mapping
+        # Emotion tag mapping for Orpheus
         self.emotion_tags = {
             "laugh": "<laugh>",
-            "chuckle": "<chuckle>",
+            "chuckle": "<chuckle>", 
             "sigh": "<sigh>",
             "cough": "<cough>",
             "sniffle": "<sniffle>",
@@ -64,14 +177,32 @@ class OrpheusTTS(TTSProvider):
     def _load_model(self):
         """Load Orpheus model lazily"""
         if self.model is None:
-            logger.info(f"Loading Orpheus-TTS model from {self.model_path}")
-            # Placeholder for actual model loading
-            # In production:
-            # from transformers import AutoModelForCausalLM, AutoTokenizer
-            # self.model = AutoModelForCausalLM.from_pretrained(self.model_path).to(self.device)
-            # self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
-            # self.vocoder = load_hifigan_vocoder()
-            pass
+            try:
+                logger.info(f"Loading Orpheus-TTS model from {self.model_path}")
+                
+                # Try to import Orpheus-specific modules first
+                try:
+                    # This would be the ideal import if they have a proper Python package
+                    from orpheus_tts import OrpheusTTSModel
+                    self.model = OrpheusTTSModel.from_pretrained(self.model_path)
+                    logger.info("Loaded Orpheus using official package")
+                except ImportError:
+                    # Fallback to transformers if no official package
+                    logger.info("Official Orpheus package not found, trying transformers...")
+                    from transformers import AutoModelForCausalLM, AutoTokenizer
+                    
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.model_path,
+                        torch_dtype=torch.float16,
+                        device_map="auto"
+                    )
+                    self.tokenizer = AutoTokenizer.from_pretrained(self.model_path)
+                    logger.info("Loaded Orpheus using transformers")
+                    
+            except Exception as e:
+                logger.error(f"Failed to load Orpheus model: {e}")
+                # Keep model as None, will use fallback
+                self.model = None
     
     async def synthesize(
         self, 
@@ -79,56 +210,105 @@ class OrpheusTTS(TTSProvider):
         voice_id: Optional[str] = None,
         emotion_tags: Optional[List[str]] = None,
         temperature: float = 0.7,
-        repetition_penalty: float = 1.1,
         **kwargs
     ) -> Tuple[np.ndarray, int]:
         """Synthesize speech using Orpheus-TTS"""
+        
+        # Try production service first if enabled
+        if self.use_production_service:
+            try:
+                if self.production_service is None:
+                    from .orpheus_production_service import get_orpheus_service, SynthesisRequest
+                    self.production_service = await get_orpheus_service()
+                
+                # Create synthesis request
+                request = SynthesisRequest(
+                    text=text,
+                    voice_id=voice_id,
+                    emotion_tags=emotion_tags,
+                    request_id=f"tts_{int(time.time() * 1000)}"
+                )
+                
+                # Use production service
+                result = await self.production_service.synthesize(request)
+                logger.info(f"Production Orpheus synthesis: {result.duration_seconds:.3f}s")
+                
+                return result.audio, result.sample_rate
+                
+            except Exception as e:
+                logger.warning(f"Production service failed, falling back to direct model: {e}")
+        
+        # Fallback to direct model usage
         self._load_model()
         
-        # Add emotion tags to text
+        # Add emotion tags to text for Orpheus
+        tagged_text = text
         if emotion_tags:
             for tag in emotion_tags:
                 if tag in self.emotion_tags:
-                    text = f"{self.emotion_tags[tag]} {text}"
+                    tagged_text = f"{self.emotion_tags[tag]} {text}"
                     break  # Only use first emotion tag
         
-        # Mock synthesis for now
-        # In production, use actual Orpheus inference
-        logger.info(f"Synthesizing with Orpheus: {text[:50]}...")
-        
-        # Generate mock audio
-        duration = len(text) * 0.05  # 50ms per character estimate
-        sr = 22050
+        if self.model is not None:
+            try:
+                logger.info(f"Synthesizing with Orpheus: {tagged_text[:50]}...")
+                
+                # If using official Orpheus package
+                if hasattr(self.model, 'synthesize'):
+                    audio = await self.model.synthesize(
+                        text=tagged_text,
+                        voice_id=voice_id,
+                        temperature=temperature
+                    )
+                else:
+                    # Using transformers - would need actual Orpheus inference code
+                    # For now, return mock until we have the real implementation
+                    logger.warning("Orpheus loaded via transformers, using mock synthesis")
+                    audio = self._generate_mock_audio(tagged_text)
+                
+                return audio.astype(np.float32), self.sample_rate
+                
+            except Exception as e:
+                logger.error(f"Orpheus synthesis failed: {e}")
+                return self._generate_mock_audio(tagged_text)
+        else:
+            logger.warning("Orpheus model not loaded, using mock synthesis")
+            return self._generate_mock_audio(tagged_text)
+    
+    def _generate_mock_audio(self, text: str) -> np.ndarray:
+        """Generate mock audio that's more sophisticated than fallback"""
+        duration = len(text) * 0.06  # Slightly slower than Kokoro
+        sr = self.sample_rate
         t = np.linspace(0, duration, int(sr * duration))
         
-        # Create more realistic speech-like waveform
-        base_freq = 200 if voice_id and "female" in voice_id.lower() else 120
-        harmonics = [1, 2, 3, 4, 5]  # Fundamental + harmonics
+        # Create more realistic speech-like waveform with harmonics
+        base_freq = 150  # Typical male voice fundamental
+        harmonics = [1, 2, 3, 4, 5]
         audio = np.zeros_like(t)
         
         for i, harmonic in enumerate(harmonics):
-            amplitude = 0.5 / (i + 1)  # Decreasing amplitude for harmonics
+            amplitude = 0.5 / (i + 1)  # Decreasing amplitude
             audio += amplitude * np.sin(2 * np.pi * base_freq * harmonic * t)
         
-        # Add formant-like modulation
-        formant_mod = 1 + 0.2 * np.sin(2 * np.pi * 5 * t)  # 5Hz modulation
+        # Add expressiveness (formant-like modulation)
+        formant_mod = 1 + 0.3 * np.sin(2 * np.pi * 4 * t)  # 4Hz modulation
         audio *= formant_mod
         
-        # Add slight noise for realism
+        # Add realistic noise
         audio += 0.02 * np.random.randn(len(audio))
         
         # Normalize
         audio = audio / np.max(np.abs(audio)) * 0.8
         
-        return audio.astype(np.float32), sr
+        return audio
     
     def get_available_voices(self) -> List[Dict[str, Any]]:
-        """Get available voice configurations"""
+        """Get available Orpheus voice configurations"""
         return [
-            {"id": "default", "name": "Default Voice", "gender": "neutral"},
-            {"id": "narrator", "name": "Narrator", "gender": "male"},
-            {"id": "character_female", "name": "Female Character", "gender": "female"},
-            {"id": "character_male", "name": "Male Character", "gender": "male"}
+            {"id": "default", "name": "Orpheus Default", "gender": "neutral", "provider": "orpheus"},
+            {"id": "narrator", "name": "Orpheus Narrator", "gender": "male", "provider": "orpheus"},
+            {"id": "expressive_female", "name": "Orpheus Expressive Female", "gender": "female", "provider": "orpheus"},
+            {"id": "expressive_male", "name": "Orpheus Expressive Male", "gender": "male", "provider": "orpheus"}
         ]
 
 
@@ -278,11 +458,12 @@ class TTSOrchestrator:
     
     def __init__(self):
         self.providers = {
+            "kokoro": KokoroTTS(),
             "orpheus": OrpheusTTS(),
             "xtts": XTTS(),
             "bark": BarkTTS()
         }
-        self.default_provider = "orpheus"
+        self.default_provider = "kokoro"
         
     async def synthesize_character_voice(
         self,
@@ -326,29 +507,38 @@ class TTSOrchestrator:
     ) -> str:
         """Select best TTS provider for character and context"""
         
-        # Orpheus for emotional expression
-        if emotion_tags and any(tag in ["laugh", "sigh", "gasp"] for tag in emotion_tags):
+        # Orpheus for emotional expression (high priority)
+        if emotion_tags and any(tag in ["laugh", "sigh", "gasp", "chuckle", "groan", "yawn"] for tag in emotion_tags):
             return "orpheus"
+        
+        # XTTS for voice cloning (if reference available)
+        if character.get("voice_reference"):
+            return "xtts"
         
         # Bark for non-verbal sounds and expressiveness
         if character.get("expressive", False):
             return "bark"
         
-        # XTTS for voice cloning
-        if character.get("voice_reference"):
-            return "xtts"
-        
+        # Kokoro for everything else (fast and high-quality default)
         return self.default_provider
     
     def _get_voice_id(self, character: Dict[str, Any], provider: str) -> Optional[str]:
         """Get appropriate voice ID for character and provider"""
         
-        if provider == "orpheus":
+        if provider == "kokoro":
+            # Map character traits to Kokoro voices
+            if character.get("gender") == "female":
+                return "af_heart"
+            elif character.get("gender") == "male":
+                return "am_adam"
+            return "af_heart"
+            
+        elif provider == "orpheus":
             # Map character traits to Orpheus voices
             if character.get("gender") == "female":
-                return "character_female"
+                return "expressive_female"
             elif character.get("gender") == "male":
-                return "character_male"
+                return "expressive_male"
             return "narrator"
             
         elif provider == "xtts":

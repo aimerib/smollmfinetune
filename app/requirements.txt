@@ -8,6 +8,12 @@ peft
 bitsandbytes
 fastapi
 
+# TTS dependencies
+kokoro>=0.9.2
+torchaudio
+soundfile
+psutil  # For performance monitoring
+
 # Data processing and visualization
 pandas
 numpy

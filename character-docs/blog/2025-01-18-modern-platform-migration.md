@@ -139,8 +139,6 @@ interface World {
 
 FastAPI generates interactive API documentation at `/docs`:
 
-![API Documentation](./img/api-docs-preview.png)
-
 ## Migration Path
 
 For existing users, we've made migration seamless:

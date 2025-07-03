@@ -2,11 +2,7 @@
 title: "Building Multimodal Narrative AI: From Text to Voice"
 description: "How we're revolutionizing AI characters by adding voice, emotion, and synchronized control tokens to create truly multimodal narrative experiences."
 slug: building-multimodal-narrative-ai
-authors:
-  - name: Character AI Team
-    title: AI Research & Development
-    url: https://github.com/aimerib/smollmfinetune
-    image_url: /img/team-avatar.png
+authors: [aimeri]
 tags: [multimodal, tts, voice synthesis, narrative ai, character development]
 image: /img/blog/multimodal-narrative-banner.jpg
 hide_table_of_contents: false
@@ -234,7 +230,7 @@ timeline
 ### R6-1: Foundation Layer
 **Orpheus-TTS Integration**
 - Established core TTS infrastructure
-- GPU optimization for <200ms latency
+- GPU optimization for \<200ms latency
 - Basic emotion tag support
 - Performance benchmarking and optimization
 
@@ -288,7 +284,6 @@ This is where the magic happens. Characters don't just express individual emotio
 - Load balancing for multiple characters
 
 Performance was critical. Users can't wait 10 seconds for a character to speak. Our optimizations achieve:
-- <100ms first-chunk latency
 - Support for 4+ concurrent character voices
 - 90%+ cache hit rate for common expressions
 - Graceful degradation under high load
@@ -523,7 +518,7 @@ The results speak for themselves (literally):
 - **92% emotion accuracy** between text and voice
 - **88% voice consistency** across conversation sessions
 - **95% user satisfaction** with character voice matching
-- **<200ms average response latency** in production
+- **\<200ms average response latency** in production
 
 ### Creator Adoption
 - **78% of creators** now use multimodal datasets

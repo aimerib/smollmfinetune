@@ -329,14 +329,16 @@ class SpeechSynthesizer:
     
     def __init__(self, config: SyntheticGenerationConfig):
         self.config = config
-        self.tts_model = self._load_tts_model()
+        self.use_real_tts = config.tts_model != "mock"
         
-    def _load_tts_model(self):
-        """Load TTS model (placeholder - implement based on chosen TTS)"""
-        # For now, we'll use a mock implementation
-        # In production, load Orpheus-TTS or similar
-        logger.info(f"Loading TTS model: {self.config.tts_model}")
-        return None
+        if self.use_real_tts:
+            # Use real TTS orchestrator
+            from .tts_integration import TTSOrchestrator
+            self.tts_orchestrator = TTSOrchestrator()
+            logger.info(f"Using real TTS with model preference: {self.config.tts_model}")
+        else:
+            self.tts_orchestrator = None
+            logger.info("Using mock TTS synthesis")
     
     async def synthesize_speech(
         self, 
@@ -346,11 +348,24 @@ class SpeechSynthesizer:
     ) -> Tuple[np.ndarray, int]:
         """Synthesize speech from text and return audio + sample rate"""
         
-        # Add emotion tags to text (Orpheus-style)
-        tagged_text = self._add_emotion_tags(text, emotion_tags)
+        if self.use_real_tts and self.tts_orchestrator:
+            try:
+                # Use real TTS orchestrator
+                audio, sr = await self.tts_orchestrator.synthesize_character_voice(
+                    text=text,
+                    character=character,
+                    emotion_tags=emotion_tags,
+                    provider=self.config.tts_model if self.config.tts_model in ["kokoro", "orpheus", "xtts", "bark"] else None
+                )
+                logger.debug(f"Real TTS synthesis: {len(audio)} samples at {sr}Hz")
+                return audio, sr
+                
+            except Exception as e:
+                logger.warning(f"Real TTS failed, falling back to mock: {e}")
+                # Fall through to mock synthesis
         
-        # For demo purposes, generate synthetic audio
-        # In production, use actual TTS
+        # Mock synthesis fallback
+        tagged_text = self._add_emotion_tags(text, emotion_tags)
         audio, sr = self._generate_synthetic_audio(tagged_text, character)
         
         return audio, sr
