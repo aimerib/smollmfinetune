@@ -125,6 +125,31 @@ class Dataset(Base):
     # Relationships
     character = relationship("Character", back_populates="datasets")
     
+class MultimodalDataset(Base):
+    __tablename__ = "multimodal_datasets"
+    
+    id = Column(String, primary_key=True, default=generate_uuid)
+    name = Column(String, nullable=False)
+    config = Column(JSON)  # Generation configuration
+    status = Column(String, default="pending")  # pending, generating, completed, failed, cancelled
+    progress = Column(Float, default=0.0)  # 0.0 to 1.0
+    current_step = Column(String)
+    samples_generated = Column(Integer, default=0)
+    total_samples = Column(Integer)
+    output_path = Column(String)
+    error_message = Column(Text)
+    
+    # Celery task management
+    celery_task_id = Column(String)
+    
+    # TTS and multimodal specific
+    tts_provider = Column(String)  # orpheus, kokoro, xtts, bark
+    character_count = Column(Integer)
+    narrative_types = Column(JSON)  # List of narrative types
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class TrainingJob(Base):
     __tablename__ = "training_jobs"
     

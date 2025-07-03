@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 from app.config import settings
 from app.database import create_tables
-from app.routers import auth, characters, worlds, datasets
+from app.routers import auth, characters, worlds, datasets, multimodal
 from app.redis_client import get_redis_pool
 import time
 
@@ -65,6 +65,7 @@ app.include_router(auth.router, prefix="/api/v1")
 app.include_router(characters.router, prefix="/api/v1")
 app.include_router(worlds.router, prefix="/api/v1")
 app.include_router(datasets.router, prefix="/api/v1")
+app.include_router(multimodal.router, prefix="/api/v1")
 
 # Root endpoint
 @app.get("/")

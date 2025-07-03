@@ -1,5 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import multimodalService, { 
+  MultimodalJob, 
+  MultimodalGenerationConfig,
+  MultimodalProgressUpdate
+} from '../services/multimodalService';
 import '../styles/design-system.css';
 
 interface Character {
@@ -9,34 +14,15 @@ interface Character {
   personality: Record<string, number>;
 }
 
-interface GenerationConfig {
-  sampleCount: number;
-  characterCount: number;
-  narrativeTypes: string[];
-  useMockTTS: boolean;
-  ttsProvider: 'orpheus' | 'xtts' | 'bark';
-  outputDir: string;
-  batchSize: number;
-  temperature: number;
-}
-
-interface GenerationJob {
-  id: string;
-  name: string;
-  status: 'configuring' | 'generating' | 'completed' | 'failed';
-  progress: number;
-  config: GenerationConfig;
-  createdAt: string;
-  estimatedTime?: string;
-  samplesGenerated: number;
-  currentStep: string;
-  errorMessage?: string;
-}
+// Using interfaces from multimodal service
+type GenerationConfig = MultimodalGenerationConfig;
+type GenerationJob = MultimodalJob;
 
 const MultimodalStudio: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'configure' | 'jobs' | 'analysis'>('configure');
   const [config, setConfig] = useState<GenerationConfig>({
+    name: 'My Multimodal Dataset',
     sampleCount: 1000,
     characterCount: 10,
     narrativeTypes: ['dialogue', 'monologue', 'action_scene'],
@@ -47,29 +33,8 @@ const MultimodalStudio: React.FC = () => {
     temperature: 0.8
   });
   
-  const [jobs, setJobs] = useState<GenerationJob[]>([
-    {
-      id: '1',
-      name: 'Epic Fantasy Dataset',
-      status: 'completed',
-      progress: 100,
-      config: { ...config, sampleCount: 500 },
-      createdAt: '2 hours ago',
-      samplesGenerated: 500,
-      currentStep: 'Complete'
-    },
-    {
-      id: '2', 
-      name: 'Cyberpunk Voices',
-      status: 'generating',
-      progress: 65,
-      config: { ...config, sampleCount: 1000 },
-      createdAt: '30 minutes ago',
-      estimatedTime: '15 minutes',
-      samplesGenerated: 650,
-      currentStep: 'Generating speech for character: Nova-7'
-    }
-  ]);
+  const [jobs, setJobs] = useState<GenerationJob[]>([]);
+  const [progressSubscriptions, setProgressSubscriptions] = useState<Map<string, () => void>>(new Map());
 
   const [characters, setCharacters] = useState<Character[]>([]);
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -101,53 +66,133 @@ const MultimodalStudio: React.FC = () => {
     ]);
   }, []);
 
+  // Cleanup WebSocket connections on unmount
+  useEffect(() => {
+    return () => {
+      console.log('🧹 Cleaning up WebSocket connections...');
+      multimodalService.disconnectAll();
+    };
+  }, []);
+
   const handleStartGeneration = async () => {
     setIsGenerating(true);
     
-    // Create new job
-    const newJob: GenerationJob = {
-      id: Date.now().toString(),
-      name: `Dataset ${new Date().toLocaleDateString()}`,
-      status: 'generating',
-      progress: 0,
-      config: { ...config },
-      createdAt: 'Just now',
-      estimatedTime: `${Math.ceil(config.sampleCount / 100)} minutes`,
-      samplesGenerated: 0,
-      currentStep: 'Initializing generation pipeline...'
-    };
-
-    setJobs(prev => [newJob, ...prev]);
-    setActiveTab('jobs');
-
-    // TODO: Actually start generation via API
-    // Simulate progress for demo
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += Math.random() * 10;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
-        setJobs(prev => prev.map(job => 
-          job.id === newJob.id 
-            ? { ...job, status: 'completed', progress: 100, currentStep: 'Complete', samplesGenerated: config.sampleCount }
-            : job
-        ));
+    try {
+      // Validate configuration
+      const validationErrors = multimodalService.validateConfig(config);
+      if (validationErrors.length > 0) {
+        alert(`Configuration errors:\n${validationErrors.join('\n')}`);
         setIsGenerating(false);
-      } else {
-        const currentCharacter = characters[Math.floor(Math.random() * characters.length)];
-        setJobs(prev => prev.map(job => 
-          job.id === newJob.id 
-            ? { 
-                ...job, 
-                progress, 
-                samplesGenerated: Math.floor((progress / 100) * config.sampleCount),
-                currentStep: `Generating speech for character: ${currentCharacter.name}`
-              }
-            : job
-        ));
+        return;
       }
-    }, 1000);
+
+      console.log('🚀 Starting real multimodal generation!', config);
+      
+      // Start generation via API
+      const job = await multimodalService.startGeneration(config);
+      
+      // Add job to list and switch to jobs tab
+      setJobs(prev => [job, ...prev]);
+      setActiveTab('jobs');
+      
+      // Subscribe to real-time progress updates
+      const unsubscribe = multimodalService.subscribeToProgress(
+        job.id,
+        (update: MultimodalProgressUpdate) => {
+          console.log('📊 Progress update:', update);
+          
+          // Update job in list
+          setJobs(prev => prev.map(existingJob => 
+            existingJob.id === job.id 
+              ? {
+                  ...existingJob,
+                  status: update.status as any,
+                  progress: update.progress,
+                  currentStep: update.currentStep,
+                  samplesGenerated: update.samplesGenerated,
+                  outputPath: update.outputPath,
+                  errorMessage: update.error
+                }
+              : existingJob
+          ));
+          
+          // If generation is complete, stop generating state
+          if (update.status === 'completed' || update.status === 'failed') {
+            setIsGenerating(false);
+          }
+        },
+        (error: string) => {
+          console.error('❌ WebSocket error:', error);
+          
+          // Update job with error
+          setJobs(prev => prev.map(existingJob => 
+            existingJob.id === job.id 
+              ? {
+                  ...existingJob,
+                  status: 'failed',
+                  errorMessage: error,
+                  currentStep: 'Connection failed'
+                }
+              : existingJob
+          ));
+          
+          setIsGenerating(false);
+        }
+      );
+      
+      // Store unsubscribe function
+      setProgressSubscriptions(prev => new Map(prev.set(job.id, unsubscribe)));
+      
+      console.log('✨ Generation started successfully! Job ID:', job.id);
+      
+    } catch (error) {
+      console.error('💥 Failed to start generation:', error);
+      alert(`Failed to start generation: ${error}`);
+      setIsGenerating(false);
+    }
+  };
+
+  const handleCancelJob = async (jobId: string) => {
+    try {
+      console.log(`🛑 Canceling job ${jobId}`);
+      await multimodalService.cancelJob(jobId);
+      
+      // Unsubscribe from progress updates
+      const unsubscribe = progressSubscriptions.get(jobId);
+      if (unsubscribe) {
+        unsubscribe();
+        setProgressSubscriptions(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(jobId);
+          return newMap;
+        });
+      }
+      
+      // Update job status locally
+      setJobs(prev => prev.map(job => 
+        job.id === jobId 
+          ? { ...job, status: 'failed' as any, currentStep: 'Canceled by user' }
+          : job
+      ));
+      
+      console.log(`✅ Job ${jobId} canceled successfully`);
+    } catch (error) {
+      console.error(`❌ Failed to cancel job ${jobId}:`, error);
+      alert(`Failed to cancel job: ${error}`);
+    }
+  };
+
+  const handleDownloadDataset = async (jobId: string, jobName: string) => {
+    try {
+      console.log(`⬇️ Downloading dataset for job ${jobId}`);
+      const blob = await multimodalService.downloadDataset(jobId);
+      const filename = `${jobName}_dataset.zip`;
+      multimodalService.downloadFile(blob, filename);
+      console.log(`✅ Dataset downloaded as ${filename}`);
+    } catch (error) {
+      console.error(`❌ Failed to download dataset for job ${jobId}:`, error);
+      alert(`Failed to download dataset: ${error}`);
+    }
   };
 
   const renderConfigureTab = () => (
@@ -156,6 +201,22 @@ const MultimodalStudio: React.FC = () => {
         {/* Left Column - Main Configuration */}
         <div className="config-section">
           <h3 className="section-title">Generation Settings</h3>
+          
+          <div className="form-group">
+            <label className="form-label">Dataset Name</label>
+            <div className="input-with-description">
+              <input
+                type="text"
+                className="form-input"
+                value={config.name}
+                onChange={(e) => setConfig(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="My Multimodal Dataset"
+              />
+              <p className="input-description text-secondary">
+                A descriptive name for your multimodal dataset
+              </p>
+            </div>
+          </div>
           
           <div className="form-group">
             <label className="form-label">Target Samples</label>
@@ -383,6 +444,14 @@ const MultimodalStudio: React.FC = () => {
                 <div className="current-step text-secondary">
                   {job.currentStep}
                 </div>
+                <div className="job-actions">
+                  <button 
+                    className="btn btn-secondary btn-sm"
+                    onClick={() => handleCancelJob(job.id)}
+                  >
+                    🛑 Cancel Generation
+                  </button>
+                </div>
               </div>
             )}
 
@@ -406,7 +475,10 @@ const MultimodalStudio: React.FC = () => {
                   <button className="btn btn-secondary btn-sm">
                     📊 View Analysis
                   </button>
-                  <button className="btn btn-primary btn-sm">
+                  <button 
+                    className="btn btn-primary btn-sm"
+                    onClick={() => handleDownloadDataset(job.id, job.name)}
+                  >
                     📥 Download Dataset
                   </button>
                 </div>

@@ -262,4 +262,52 @@ class TrainingStatusUpdate(BaseModel):
     status: str
     progress: float
     message: Optional[str] = None
-    metrics: Optional[Dict[str, Any]] = None 
+    metrics: Optional[Dict[str, Any]] = None
+
+# Multimodal dataset schemas
+class MultimodalGenerationConfig(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+    sampleCount: int = Field(100, gt=0, le=100000)
+    characterCount: int = Field(5, gt=0, le=100)
+    narrativeTypes: List[str] = Field(..., min_items=1)
+    useMockTTS: bool = True
+    ttsProvider: str = Field("orpheus", pattern="^(orpheus|kokoro|xtts|bark)$")
+    outputDir: str = Field("multimodal_output")
+    batchSize: int = Field(100, gt=0, le=1000)
+    temperature: float = Field(0.8, ge=0.1, le=2.0)
+
+    @validator('narrativeTypes')
+    def validate_narrative_types(cls, v):
+        valid_types = {"dialogue", "monologue", "action_scene", "emotional_moment", "memory_recall", "world_description"}
+        invalid_types = set(v) - valid_types
+        if invalid_types:
+            raise ValueError(f"Invalid narrative types: {invalid_types}")
+        return v
+
+class MultimodalDatasetResponse(BaseModel):
+    id: str
+    name: str
+    status: str  # pending, generating, completed, failed, cancelled
+    progress: float  # 0.0 to 1.0
+    config: Dict[str, Any]
+    samplesGenerated: int = Field(alias="samples_generated")
+    totalSamples: int = Field(alias="total_samples")
+    currentStep: Optional[str] = Field(alias="current_step")
+    outputPath: Optional[str] = Field(alias="output_path")
+    errorMessage: Optional[str] = Field(alias="error_message")
+    createdAt: datetime = Field(alias="created_at")
+    updatedAt: datetime = Field(alias="updated_at")
+    warnings: Optional[List[str]] = None
+
+    class Config:
+        from_attributes = True
+        allow_population_by_field_name = True
+
+class MultimodalProgressUpdate(BaseModel):
+    progress: float
+    currentStep: str = Field(alias="current_step")
+    samplesGenerated: int = Field(alias="samples_generated")
+    totalSamples: int = Field(alias="total_samples")
+
+    class Config:
+        allow_population_by_field_name = True 
