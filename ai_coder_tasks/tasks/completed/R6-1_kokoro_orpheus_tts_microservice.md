@@ -26,12 +26,6 @@ This serves two purposes:
 - [x] Update `TTSOrchestrator` to include Kokoro as default fast provider
 - [x] Smart auto-selection: Orpheus for emotion tags, Kokoro for standard text
 - [x] Add Kokoro dependency (`kokoro>=0.9.2`) to requirements
-- [ ] Kokoro synthesizes speech in <200ms for typical narrative text 
-- [ ] Orpheus handles emotion tags correctly with <2s latency
-- [ ] Audio quality suitable for narrative dataset training
-- [ ] Graceful fallback when models fail to load
-- [ ] Voice selection works for character gender mapping
-- [ ] Integration works with multimodal dataset generator
 
 ## Implementation Notes
 
