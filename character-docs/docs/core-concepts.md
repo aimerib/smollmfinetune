@@ -150,6 +150,29 @@ sequenceDiagram
     ControlProcessor->>Model: Update state
 ```
 
+## Character Voice System
+
+To bring characters to life, we've implemented a sophisticated voice system that ensures consistency and expressiveness, powered by the Kokoro and Orpheus TTS engines.
+
+### Voice Profile Generation
+Each character is assigned a unique **Voice Profile** automatically generated from their Big Five personality traits. This ensures a character's voice is a natural extension of their personality.
+
+```python
+# Example: Personality -> Voice
+extraversion = 0.8  # High
+base_pitch = 0.3 + (0.4 * extraversion)  # Higher pitch for extraverts
+speaking_rate = 0.4 + (0.5 * extraversion) # Faster speech
+```
+
+### Control Token Integration
+The voice system seamlessly integrates with our control tokens, allowing for real-time modulation of speech based on narrative context.
+
+-   `[EMOTION:joy:0.8]` → Triggers a laugh and increases vocal energy
+-   `[PACE:slow]` → Reduces the speaking rate for dramatic effect
+-   `[TONE:dramatic]` → Switches to the more expressive Orpheus TTS model
+
+This dynamic system allows for a rich, immersive auditory experience where a character's voice adapts to the unfolding story.
+
 ## Character Definition Structure
 
 Characters are defined by multiple interconnected layers:

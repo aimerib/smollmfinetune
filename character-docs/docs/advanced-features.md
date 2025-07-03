@@ -9,6 +9,7 @@ Advanced features documentation coming soon!
 This section will cover:
 - Control token mastery
 - Advanced memory techniques
+- Character Voice System
 - Multi-character orchestration
 - Custom world building
 - Performance optimization

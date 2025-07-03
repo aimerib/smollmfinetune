@@ -12,6 +12,7 @@ The **Character Creation Devkit** is a comprehensive platform for creating, trai
 
 - **🛠️ Devkit** (This Application): Creative suite where writers define character psychology, world lore, and train character voices
 - **🎮 Cartridge** (Runtime Packet): Self-contained deployment packages ready for game engines and interactive experiences
+- **🎤 Character Voice System**: Ensures voice consistency across conversations and integrates with our control token system.
 
 ## 📊 Quality Assurance
 

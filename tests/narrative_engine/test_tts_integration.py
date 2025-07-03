@@ -281,40 +281,6 @@ class TestTTSOrchestrator:
         )
 
 
-class TestIntegrationWithDatasetGenerator:
-    """Test integration with multimodal dataset generation"""
-    
-    @pytest.mark.asyncio
-    async def test_speech_synthesizer_real_tts(self):
-        """Test SpeechSynthesizer using real TTS"""
-        from narrative_engine.synthetic_multimodal_dataset import (
-            SpeechSynthesizer, 
-            SyntheticGenerationConfig
-        )
-        
-        # Configure for real TTS
-        config = SyntheticGenerationConfig(tts_model="kokoro")
-        synthesizer = SpeechSynthesizer(config)
-        
-        assert synthesizer.use_real_tts is True
-        assert synthesizer.tts_orchestrator is not None
-    
-    @pytest.mark.asyncio
-    async def test_speech_synthesizer_mock_tts(self):
-        """Test SpeechSynthesizer using mock TTS"""
-        from narrative_engine.synthetic_multimodal_dataset import (
-            SpeechSynthesizer,
-            SyntheticGenerationConfig
-        )
-        
-        # Configure for mock TTS
-        config = SyntheticGenerationConfig(tts_model="mock")
-        synthesizer = SpeechSynthesizer(config)
-        
-        assert synthesizer.use_real_tts is False
-        assert synthesizer.tts_orchestrator is None
-
-
 # Performance and integration tests (marked as slow)
 @pytest.mark.slow
 class TestTTSPerformance:

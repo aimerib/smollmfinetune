@@ -141,6 +141,14 @@ Include samples that explicitly demonstrate Big Five traits:
 - **High Agreeableness**: Helping others, showing empathy
 - **Low Neuroticism**: Calm under pressure, emotional stability
 
+### Voice Generation
+Our platform now includes an advanced **Character Voice System** that automatically generates a unique voice profile for each character based on their personality. This ensures that a character's voice remains consistent and is a true reflection of their traits.
+
+- **Personality-Driven**: Voice characteristics like pitch, speaking rate, and energy are derived from the Big Five traits.
+- **Control Token Ready**: The generated voice profile works seamlessly with control tokens for expressive, real-time modulation during speech synthesis.
+
+This system is used during dataset generation to create realistic, character-aligned audio, enriching the multimodal training data.
+
 ## ⚙️ Training Configuration
 
 ### Supervised Fine-Tuning (SFT)

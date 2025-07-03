@@ -25,9 +25,10 @@ import uuid
 # Import existing infrastructure
 from .data_schema import DatasetSample, Turn
 from .config import NarrativeLLMConfig
-from ..utils.openai_client import get_client
-from ..utils.dataset import character_analysis, prompt_generators
-from ..utils.control_tokens import load_control_tokens
+from .character_voice_integration import CharacterVoiceSynthesizer
+from app.utils.openai_client import get_client
+from app.utils.dataset import character_analysis, prompt_generators
+from app.utils.control_tokens import load_control_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,7 @@ class MultimodalSample:
     narrative_context: Dict[str, Any]
     session_id: str
     turn_index: int
+    voice_metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -324,103 +326,6 @@ class NarrativeTextGenerator:
         return emotions
 
 
-class SpeechSynthesizer:
-    """Handles TTS and mel-spectrogram generation"""
-    
-    def __init__(self, config: SyntheticGenerationConfig):
-        self.config = config
-        self.use_real_tts = config.tts_model != "mock"
-        
-        if self.use_real_tts:
-            # Use real TTS orchestrator
-            from .tts_integration import TTSOrchestrator
-            self.tts_orchestrator = TTSOrchestrator()
-            logger.info(f"Using real TTS with model preference: {self.config.tts_model}")
-        else:
-            self.tts_orchestrator = None
-            logger.info("Using mock TTS synthesis")
-    
-    async def synthesize_speech(
-        self, 
-        text: str, 
-        character: Dict[str, Any],
-        emotion_tags: List[str]
-    ) -> Tuple[np.ndarray, int]:
-        """Synthesize speech from text and return audio + sample rate"""
-        
-        if self.use_real_tts and self.tts_orchestrator:
-            try:
-                # Use real TTS orchestrator
-                audio, sr = await self.tts_orchestrator.synthesize_character_voice(
-                    text=text,
-                    character=character,
-                    emotion_tags=emotion_tags,
-                    provider=self.config.tts_model if self.config.tts_model in ["kokoro", "orpheus", "xtts", "bark"] else None
-                )
-                logger.debug(f"Real TTS synthesis: {len(audio)} samples at {sr}Hz")
-                return audio, sr
-                
-            except Exception as e:
-                logger.warning(f"Real TTS failed, falling back to mock: {e}")
-                # Fall through to mock synthesis
-        
-        # Mock synthesis fallback
-        tagged_text = self._add_emotion_tags(text, emotion_tags)
-        audio, sr = self._generate_synthetic_audio(tagged_text, character)
-        
-        return audio, sr
-    
-    def _add_emotion_tags(self, text: str, emotion_tags: List[str]) -> str:
-        """Add emotion tags to text for TTS"""
-        # Map control tokens to TTS emotion tags
-        tag_map = {
-            "[EMOTION:happy]": "<laugh>",
-            "[EMOTION:sad]": "<sigh>",
-            "[EMOTION:surprise]": "<gasp>",
-            "[PACE:fast]": "",  # Handle with prosody parameters
-            "[PACE:slow]": ""
-        }
-        
-        tagged_text = text
-        for control_token in emotion_tags:
-            if control_token in tag_map and tag_map[control_token]:
-                # Insert tag at appropriate position
-                # For now, prepend to text
-                tagged_text = tag_map[control_token] + " " + tagged_text
-                break  # Only use one emotion tag
-        
-        return tagged_text
-    
-    def _generate_synthetic_audio(self, text: str, character: Dict[str, Any]) -> Tuple[np.ndarray, int]:
-        """Generate synthetic audio for demonstration"""
-        # Generate a simple sine wave modulated by text length
-        # In production, use actual TTS
-        duration = len(text) * 0.05  # Rough estimate: 50ms per character
-        sr = self.config.sample_rate
-        t = np.linspace(0, duration, int(sr * duration))
-        
-        # Base frequency influenced by character personality
-        personality = character.get("personality", {})
-        base_freq = 200  # Hz
-        if personality.get("extraversion", 0.5) > 0.6:
-            base_freq += 50
-        if character.get("name", "").lower().endswith("a"):  # Simple gender heuristic
-            base_freq += 100
-        
-        # Generate modulated sine wave
-        frequency_modulation = 1 + 0.1 * np.sin(2 * np.pi * 3 * t)  # 3Hz modulation
-        audio = 0.3 * np.sin(2 * np.pi * base_freq * frequency_modulation * t)
-        
-        # Add some harmonics for richness
-        audio += 0.1 * np.sin(2 * np.pi * base_freq * 2 * t)
-        audio += 0.05 * np.sin(2 * np.pi * base_freq * 3 * t)
-        
-        # Add noise for realism
-        audio += 0.01 * np.random.randn(len(audio))
-        
-        return audio.astype(np.float32), sr
-
-
 class MelSpectrogramProcessor:
     """Processes audio into discrete mel-spectrograms for the speech head"""
     
@@ -597,7 +502,7 @@ class MultimodalDatasetGenerator:
         self.config = config
         self.character_generator = CharacterGenerator(config)
         self.text_generator = NarrativeTextGenerator(config)
-        self.speech_synthesizer = SpeechSynthesizer(config)
+        self.character_voice_synthesizer = CharacterVoiceSynthesizer()
         self.mel_processor = MelSpectrogramProcessor(config)
         self.memory_generator = MemoryGenerator(config)
         
@@ -678,11 +583,15 @@ class MultimodalDatasetGenerator:
         # Tokenize text (mock tokenization for demo)
         tokens = self._tokenize_text(text)
         
-        # Synthesize speech
-        audio, sr = await self.speech_synthesizer.synthesize_speech(
+        # Character-aware speech synthesis
+        audio, sr, voice_metadata = await self.character_voice_synthesizer.synthesize_character_speech(
             text=text,
             character=character,
-            emotion_tags=control_tokens
+            narrative_context={
+                "type": narrative_type,
+                "tension": random.uniform(0.3, 0.9),
+                "scene_type": narrative_type
+            }
         )
         
         # Convert to mel-spectrogram
@@ -729,6 +638,7 @@ class MultimodalDatasetGenerator:
             session_id=f"synthetic_{sample_index}",
             turn_index=0
         )
+        sample.voice_metadata = voice_metadata
         
         # Optionally save audio
         if self.config.save_audio:
@@ -776,7 +686,8 @@ class MultimodalDatasetGenerator:
                     "character_id": sample.character_id,
                     "narrative_context": sample.narrative_context,
                     "session_id": sample.session_id,
-                    "turn_index": sample.turn_index
+                    "turn_index": sample.turn_index,
+                    "voice_metadata": sample.voice_metadata
                 }
                 chunk_data.append(sample_dict)
             
