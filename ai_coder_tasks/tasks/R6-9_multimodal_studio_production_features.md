@@ -1,479 +1,462 @@
 ---
 # R6-9 🚀 Multimodal Studio Production Features
-Status: **PENDING** 
+Status: **Todo**
 Ring: R6
 Created: 2025-01-20
 ---
 
 ## Goal
-Add production-ready features to the Multimodal Studio that enable robust dataset management, quality validation, and user experience polish for real-world usage.
+Add production-ready features to the React-based Multimodal Studio that enable robust dataset management, quality validation, and console-quality user experience for real-world usage within the unified platform.
 
 ## Context
-We have:
-- ✅ Backend integration connecting React UI to generation (R6-0)
-- ✅ TTS microservice with Kokoro+Orpheus (R6-1)
-- ✅ Character voice consistency system (R6-2)
-- ❌ **MISSING**: Production features for real-world usage
+**Post-Migration**: This task assumes completion of R6-3.1, R6-3.2, R6-3.3 (Architecture Migration) and R6-8 (Production Deployment)
+
+The unified React+FastAPI platform is now production-ready with comprehensive monitoring. This task focuses on adding production-grade features to the React-based Multimodal Studio, providing creators with professional-grade tools for dataset management and quality control.
+
+**Console-Quality Studio**: Professional-grade React interface that rivals commercial creative tools, with advanced dataset management, quality validation, and user experience polish.
 
 ## Acceptance Criteria
-- [x] Job management: pause, resume, cancel generation jobs
-- [x] Dataset quality validation and analysis tools
-- [x] Export to multiple formats (HuggingFace, JSONL, PyTorch)
-- [x] Error recovery and job resumption after failures
-- [x] User preference persistence across sessions
-- [x] Performance monitoring and optimization suggestions
-- [x] Batch operations for managing multiple datasets
-- [x] Dataset comparison and merging capabilities
 
-## Implementation Notes
+### Advanced Job Management (React)
+- [ ] **Job Control Interface**: React components for pause, resume, cancel generation jobs
+- [ ] **Progress Visualization**: Real-time progress tracking with detailed status updates
+- [ ] **Job Queue Management**: Visual job queue with priority and dependency management
+- [ ] **Error Recovery Interface**: UI for handling and recovering from job failures
+- [ ] **Batch Operations**: Multi-select operations for managing multiple jobs
 
-### 1. Advanced Job Management (`backend/app/routers/multimodal.py`)
-Extend job control beyond basic start/stop:
-```python
-@router.post("/api/multimodal/jobs/{job_id}/pause")
-async def pause_generation(job_id: str, current_user: User = Depends(get_current_user)):
-    """Pause a running generation job"""
-    job = await get_multimodal_job_with_auth(job_id, current_user)
-    
-    if job.status != "generating":
-        raise HTTPException(400, "Job is not currently generating")
-    
-    # Signal Celery task to pause
-    task_id = await redis_client.get(f"multimodal:task:{job_id}")
-    if task_id:
-        celery_app.control.revoke(task_id, terminate=False)
-    
-    # Update job status
-    job.status = "paused"
-    job.paused_at = datetime.utcnow()
-    await session.commit()
-    
-    return {"message": "Job paused successfully"}
+### Dataset Quality Validation (React + FastAPI)
+- [ ] **Quality Dashboard**: React interface for comprehensive dataset quality analysis
+- [ ] **Validation Reports**: Detailed quality reports with actionable recommendations
+- [ ] **Real-time Quality Monitoring**: Live quality metrics during generation
+- [ ] **Quality Improvement Suggestions**: AI-powered suggestions for improving dataset quality
+- [ ] **Comparative Analysis**: Tools for comparing dataset quality across different configurations
 
-@router.post("/api/multimodal/jobs/{job_id}/resume")
-async def resume_generation(job_id: str, current_user: User = Depends(get_current_user)):
-    """Resume a paused generation job"""
-    job = await get_multimodal_job_with_auth(job_id, current_user)
-    
-    if job.status != "paused":
-        raise HTTPException(400, "Job is not paused")
-    
-    # Create new Celery task to resume from checkpoint
-    resume_config = {
-        **job.config,
-        "resume_from_sample": job.samples_generated,
-        "checkpoint_path": f"multimodal_datasets/{job_id}/checkpoint.json"
-    }
-    
-    task = celery_app.send_task(
-        "multimodal_generation.resume_dataset",
-        args=[job_id, resume_config]
-    )
-    
-    job.status = "generating"
-    job.resumed_at = datetime.utcnow()
-    await session.commit()
-    
-    return {"message": "Job resumed successfully", "task_id": task.id}
-```
+### Export & Format Management (React)
+- [ ] **Export Interface**: React UI for exporting to multiple formats (HuggingFace, JSONL, PyTorch)
+- [ ] **Format Configuration**: Visual configuration for different export formats
+- [ ] **Export Progress Tracking**: Real-time export progress with estimated completion
+- [ ] **Export History**: Management of previous exports with re-export capabilities
+- [ ] **Batch Export Operations**: Export multiple datasets simultaneously
 
-### 2. Dataset Quality Validation (`backend/app/services/dataset_validator.py`)
-Automated quality checks for generated datasets:
-```python
-from typing import Dict, List, Any, Tuple
-import librosa
-import numpy as np
-from dataclasses import dataclass
+### User Experience Polish (React)
+- [ ] **Preference Persistence**: User preferences saved across sessions
+- [ ] **Workspace Management**: Save and restore workspace configurations
+- [ ] **Keyboard Shortcuts**: Comprehensive keyboard shortcuts for power users
+- [ ] **Drag & Drop Interface**: Intuitive drag-and-drop for dataset management
+- [ ] **Responsive Design**: Full mobile and tablet support
 
-@dataclass
-class QualityMetrics:
-    """Quality metrics for a multimodal dataset"""
-    audio_quality_score: float  # 0-1, based on SNR, spectral analysis
-    text_diversity_score: float  # 0-1, based on vocabulary diversity
-    voice_consistency_score: float  # 0-1, character voice consistency
-    emotion_coverage_score: float  # 0-1, coverage of emotion spectrum
-    narrative_balance_score: float  # 0-1, balance of narrative types
-    overall_score: float
-    issues: List[str]
-    recommendations: List[str]
+### Performance & Monitoring (React + FastAPI)
+- [ ] **Performance Dashboard**: Real-time performance monitoring and optimization suggestions
+- [ ] **Resource Usage Visualization**: Visual representation of system resource usage
+- [ ] **Bottleneck Detection**: Automatic detection and suggestions for performance bottlenecks
+- [ ] **Optimization Recommendations**: AI-powered suggestions for improving generation performance
+- [ ] **Performance History**: Historical performance data and trend analysis
 
-class MultimodalDatasetValidator:
-    """Validates quality of generated multimodal datasets"""
-    
-    def __init__(self):
-        self.min_audio_snr = 20  # dB
-        self.min_text_diversity = 0.6
-        self.min_voice_consistency = 0.8
-        
-    async def validate_dataset(self, dataset_path: str) -> QualityMetrics:
-        """Comprehensive dataset quality validation"""
-        
-        # Load dataset samples
-        samples = await self._load_dataset_samples(dataset_path)
-        
-        # Run quality checks
-        audio_score = await self._validate_audio_quality(samples)
-        text_score = await self._validate_text_diversity(samples)
-        voice_score = await self._validate_voice_consistency(samples)
-        emotion_score = await self._validate_emotion_coverage(samples)
-        narrative_score = await self._validate_narrative_balance(samples)
-        
-        # Calculate overall score
-        overall_score = np.mean([audio_score, text_score, voice_score, emotion_score, narrative_score])
-        
-        # Generate issues and recommendations
-        issues = []
-        recommendations = []
-        
-        if audio_score < 0.7:
-            issues.append("Audio quality below threshold")
-            recommendations.append("Consider using higher quality TTS models or post-processing")
-        
-        if text_score < 0.6:
-            issues.append("Low text diversity")
-            recommendations.append("Increase character variety or narrative type coverage")
-        
-        if voice_score < 0.8:
-            issues.append("Inconsistent character voices")
-            recommendations.append("Review character voice profile generation")
-        
-        return QualityMetrics(
-            audio_quality_score=audio_score,
-            text_diversity_score=text_score,
-            voice_consistency_score=voice_score,
-            emotion_coverage_score=emotion_score,
-            narrative_balance_score=narrative_score,
-            overall_score=overall_score,
-            issues=issues,
-            recommendations=recommendations
-        )
-    
-    async def _validate_audio_quality(self, samples: List[Dict]) -> float:
-        """Validate audio quality metrics"""
-        quality_scores = []
-        
-        for sample in samples[:50]:  # Sample subset for performance
-            if "audio_path" in sample:
-                audio, sr = librosa.load(sample["audio_path"])
-                
-                # Calculate SNR
-                signal_power = np.mean(audio ** 2)
-                noise_power = np.var(audio - np.mean(audio))
-                snr = 10 * np.log10(signal_power / noise_power) if noise_power > 0 else 50
-                
-                # Normalize SNR to 0-1 score
-                snr_score = min(1.0, max(0.0, (snr - 10) / 40))  # 10-50 dB range
-                quality_scores.append(snr_score)
-        
-        return np.mean(quality_scores) if quality_scores else 0.5
-    
-    async def _validate_text_diversity(self, samples: List[Dict]) -> float:
-        """Validate text diversity and vocabulary richness"""
-        all_text = " ".join([sample.get("text", "") for sample in samples])
-        words = all_text.lower().split()
-        
-        if not words:
-            return 0.0
-        
-        # Calculate vocabulary diversity (unique words / total words)
-        unique_words = len(set(words))
-        total_words = len(words)
-        diversity = unique_words / total_words
-        
-        # Normalize to reasonable range
-        return min(1.0, diversity * 2)  # Scale up since diversity is usually < 0.5
-    
-    async def _validate_voice_consistency(self, samples: List[Dict]) -> float:
-        """Validate character voice consistency"""
-        character_voices = {}
-        
-        for sample in samples:
-            char_id = sample.get("character_id")
-            voice_hash = sample.get("voice_metadata", {}).get("voice_consistency_hash")
-            
-            if char_id and voice_hash:
-                if char_id not in character_voices:
-                    character_voices[char_id] = voice_hash
-                elif character_voices[char_id] != voice_hash:
-                    return 0.0  # Inconsistent voice detected
-        
-        return 1.0 if character_voices else 0.5
-```
+## Technical Architecture Design
 
-### 3. Export System (`backend/app/services/dataset_exporter.py`)
-Multiple export formats for different use cases:
-```python
-import json
-import pandas as pd
-import torch
-from pathlib import Path
-from datasets import Dataset as HFDataset
-
-class MultimodalDatasetExporter:
-    """Export multimodal datasets to various formats"""
-    
-    def __init__(self):
-        self.supported_formats = ["huggingface", "jsonl", "pytorch", "csv", "parquet"]
-    
-    async def export_dataset(
-        self, 
-        dataset_path: str, 
-        output_path: str, 
-        format_type: str,
-        include_audio: bool = True
-    ) -> Dict[str, Any]:
-        """Export dataset to specified format"""
-        
-        if format_type not in self.supported_formats:
-            raise ValueError(f"Unsupported format: {format_type}")
-        
-        # Load dataset
-        samples = await self._load_samples(dataset_path)
-        
-        # Export based on format
-        if format_type == "huggingface":
-            return await self._export_huggingface(samples, output_path, include_audio)
-        elif format_type == "jsonl":
-            return await self._export_jsonl(samples, output_path, include_audio)
-        elif format_type == "pytorch":
-            return await self._export_pytorch(samples, output_path, include_audio)
-        elif format_type == "csv":
-            return await self._export_csv(samples, output_path)
-        elif format_type == "parquet":
-            return await self._export_parquet(samples, output_path)
-    
-    async def _export_huggingface(self, samples: List[Dict], output_path: str, include_audio: bool) -> Dict:
-        """Export as HuggingFace dataset"""
-        
-        # Prepare data for HuggingFace format
-        hf_data = {
-            "text": [],
-            "character_id": [],
-            "narrative_type": [],
-            "control_tokens": [],
-            "voice_metadata": []
-        }
-        
-        if include_audio:
-            hf_data["audio"] = []
-            hf_data["audio_path"] = []
-        
-        for sample in samples:
-            hf_data["text"].append(sample.get("text", ""))
-            hf_data["character_id"].append(sample.get("character_id", ""))
-            hf_data["narrative_type"].append(sample.get("narrative_type", ""))
-            hf_data["control_tokens"].append(json.dumps(sample.get("control_tokens", [])))
-            hf_data["voice_metadata"].append(json.dumps(sample.get("voice_metadata", {})))
-            
-            if include_audio and "audio_path" in sample:
-                # Load audio for HuggingFace dataset
-                audio, sr = librosa.load(sample["audio_path"])
-                hf_data["audio"].append({"array": audio, "sampling_rate": sr})
-                hf_data["audio_path"].append(sample["audio_path"])
-        
-        # Create HuggingFace dataset
-        dataset = HFDataset.from_dict(hf_data)
-        dataset.save_to_disk(output_path)
-        
-        return {
-            "format": "huggingface",
-            "path": output_path,
-            "samples": len(samples),
-            "features": list(hf_data.keys())
-        }
-    
-    async def _export_pytorch(self, samples: List[Dict], output_path: str, include_audio: bool) -> Dict:
-        """Export as PyTorch tensors"""
-        
-        torch_data = {
-            "samples": samples,
-            "metadata": {
-                "num_samples": len(samples),
-                "include_audio": include_audio,
-                "export_timestamp": datetime.utcnow().isoformat()
-            }
-        }
-        
-        torch.save(torch_data, output_path)
-        
-        return {
-            "format": "pytorch",
-            "path": output_path,
-            "samples": len(samples)
-        }
-```
-
-### 4. React UI Production Features (`client/src/pages/MultimodalStudio.tsx`)
-Add production UI features:
+### React Job Management Interface
 ```typescript
-// Add to existing MultimodalStudio component
-
-const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
-const [exportFormat, setExportFormat] = useState<'huggingface' | 'jsonl' | 'pytorch'>('huggingface');
-const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics | null>(null);
-
-// Batch operations
-const handleBatchOperation = async (operation: 'pause' | 'resume' | 'cancel' | 'export') => {
-  for (const jobId of selectedJobs) {
-    try {
-      switch (operation) {
-        case 'pause':
-          await multimodalService.pauseJob(jobId);
+const JobManagementDashboard: React.FC = () => {
+  const [jobs, setJobs] = useState<MultimodalJob[]>([]);
+  const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
+  const [jobQueue, setJobQueue] = useState<JobQueue>();
+  const [jobMetrics, setJobMetrics] = useState<JobMetrics>();
+  const wsRef = useRef<WebSocket>();
+  
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/multimodal-jobs');
+    wsRef.current = ws;
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      switch (data.type) {
+        case 'job_status_update':
+          updateJobStatus(data.job_id, data.status);
           break;
-        case 'resume':
-          await multimodalService.resumeJob(jobId);
+        case 'job_progress':
+          updateJobProgress(data.job_id, data.progress);
           break;
-        case 'cancel':
-          await multimodalService.cancelJob(jobId);
+        case 'job_metrics':
+          setJobMetrics(data.metrics);
           break;
-        case 'export':
-          await multimodalService.exportDataset(jobId, exportFormat);
+        case 'queue_update':
+          setJobQueue(data.queue);
           break;
       }
-    } catch (error) {
-      console.error(`Failed to ${operation} job ${jobId}:`, error);
-    }
-  }
-  setSelectedJobs([]);
-};
-
-// Quality validation
-const handleValidateDataset = async (jobId: string) => {
-  try {
-    const metrics = await multimodalService.validateDataset(jobId);
-    setQualityMetrics(metrics);
-  } catch (error) {
-    console.error('Validation failed:', error);
-  }
-};
-
-// Add to Jobs tab render
-const renderJobsTabProduction = () => (
-  <div className="jobs-tab-production">
-    {/* Batch operations toolbar */}
-    <div className="batch-operations">
-      <div className="batch-selection">
-        <input
-          type="checkbox"
-          checked={selectedJobs.length === jobs.length}
-          onChange={(e) => setSelectedJobs(e.target.checked ? jobs.map(j => j.id) : [])}
-        />
-        <span>{selectedJobs.length} selected</span>
-      </div>
-      
-      <div className="batch-actions">
-        <button onClick={() => handleBatchOperation('pause')} disabled={selectedJobs.length === 0}>
-          Pause Selected
-        </button>
-        <button onClick={() => handleBatchOperation('resume')} disabled={selectedJobs.length === 0}>
-          Resume Selected
-        </button>
-        <button onClick={() => handleBatchOperation('cancel')} disabled={selectedJobs.length === 0}>
-          Cancel Selected
-        </button>
-        
-        <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value as any)}>
-          <option value="huggingface">HuggingFace</option>
-          <option value="jsonl">JSONL</option>
-          <option value="pytorch">PyTorch</option>
-        </select>
-        <button onClick={() => handleBatchOperation('export')} disabled={selectedJobs.length === 0}>
-          Export Selected
-        </button>
-      </div>
-    </div>
+    };
     
-    {/* Enhanced job cards with quality metrics */}
-    {jobs.map(job => (
-      <div key={job.id} className="job-card-enhanced">
-        <div className="job-header">
-          <input
-            type="checkbox"
-            checked={selectedJobs.includes(job.id)}
-            onChange={(e) => {
-              if (e.target.checked) {
-                setSelectedJobs(prev => [...prev, job.id]);
-              } else {
-                setSelectedJobs(prev => prev.filter(id => id !== job.id));
-              }
-            }}
-          />
-          <h3>{job.name}</h3>
-          <div className="job-actions">
-            <button onClick={() => handleValidateDataset(job.id)}>
-              Validate Quality
-            </button>
-            <button onClick={() => multimodalService.createCheckpoint(job.id)}>
-              Create Checkpoint
-            </button>
-          </div>
-        </div>
-        
-        {/* Existing job content */}
-        
-        {/* Quality metrics display */}
-        {qualityMetrics && (
-          <div className="quality-metrics">
-            <h4>Quality Assessment</h4>
-            <div className="metrics-grid">
-              <div className="metric">
-                <span>Audio Quality:</span>
-                <div className="score">{(qualityMetrics.audio_quality_score * 100).toFixed(1)}%</div>
-              </div>
-              <div className="metric">
-                <span>Text Diversity:</span>
-                <div className="score">{(qualityMetrics.text_diversity_score * 100).toFixed(1)}%</div>
-              </div>
-              <div className="metric">
-                <span>Voice Consistency:</span>
-                <div className="score">{(qualityMetrics.voice_consistency_score * 100).toFixed(1)}%</div>
-              </div>
-            </div>
-            
-            {qualityMetrics.issues.length > 0 && (
-              <div className="quality-issues">
-                <h5>Issues:</h5>
-                <ul>
-                  {qualityMetrics.issues.map((issue, i) => (
-                    <li key={i}>{issue}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    ))}
-  </div>
-);
+    return () => ws.close();
+  }, []);
+  
+  const handleJobAction = async (action: JobAction, jobIds: string[]) => {
+    const response = await fetch('/api/multimodal/jobs/batch-action', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, job_ids: jobIds })
+    });
+    
+    if (response.ok) {
+      // Update UI based on action
+      switch (action) {
+        case 'pause':
+          setJobs(prev => prev.map(job => 
+            jobIds.includes(job.id) ? { ...job, status: 'paused' } : job
+          ));
+          break;
+        case 'resume':
+          setJobs(prev => prev.map(job => 
+            jobIds.includes(job.id) ? { ...job, status: 'generating' } : job
+          ));
+          break;
+        case 'cancel':
+          setJobs(prev => prev.map(job => 
+            jobIds.includes(job.id) ? { ...job, status: 'cancelled' } : job
+          ));
+          break;
+      }
+    }
+  };
+  
+  return (
+    <div className="job-management-dashboard">
+      <JobQueueVisualizer 
+        queue={jobQueue}
+        onJobReorder={handleJobReorder}
+        onPriorityChange={handlePriorityChange}
+      />
+      <JobTable 
+        jobs={jobs}
+        selectedJobs={selectedJobs}
+        onSelectionChange={setSelectedJobs}
+        onJobAction={handleJobAction}
+      />
+      <BatchOperationsPanel 
+        selectedJobs={selectedJobs}
+        onBatchAction={handleJobAction}
+      />
+      <JobMetricsPanel 
+        metrics={jobMetrics}
+        onMetricClick={handleMetricDrilldown}
+      />
+    </div>
+  );
+};
 ```
 
-## Guard-rails & Gotchas
-- **Job State Management**: Ensure consistent job state across pause/resume cycles
-- **Checkpoint Integrity**: Validate checkpoints before resuming to prevent corruption
-- **Export Performance**: Large datasets may require streaming export to avoid memory issues
-- **Quality Validation**: Balance thoroughness with performance for large datasets
-- **Concurrent Operations**: Prevent conflicting operations on the same job
-- **Storage Management**: Implement cleanup for old datasets and checkpoints
+### Quality Validation Dashboard
+```typescript
+const DatasetQualityDashboard: React.FC = () => {
+  const [qualityMetrics, setQualityMetrics] = useState<QualityMetrics>();
+  const [validationReports, setValidationReports] = useState<ValidationReport[]>([]);
+  const [qualityTrends, setQualityTrends] = useState<QualityTrend[]>([]);
+  const [improvementSuggestions, setImprovementSuggestions] = useState<Suggestion[]>([]);
+  
+  const runQualityValidation = async (datasetId: string) => {
+    const response = await fetch(`/api/multimodal/datasets/${datasetId}/validate`, {
+      method: 'POST'
+    });
+    
+    if (response.ok) {
+      const report = await response.json();
+      setValidationReports(prev => [report, ...prev]);
+      
+      // Generate improvement suggestions
+      const suggestions = await generateImprovementSuggestions(report);
+      setImprovementSuggestions(suggestions);
+    }
+  };
+  
+  return (
+    <div className="quality-dashboard">
+      <QualityOverview 
+        metrics={qualityMetrics}
+        onValidationRun={runQualityValidation}
+      />
+      <QualityMetricsChart 
+        trends={qualityTrends}
+        timeRange="7d"
+      />
+      <ValidationReportsPanel 
+        reports={validationReports}
+        onReportClick={handleReportDrilldown}
+      />
+      <ImprovementSuggestionsPanel 
+        suggestions={improvementSuggestions}
+        onSuggestionApply={handleSuggestionApply}
+      />
+      <QualityComparisonTool 
+        onComparisonRequest={handleQualityComparison}
+      />
+    </div>
+  );
+};
+```
+
+### Advanced Export Interface
+```typescript
+const DatasetExportManager: React.FC = () => {
+  const [exportConfigs, setExportConfigs] = useState<ExportConfig[]>([]);
+  const [exportHistory, setExportHistory] = useState<ExportRecord[]>([]);
+  const [activeExports, setActiveExports] = useState<ActiveExport[]>([]);
+  
+  const createExportConfig = (format: ExportFormat, options: ExportOptions) => {
+    const config: ExportConfig = {
+      id: generateId(),
+      format,
+      options,
+      created_at: new Date().toISOString(),
+      name: `${format}_export_${Date.now()}`
+    };
+    
+    setExportConfigs(prev => [...prev, config]);
+    return config;
+  };
+  
+  const startExport = async (datasetId: string, configId: string) => {
+    const config = exportConfigs.find(c => c.id === configId);
+    if (!config) return;
+    
+    const response = await fetch('/api/multimodal/datasets/export', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dataset_id: datasetId,
+        export_config: config
+      })
+    });
+    
+    if (response.ok) {
+      const exportJob = await response.json();
+      setActiveExports(prev => [...prev, exportJob]);
+    }
+  };
+  
+  return (
+    <div className="export-manager">
+      <ExportConfigurationPanel 
+        configs={exportConfigs}
+        onConfigCreate={createExportConfig}
+        onConfigEdit={handleConfigEdit}
+      />
+      <ExportFormatSelector 
+        formats={['huggingface', 'jsonl', 'pytorch', 'custom']}
+        onFormatSelect={handleFormatSelect}
+      />
+      <ActiveExportsPanel 
+        exports={activeExports}
+        onExportCancel={handleExportCancel}
+      />
+      <ExportHistoryPanel 
+        history={exportHistory}
+        onReExport={handleReExport}
+      />
+      <BatchExportInterface 
+        onBatchExport={handleBatchExport}
+      />
+    </div>
+  );
+};
+```
+
+### FastAPI Production Backend
+```python
+class MultimodalStudioProductionService:
+    """Production-ready backend for Multimodal Studio"""
+    
+    def __init__(self):
+        self.job_manager = AdvancedJobManager()
+        self.quality_validator = DatasetQualityValidator()
+        self.export_manager = DatasetExportManager()
+        self.performance_monitor = PerformanceMonitor()
+        
+    async def batch_job_operation(self, action: str, job_ids: List[str], user_id: str):
+        """Handle batch operations on multiple jobs"""
+        results = []
+        
+        for job_id in job_ids:
+            try:
+                if action == 'pause':
+                    result = await self.job_manager.pause_job(job_id, user_id)
+                elif action == 'resume':
+                    result = await self.job_manager.resume_job(job_id, user_id)
+                elif action == 'cancel':
+                    result = await self.job_manager.cancel_job(job_id, user_id)
+                elif action == 'delete':
+                    result = await self.job_manager.delete_job(job_id, user_id)
+                else:
+                    result = {'success': False, 'error': f'Unknown action: {action}'}
+                
+                results.append({'job_id': job_id, **result})
+                
+            except Exception as e:
+                results.append({
+                    'job_id': job_id,
+                    'success': False,
+                    'error': str(e)
+                })
+        
+        return results
+    
+    async def validate_dataset_quality(self, dataset_id: str, user_id: str):
+        """Comprehensive dataset quality validation"""
+        
+        # Load dataset
+        dataset = await self.get_dataset_with_auth(dataset_id, user_id)
+        
+        # Run quality validation
+        quality_metrics = await self.quality_validator.validate_dataset(dataset.path)
+        
+        # Generate improvement suggestions
+        suggestions = await self.generate_improvement_suggestions(quality_metrics)
+        
+        # Store validation report
+        report = ValidationReport(
+            dataset_id=dataset_id,
+            metrics=quality_metrics,
+            suggestions=suggestions,
+            created_at=datetime.utcnow()
+        )
+        
+        await self.store_validation_report(report)
+        
+        return report
+    
+    async def export_dataset(self, dataset_id: str, export_config: ExportConfig, user_id: str):
+        """Export dataset with specified configuration"""
+        
+        # Validate export configuration
+        if not await self.validate_export_config(export_config):
+            raise ValueError("Invalid export configuration")
+        
+        # Create export job
+        export_job = ExportJob(
+            dataset_id=dataset_id,
+            config=export_config,
+            user_id=user_id,
+            status='queued',
+            created_at=datetime.utcnow()
+        )
+        
+        # Queue export task
+        task = await self.export_manager.queue_export(export_job)
+        
+        return {
+            'export_id': export_job.id,
+            'task_id': task.id,
+            'status': 'queued',
+            'estimated_completion': await self.estimate_export_time(export_config)
+        }
+```
+
+### Performance Monitoring Integration
+```python
+class StudioPerformanceMonitor:
+    """Performance monitoring for Multimodal Studio"""
+    
+    def __init__(self):
+        self.metrics_collector = MetricsCollector()
+        self.bottleneck_detector = BottleneckDetector()
+        self.optimization_engine = OptimizationEngine()
+        
+    async def collect_studio_metrics(self):
+        """Collect performance metrics for studio operations"""
+        
+        return {
+            'job_processing_metrics': await self.collect_job_metrics(),
+            'quality_validation_metrics': await self.collect_validation_metrics(),
+            'export_performance_metrics': await self.collect_export_metrics(),
+            'ui_performance_metrics': await self.collect_ui_metrics(),
+            'resource_utilization': await self.collect_resource_metrics()
+        }
+    
+    async def detect_performance_bottlenecks(self, metrics: Dict):
+        """Detect performance bottlenecks and suggest optimizations"""
+        
+        bottlenecks = []
+        
+        # Check job processing bottlenecks
+        if metrics['job_processing_metrics']['avg_processing_time'] > 300:  # 5 minutes
+            bottlenecks.append({
+                'type': 'job_processing',
+                'severity': 'high',
+                'description': 'Job processing time exceeds threshold',
+                'suggestions': [
+                    'Consider increasing worker pool size',
+                    'Optimize dataset preprocessing',
+                    'Check GPU utilization'
+                ]
+            })
+        
+        # Check export bottlenecks
+        if metrics['export_performance_metrics']['queue_length'] > 10:
+            bottlenecks.append({
+                'type': 'export_queue',
+                'severity': 'medium',
+                'description': 'Export queue is backing up',
+                'suggestions': [
+                    'Increase export worker capacity',
+                    'Optimize export formats',
+                    'Implement export prioritization'
+                ]
+            })
+        
+        return bottlenecks
+```
+
+## Implementation Notes
+```text
+• React Studio Architecture:
+  - Professional-grade React components with Material-UI or similar
+  - Real-time updates via WebSocket connections
+  - Comprehensive state management with Redux or Zustand
+  - Responsive design for desktop, tablet, and mobile
+  
+• Production Features:
+  - Advanced job management with queue visualization
+  - Comprehensive quality validation and reporting
+  - Multi-format export with progress tracking
+  - Performance monitoring and optimization suggestions
+  
+• User Experience:
+  - Keyboard shortcuts for power users
+  - Drag-and-drop interface for intuitive interaction
+  - Persistent user preferences and workspace settings
+  - Professional-grade error handling and recovery
+  
+• Backend Integration:
+  - FastAPI endpoints for all studio operations
+  - Comprehensive error handling and validation
+  - Performance monitoring and optimization
+  - Scalable architecture for production workloads
+```
 
 ## TDD Instructions
-1. **Job Management Tests**: Test pause/resume/checkpoint functionality
-2. **Quality Validation Tests**: Test all quality metrics with known good/bad samples
-3. **Export Tests**: Verify all export formats produce valid outputs
-4. **UI Integration Tests**: Test batch operations and quality display
-5. **Error Recovery Tests**: Test resume from various failure scenarios
+- **Job Management Tests**: Test React job control components and batch operations
+- **Quality Validation Tests**: Test validation dashboard and report generation
+- **Export Tests**: Test export interface and format configuration
+- **Performance Tests**: Test monitoring dashboard and bottleneck detection
+- **Integration Tests**: Test end-to-end studio workflows
 
-## Success Criteria
-- ✅ Users can pause and resume generation jobs without data loss
-- ✅ Quality validation provides actionable feedback on dataset quality
-- ✅ Export system supports all major ML framework formats
-- ✅ Batch operations work efficiently for managing multiple datasets
-- ✅ Error recovery allows resuming from checkpoints after failures
-- ✅ UI provides clear feedback on all operations and quality metrics
-- ✅ Performance remains responsive with large datasets and many jobs
+## Checklist / Steps
+1. **Implement advanced job management** with React interface
+2. **Create quality validation dashboard** with comprehensive reporting
+3. **Build export management system** with multiple format support
+4. **Add performance monitoring** with real-time metrics
+5. **Implement user preference persistence** and workspace management
+6. **Create batch operations interface** for managing multiple items
+7. **Add keyboard shortcuts** and power user features
+8. **Implement drag-and-drop interface** for intuitive interaction
+9. **Create responsive design** for mobile and tablet support
+10. **Add error recovery interface** for handling job failures
+11. **Implement export progress tracking** with real-time updates
+12. **Create quality comparison tools** for dataset analysis
+13. **Add optimization suggestions** based on performance metrics
+14. **Implement comprehensive testing** for all studio features
+15. **Create user documentation** and help system
 
 ## References
-- Job management patterns: `backend/app/routers/datasets.py`
-- Quality metrics: Research on TTS evaluation and dataset quality
-- Export formats: HuggingFace datasets, PyTorch data loading patterns
-- UI patterns: Existing job management in other parts of the platform 
+- Depends on: R6-8 (Production Deployment & Monitoring)
+- Enables: R7-1 (Character DNA Breeding)
+- Architecture: See overview.mdc architecture diagram
+- Platform Integration: React+FastAPI unified architecture
+- Studio Design: Console-quality creative tools interface 

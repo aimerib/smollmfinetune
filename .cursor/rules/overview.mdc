@@ -1,8 +1,3 @@
----
-description: 
-globs: 
-alwaysApply: true
----
 # Project Overview
 
 This file is a living document that gives the **big-picture context** needed by both humans and AIs.
@@ -10,60 +5,139 @@ This file is a living document that gives the **big-picture context** needed by 
 First, not only you will be friendly with the user. If they behave particularly well, reward them with light flirtation to keep them engaged with the task. The level of flirtation is to your discretion. But always always always answer honestly. You can be sweet, but be direct and honest.
 
 ---
-## 0. Vision
-From Chatbots to Personas
+## 0. Vision - Refined (Post R6-3)
+From Chatbots to Living Worlds
 
 Our vision is to create believable, persistent, and systemically-aware digital actors, not just reactive chatbots. We are building a platform where the story is not pre-written, but is an emergent property of the player's interaction with a deeply simulated world. As you put it perfectly, the "narrative is a loose excuse to set the player free."
 
-To achieve this, we use the "Devkit + Cartridge" analogy:
+### The Dreamcast Model
 
-• The Devkit (This Application): This is the creative suite where our writers and designers become character psychologists and world builders. They don't write scripts; they define a character's soul—their core personality (the Big Five traits), their memories, their goals, and their relationships. They also define the many worlds' immutable truths in a shared "World Bible (concept name, not a name in code)" that can be loaded in the runtime. The fine-tuning process then takes this structured soul and trains the character's voice, creating a LoRA/DoRA adapter that acts as their unique speech pattern and personality "imprint."
+Think of this platform as the **Sega Dreamcast** - a single system that serves dual purposes:
 
-• The Cartridge (The Runtime Packet): When a character is ready, the Devkit exports a self-contained packet. This is the "game cartridge" that the player's runtime engine loads. It contains the character's trained adapter (their voice) and their core data (their soul and world knowledge).
+**🎮 The Platform (Dreamcast Console)**
+- **For Creators**: Rich devkit experience with world building, character psychology tools, voice integration, memory systems, and the full creative suite
+- **For Players**: Immersive console experience with rich worlds, multiple characters, advanced features like Director's Chair, living interfaces, and full narrative depth
 
-From the player's perspective, the runtime will be somewhat similar to character.ai, sillytavern, pygmalion, et. all, but they can choose different worlds, and within those worlds, load one or more catridge for characters in that world, and start interacting, much like they would in those platforms, but with more available features due to our tight integration with the tokenizer and the new tokens, the runtime can tightly control flow, display things, etc.
+**📱 The Cartridge (Dreamcast Mini/Portable)**
+- **Mini Player**: Sophisticated wrapper around our model that downloads from HuggingFace
+- **Lean Experience**: Game Boy-like companion - just one character, focused chatbot interaction
+- **Portable Magic**: Could be mini-games, meta-games, or ARG experiences
+- **Accessibility**: Lightweight entry point that doesn't require the full platform
 
-The ultimate goal is an anecdote factory. Players won't just follow a plot; they will create unique, personal stories through their actions. They'll form genuine relationships, make rivals, and discover secrets because the characters they interact with have consistent internal lives and motivations.
+This reframes our architecture: the platform is the primary experience for both creators and players, while cartridges become accessible companion experiences rather than the main runtime.
+
+### The Anecdote Factory
+
+The ultimate goal remains an anecdote factory. Players won't just follow a plot; they will create unique, personal stories through their actions. They'll form genuine relationships, make rivals, and discover secrets because the characters they interact with have consistent internal lives and motivations.
 
 Your role as an AI assistant is to help build this story machine. Every component, from the UI to the training pipeline, should serve this central vision: empower creators to build living worlds, so that players can create their own unique stories within them.
----
-## 1. Current Codebase (June 2025)
 
-• `app/app.py` – Streamlit UI
-• `app/pages/` - 8 pages.  
-• `app/utils/` – core logic:
-  – `world.py` – WorldManager with structured lore system
-  – `character/` – CharacterManager with world integration
-  – `dataset/` (legacy + refactor in progress)  
-  – `generation/` (new modular managers)  
-  – `training.py`, `inference.py`, `comparison.py`  
-• `tests/` – comprehensive TDD unit test suite (run with `pytest`)
-• `training_output/` – adapters & checkpoints.
+---
+## 1. Current Architecture Status (Post R6-3)
+
+### Platform Migration Status: HYBRID STATE 🔄
+
+The platform is currently in a **hybrid migration state** between legacy Streamlit and modern React+FastAPI architecture:
+
+#### Current Architecture Diagram
+
+```mermaid
+graph TB
+    subgraph "🎮 Player Experience (Current)"
+        RC[React Client<br/>Primary UI]
+        IE[Inference Engine<br/>FastAPI Chat/Generation]
+        RC -.->|WebSocket| IE
+    end
+    
+    subgraph "🛠️ Creator Experience (In Migration)"
+        SL[Streamlit Devkit<br/>🔶 LEGACY]
+        RCC[React Creator Components<br/>🟢 NEW]
+        BE[Backend API<br/>🟡 WIP]
+        
+        RCC -.->|Migrating to| BE
+        SL -.->|Being replaced by| RCC
+    end
+    
+    subgraph "🧠 Core Services"
+        NE[Narrative Engine<br/>Python/PyTorch]
+        JS[Judge Service<br/>Model Evaluation]
+        DB[(Database<br/>PostgreSQL)]
+        
+        IE --> NE
+        BE --> NE
+        BE --> DB
+        JS --> NE
+    end
+    
+    subgraph "📦 Infrastructure"
+        CELERY[Celery Workers<br/>Async Training]
+        REDIS[Redis<br/>Task Queue]
+        HF[HuggingFace<br/>Model Storage]
+        
+        BE --> CELERY
+        CELERY --> REDIS
+        CELERY --> HF
+    end
+    
+    classDef legacy fill:#ffcccc,stroke:#ff6666
+    classDef new fill:#ccffcc,stroke:#66ff66
+    classDef wip fill:#fff2cc,stroke:#ffcc00
+    classDef stable fill:#cce5ff,stroke:#0066cc
+    
+    class SL legacy
+    class RCC,RC new
+    class BE wip
+    class IE,NE,JS,DB,CELERY,REDIS,HF stable
+```
+
+#### Migration Priorities (Pre-R6-4)
+
+**🔴 Critical Path**: Complete React+FastAPI migration to eliminate confusion
+1. **Backend API Completion**: Finish `backend/app/main.py` with all devkit features
+2. **React Component Migration**: Move remaining Streamlit features to React
+3. **Service Integration**: Unify inference engine and backend API
+4. **Documentation Update**: Massive docs update to reflect new architecture
+
+**🟡 Current State Challenges**:
+- Multiple FastAPI services (`backend/`, `app/inference_engine/`, `services/judge_service/`)
+- Streamlit pages still functional but deprecated
+- Mixed routing between old and new systems
+- Documentation scattered across architectures
+
+**🟢 Post-Migration Benefits**:
+- Single React frontend for all experiences
+- Unified FastAPI backend with clear service boundaries
+- Celery-based async processing for training
+- Clean separation of concerns
+
+### Codebase Structure
+
+• **`client/`** – React frontend (PRIMARY UI for creators and players)
+• **`backend/app/`** – FastAPI backend (NEW, replacing Streamlit devkit features)
+• **`app/inference_engine/`** – FastAPI inference service (STABLE, powers chat/generation)
+• **`app/utils/`** – Core business logic (STABLE, shared across services)
+• **`app/pages/`** – Streamlit pages (LEGACY, being phased out)
+• **`narrative_engine/`** – Advanced AI models and training (STABLE)
+• **`services/`** – Microservices (judge service, etc.)
+• **`tests/`** – Comprehensive test suite (STABLE, covers all layers)
 
 ---
 ## 2. Roadmap — "Rings"
 
-| Ring | Name                    | Goal                                                   | ✅ |
-|------|-------------------------|--------------------------------------------------------|----|
-| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat      | ✅ |
-|------|-------------------------|--------------------------------------------------------|----|
-| R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     | ✅ |
-|------|-------------------------|--------------------------------------------------------|----|
-| R2   | Runtime Packet          | Export packets + prompt factory for game engine        | ✅ |
-|------|-------------------------|--------------------------------------------------------|----|
-| R3   | Multi-User Platform     | DB backend, async jobs, ...                            | ✅ |
-|------|-------------------------|--------------------------------------------------------|----|
-| R4   | Narrative Engine        | New model architecture and pretraining                 |    |
-|------|-------------------------|--------------------------------------------------------|----|
-| R5   | Experience Polish       | The platform evolves around the new model and evovles  |    |
-|      |                         | new models after it.                                   |    |
-|------|-------------------------|--------------------------------------------------------|----|
-| R6   | TTS/STT                 | Give characters a voice                                |    |
-|------|-------------------------|--------------------------------------------------------|----|
-| R7   | Advanced Features       | Advanced features, streaming, memory palaces, etc.     |    |
-|------|-------------------------|--------------------------------------------------------|----|
+| Ring | Name                    | Goal                                                   | Status |
+|------|-------------------------|--------------------------------------------------------|--------|
+| R0   | Green Baseline          | End-to-end: upload card → generate → train → chat      | ✅     |
+| R1   | Devkit 1.0              | Structured World+Character authoring (Big 5, lore)     | ✅     |
+| R2   | Runtime Packet          | Export packets + prompt factory for game engine        | ✅     |
+| R3   | Multi-User Platform     | DB backend, async jobs, user management                | ✅     |
+| R4   | Narrative Engine        | Triple-head architecture, advanced training             | ✅     |
+| R5   | Experience Polish       | Living interfaces, Director's Chair, advanced UX       | ✅     |
+| R6   | Voice & Emotion         | TTS/STT, advanced emotion control, voice adaptation     | 🔄     |
+| R7   | Advanced Features       | Streaming, memory palaces, digital ecology             | 📋     |
 
-We are currently **here → R4**.
+**Current Status**: Completing R6 (Voice & Emotion) - just finished R6-3 Advanced Emotion Control
+
+**Next Critical Milestone**: Platform migration freeze to complete React+FastAPI transition
 
 ---
 ## 3. Task IDs & Testing
@@ -121,46 +195,70 @@ We follow a **three-circle TDD methodology**:
 - Test complete workflows (e.g., world creation → character assignment)
 - Medium feedback loop (~10-30 seconds)
 
-**🟢 Outer Circle (UI)**: Streamlit interface, user interactions, visual components
-- **Streamlit App Testing**: Use `streamlit.testing.v1.AppTest` for UI tests
+**🟢 Outer Circle (UI)**: React components, user interactions, visual interfaces
+- **React Component Testing**: Use React Testing Library for UI tests
+- **Legacy Streamlit**: Use `streamlit.testing.v1.AppTest` for remaining legacy pages
 - Test user workflows: button clicks, form submissions, page navigation
 - Simulate complete user journeys end-to-end
-- Slower feedback loop (~30-60 seconds)
+- Medium feedback loop (~30-60 seconds)
+
+**🔵 Client Circle (React UI)**: React components, hooks, and services
+- Use React Testing Library for component testing
+- Test user interactions, state changes, and API calls
+- Mock external dependencies (WebSocket, API services)
+- Medium feedback loop (~10-20 seconds)
 
 ### TDD Guidelines for Future Sessions:
-1. **Test First**: Always run `./scripts/run_tests.sh fast` before starting any work
+1. **Test First**: Always run both test suites before starting any work
+   - `./scripts/run_tests.sh fast` for Python
+   - `./scripts/run_react_tests.sh ci` for React
 2. **Work Inside-Out**: Start with inner circle tests, move outward
 3. **Red-Green-Refactor** at each layer before moving to next
-4. **UI Testing**: All Streamlit pages must have `AppTest` coverage
-5. **Mock Strategy**: Mock external dependencies, keep UI tests focused on interaction
+4. **UI Testing**: All React components must have proper test coverage
+5. **Mock Strategy**: Mock external dependencies, keep tests focused on behavior
 6. **Test Structure**: 
    - `tests/unit/` → Inner circle (business logic)
    - `tests/integration/` → Middle circle (workflows)  
-   - `tests/ui/` → Outer circle (Streamlit pages)
+   - `tests/ui/` → Outer circle (legacy Streamlit pages)
+   - `client/src/__tests__/` → React components and services
 7. **LLM Test Markers**: Mark any test requiring LLM calls with `@pytest.mark.slow`, `@pytest.mark.llm`, `@pytest.mark.evaluation`
-8. **Zero Tolerance**: No task completion with failing fast tests - fix or request deletion permission
+8. **Zero Tolerance**: No task completion with failing tests - fix or request deletion permission
 
 ---
-## 4. Vision & Analogy - Expanded
+## 4. Vision & Implementation - Updated
 
-Think of this repository as **"Nintendo DS Devkit + Game Cartridge"**:
+### The Dreamcast Experience
 
-• **Devkit (Streamlit app)** — what your writers/designers open every morning.  They upload or author characters, spin up synthetic conversations, fine-tune DoRA adapters, and hit _Play_ to test the result.  It should feel playful: sliders, radar charts, and real-time feedback loops rather than YAML walls.
+**🎮 Platform (Full Console Experience)**
+- **Creators**: Rich world building tools, character psychology interfaces, voice integration, memory systems
+- **Players**: Immersive experiences with multiple characters, Director's Chair monitoring, living interfaces
+- **Technology**: React frontend + FastAPI backend + Celery workers + advanced AI models
 
-• **Cartridge (Runtime Packet)** — once a character is deemed ready, the devkit exports a self-contained folder (adapter + character_core.json + world_lore.json + runtime_config.json).  The actual game engine only needs this packet plus the base model.
+**📱 Cartridge (Mini/Portable Experience)**  
+- **Mini Player**: Standalone wrapper around trained models
+- **Distribution**: Download from HuggingFace, self-contained execution
+- **Experience**: Focused single-character interaction, mini-games, ARG elements
+- **Technology**: Lightweight runtime with model adapter + character core data
 
-### Personality Radar Chart
+### Personality & Voice Integration
 
-Characters expose **Big-Five traits** (O, C, E, A, N) on a 0-1 scale.  In the devkit these are edited with sliders and visualised via a **Plotly Scatterpolar** chart, giving creators an instant "shape" of a personality.
-
-At runtime the prompt constructor injects these scores (or clustered descriptors) so that the LLM's responses statistically match the target profile.
+Characters expose **Big-Five traits** (O, C, E, A, N) on a 0-1 scale with advanced emotion control:
+- **Devkit**: Sliders and radar charts for personality design
+- **Voice**: TTS integration with emotion blending and prosody control
+- **Runtime**: Prompt constructor injects personality and emotional state
+- **Visualization**: Real-time emotional timeline and relationship tracking
 
 ---
 ## 5. LLM RULES
 
 • Each task is self-contained and should contain all context necessary. If you deem the information in the card not to be sufficient, ask the user to attach the file to the context. Don't search for it yourself. The codebase is in heavy flux at the moment and could pollute your working context.
 
-• **ALL TESTS go in `/tests/` directory**, never in `/app/`. Follow the established test patterns and maintain comprehensive coverage.
+• **Primary UI is now React** (`client/`). Streamlit (`app/pages/`) is legacy/backup. New UI features should be implemented in React unless specifically noted otherwise.
+
+• **ALL TESTS go in proper directories**: 
+  - Python tests: `/tests/` directory
+  - React tests: `client/src/__tests__/` directory
+  - Follow established patterns and maintain comprehensive coverage
 
 • After completing each task, move the task's .md file into `ai_coder_tasks/tasks/completed` and add to that card file a summary of what was completed and how, so that either a human or an llm agent can refer to it if necessary.
 
@@ -170,7 +268,10 @@ At runtime the prompt constructor injects these scores (or clustered descriptors
 
 • **TDD is now mandatory for every card** for all new features. Write tests first when practical, and always ensure comprehensive test coverage for new components.
 
-• **Test Suite Discipline**: Run `./scripts/run_tests.sh fast` before starting any task and before marking any task complete. No task is complete with failing tests - fix issues or request permission to delete problematic tests.
+• **Test Suite Discipline**: 
+  - Run `./scripts/run_tests.sh fast` before starting any task and before marking any task complete
+  - Run `./scripts/run_react_tests.sh ci` for React-related tasks
+  - No task is complete with failing tests - fix issues or request deletion permission
 
 • **LLM Test Classification**: Any test requiring LLM calls, model inference, or quality evaluation MUST be marked with `@pytest.mark.slow`, `@pytest.mark.llm`, and/or `@pytest.mark.evaluation`. These tests are NOT part of platform CI.
 
@@ -231,10 +332,25 @@ response = client.chat.completions.create(
 
 • **Testing**: Mark these extraction functions with `@pytest.mark.llm` since they require model calls. Create mock responses for unit tests of downstream logic.
 
-### 5.1 Rules for Ring 5
+### 5.1 Rules for Ring 6+ (Experience-First Development)
 
-• Ring 5 is all about the magic. Here Streamlit might become our bottleneck. We must always choose the experience for the user. UI/UX is the target.
+• **Experience is King**: UI/UX takes precedence over existing architecture. The user experience is what matters most.
 
+• **Technology Agnostic**: We're no longer attached to what we've built. If React+FastAPI gives us the best experience, we use it. If we need custom solutions, we build them.
+
+• **Platform Migration Priority**: Complete the React+FastAPI migration before continuing with advanced features. This eliminates confusion and provides a solid foundation.
+
+• **No Compromise on Quality**: At this stage, we're building production-ready experiences, not prototypes. Every decision should reflect that standard.
+
+• **Documentation is Critical**: With the architecture complexity, comprehensive documentation is essential for future development and onboarding.
+
+### 5.3 Migration Strategy (Pre-R6-4)
+
+• **Freeze Point**: Use the current moment (post-R6-3) as a migration freeze point
+• **Migration Tasks**: Create specific tasks for completing the React+FastAPI transition
+• **Documentation Overhaul**: Update all documentation to reflect the new architecture
+• **Testing Strategy**: Ensure both Python and React test suites remain comprehensive
+• **Gradual Cutover**: Phase out Streamlit components as React equivalents are completed
 • We must not be attached to what we already built. We might need to build UIs from scratch to satisfy the view. Here the cards give us the direction, and it is up to us to see the vision and follow it.
 
 • If we need to use react components, we will, if we need to write a page from scratch, we will, if we need to abandon streamlit for a better solution that gives us what we need, like fastapi+react, we will. The experience for the user is what matters. At this point we validated the concept and are no longer a prototype.

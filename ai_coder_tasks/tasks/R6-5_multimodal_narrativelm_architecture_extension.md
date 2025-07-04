@@ -1,34 +1,61 @@
-## R6-5: Multimodal NarrativeLM Architecture Extension
+# R6-5: Multimodal NarrativeLM Architecture Extension
+Status: **Todo**
+Ring: R6
+Created: 2025-01-20
+---
 
-**Objective**: Extend NarrativeLM's triple-head architecture to quad-head with integrated speech generation capabilities
+## Goal
+Extend NarrativeLM's triple-head architecture to quad-head with integrated speech generation capabilities, providing seamless integration with the React+FastAPI platform for real-time multimodal interaction.
 
-**Technical Architecture Design**:
+## Context
+**Post-Migration**: This task assumes completion of R6-3.1, R6-3.2, R6-3.3 (Architecture Migration) and R6-4 (Performance Optimization)
 
-**Current Triple-Head → Quad-Head Extension**:
+The unified platform now supports real-time streaming and performance optimization. This task extends the core NarrativeLM architecture to natively support speech generation, enabling true multimodal character interaction within the Dreamcast console experience.
+
+**Current Architecture**: Triple-Head (Generation + Control + Memory)  
+**Target Architecture**: Quad-Head (Generation + Control + Memory + Speech)
+
+## Acceptance Criteria
+
+### Quad-Head Architecture Implementation
+- [ ] **Speech Head Integration**: Add speech generation head to existing triple-head architecture
+- [ ] **Shared Backbone**: Extend transformer backbone to support speech generation
+- [ ] **Multi-Task Training**: Implement training pipeline for all four heads simultaneously
+- [ ] **Real-time Inference**: Support streaming inference for speech generation
+- [ ] **React Integration**: Provide React components for monitoring and controlling speech generation
+
+### Speech Head Design
+- [ ] **Mel-Spectrogram Prediction**: Generate 80-dimensional mel-spectrograms at 25ms resolution
+- [ ] **Discrete Quantization**: 4-bit quantization per mel-bin following dMel methodology
+- [ ] **Temporal Modeling**: Causal attention with 1000-frame context window
+- [ ] **Cross-Modal Attention**: Text-speech alignment for synchronized generation
+- [ ] **Character Voice Conditioning**: Character-specific voice generation
+
+### Training Infrastructure
+- [ ] **Multi-Task Loss Function**: Balanced loss across all four heads
+- [ ] **Curriculum Learning**: Progressive training strategy for multimodal learning
+- [ ] **Data Pipeline**: Text-speech aligned datasets with control annotations
+- [ ] **Distributed Training**: Support for multi-GPU training of large model
+- [ ] **Training Monitoring**: React dashboard for training progress and metrics
+
+### Platform Integration
+- [ ] **FastAPI Endpoints**: API endpoints for model training and inference
+- [ ] **WebSocket Streaming**: Real-time speech generation via WebSocket
+- [ ] **React Training UI**: Interactive training interface with real-time monitoring
+- [ ] **Model Management**: Version control and deployment of trained models
+- [ ] **Performance Monitoring**: Real-time metrics and performance tracking
+
+## Technical Architecture Design
+
+### Current Triple-Head → Quad-Head Extension
 ```
 Generation Head: Text token prediction (existing)
-Control Head: Narrative control token prediction (existing)
+Control Head: Narrative control token prediction (existing)  
 Memory Head: Memory update operations (existing)
 Speech Head: Mel-spectrogram frame prediction (NEW)
 ```
 
-**Speech Head Detailed Implementation**:
-
-**Core Architecture**:
-- **Base Design**: Multi-layer transformer decoder with speech-specific modifications
-- **Model Dimensions**: 768 hidden units, 12 attention heads, 6 decoder layers
-- **Input Processing**: Receives shared transformer representations from backbone
-- **Output Specification**: 80-dimensional mel-spectrogram frames at 25ms resolution
-- **Temporal Modeling**: Causal attention with 1000-frame context window
-
-**Speech Tokenization Strategy** (Based on Visatronic/dMel Research):
-- **Approach**: Discrete mel-spectrogram quantization following dMel methodology
-- **Quantization**: 4-bit quantization per mel-bin (16 discrete levels)
-- **Codebook**: Evenly spaced values in [mel_min, mel_max] range computed across dataset
-- **Frame Structure**: 80 mel-bins × 4-bit quantization = 320 discrete tokens per frame
-- **Embedding**: Each discrete value mapped via learnable embedding to 768-dim space
-
-**Multi-Head Integration Architecture**:
+### Speech Head Implementation
 ```python
 class QuadHeadNarrativeLM(nn.Module):
     def __init__(self):
@@ -54,85 +81,95 @@ class QuadHeadNarrativeLM(nn.Module):
         return text_logits, control_logits, memory_updates
 ```
 
-**Speech Head Internal Architecture**:
-```python
-class SpeechHead(nn.Module):
-    def __init__(self, mel_bins=80, quantization_bits=4):
-        self.mel_bins = mel_bins
-        self.num_discrete_values = 2 ** quantization_bits  # 16 levels
-        
-        # Speech-specific processing layers
-        self.speech_projector = nn.Linear(768, 512)
-        self.temporal_attention = nn.MultiheadAttention(512, 8)
-        self.mel_decoders = nn.ModuleList([
-            nn.Linear(512, self.num_discrete_values) 
-            for _ in range(mel_bins)
-        ])
-        
-        # Cross-modal attention for text-speech alignment
-        self.cross_attention = nn.MultiheadAttention(512, 8)
-        
-    def forward(self, hidden_states, text_context):
-        # Project to speech space
-        speech_features = self.speech_projector(hidden_states)
-        
-        # Temporal modeling within speech
-        speech_features, _ = self.temporal_attention(
-            speech_features, speech_features, speech_features
-        )
-        
-        # Cross-attention with text for alignment
-        aligned_features, _ = self.cross_attention(
-            speech_features, text_context, text_context
-        )
-        
-        # Predict discrete values for each mel-bin independently
-        mel_predictions = []
-        for i, decoder in enumerate(self.mel_decoders):
-            mel_predictions.append(decoder(aligned_features))
-        
-        return torch.stack(mel_predictions, dim=-1)  # [batch, seq, 16, 80]
+### React Training Dashboard
+```typescript
+const MultimodalTrainingDashboard: React.FC = () => {
+  const [trainingMetrics, setTrainingMetrics] = useState<TrainingMetrics>();
+  const [isTraining, setIsTraining] = useState(false);
+  const wsRef = useRef<WebSocket>();
+  
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/training-progress');
+    wsRef.current = ws;
+    
+    ws.onmessage = (event) => {
+      const metrics = JSON.parse(event.data);
+      setTrainingMetrics(metrics);
+    };
+    
+    return () => ws.close();
+  }, []);
+  
+  return (
+    <div className="training-dashboard">
+      <TrainingControls 
+        onStart={startTraining} 
+        onStop={stopTraining}
+        isTraining={isTraining}
+      />
+      <MultiHeadLossChart metrics={trainingMetrics} />
+      <SpeechQualityMonitor metrics={trainingMetrics?.speech} />
+      <ModelPerformanceMetrics metrics={trainingMetrics} />
+    </div>
+  );
+};
 ```
 
-**Training Configuration**:
-- **Multi-Task Loss Function**:
-  ```python
-  total_loss = (
-      1.0 * text_generation_loss +      # Cross-entropy for text
-      0.5 * control_prediction_loss +   # Cross-entropy for controls  
-      0.3 * memory_update_loss +        # MSE for memory operations
-      2.0 * speech_generation_loss      # Cross-entropy for mel-frames
-  )
-  ```
-- **Curriculum Learning**: 
-  - Phase 1 (0-50k steps): Text + Control + Memory heads only
-  - Phase 2 (50k-100k steps): Add speech head with 50% probability
-  - Phase 3 (100k+ steps): Full multimodal training
-- **Data Requirements**: Text-speech aligned pairs with control annotations
-- **Optimization**: AdamW (lr=1e-4), gradient clipping (max_norm=1.0), warmup schedule
+## Implementation Notes
+```text
+• Architecture Design:
+  - Extend existing triple-head without breaking backward compatibility
+  - Speech head uses discrete mel-spectrogram quantization
+  - Cross-modal attention for text-speech alignment
+  - Character-specific voice conditioning via embeddings
+  
+• Training Strategy:
+  - Curriculum learning: text → multimodal gradually
+  - Multi-task loss balancing across all heads
+  - Distributed training for large model sizes
+  - Real-time monitoring via React dashboard
+  
+• Platform Integration:
+  - FastAPI endpoints for training and inference
+  - WebSocket streaming for real-time generation
+  - React components for training visualization
+  - Model versioning and deployment pipeline
+  
+• Performance Considerations:
+  - Gradient checkpointing for memory efficiency
+  - Mixed-precision training (FP16)
+  - Streaming inference for real-time interaction
+  - CUDA graph optimization for speed
+```
 
-**Speech Generation Pipeline**:
-1. **Input Processing**: Text tokens processed through shared backbone
-2. **Cross-Modal Attention**: Speech head attends to text representations
-3. **Mel-Frame Prediction**: Generate discrete mel-spectrogram values autoregressively
-4. **Vocoder Integration**: Convert discrete mel-frames to continuous spectrograms
-5. **Audio Synthesis**: HiFi-GAN vocoder generates final waveform
+## TDD Instructions
+- **Model Tests**: Test quad-head architecture and forward pass
+- **Training Tests**: Test multi-task training pipeline
+- **API Tests**: Test FastAPI endpoints for training and inference
+- **React Tests**: Test training dashboard and monitoring components
+- **Integration Tests**: Test end-to-end multimodal generation
 
-**Technical Integration Details**:
-- **Frame Alignment**: 25ms mel-frames aligned with ~3-4 text tokens (assuming 150ms per token)
-- **Attention Masking**: Causal masking for autoregressive speech generation
-- **Memory Efficiency**: Gradient checkpointing for large sequence lengths
-- **Streaming Support**: Frame-by-frame generation for real-time synthesis
+## Checklist / Steps
+1. **Design quad-head architecture** extending existing triple-head model
+2. **Implement speech head** with mel-spectrogram prediction
+3. **Create multi-task training pipeline** with curriculum learning
+4. **Implement FastAPI endpoints** for model training and management
+5. **Create React training dashboard** with real-time monitoring
+6. **Add WebSocket streaming** for real-time speech generation
+7. **Implement model versioning** and deployment system
+8. **Create data pipeline** for text-speech aligned training data
+9. **Add distributed training** support for multi-GPU setups
+10. **Implement performance monitoring** and metrics collection
+11. **Create speech quality evaluation** metrics and monitoring
+12. **Add character voice conditioning** and customization
+13. **Implement streaming inference** for real-time generation
+14. **Create comprehensive testing** for all components
+15. **Add documentation** for multimodal architecture and training
 
-**Deliverables**:
-- Quad-head NarrativeLM architecture implementation
-- Speech head with mel-spectrogram prediction
-- Multi-task training pipeline with curriculum learning
-- Speech-text alignment and synchronization system
-- Vocoder integration and audio synthesis pipeline
-
-**Success Criteria**:
-- Successfully extend tri-head to quad-head without degrading existing performance
-- Generate coherent mel-spectrograms synchronized with text generation
-- Achieve reasonable speech quality after vocoder conversion
-- Maintain real-time inference capability for interactive use
+## References
+- Depends on: R6-4 (Performance Optimization)
+- Enables: R6-6 (Advanced Custom Speech Architecture)
+- Architecture: See overview.mdc architecture diagram
+- Model Architecture: `narrative_engine/model.py`
+- Training Infrastructure: `narrative_engine/` training modules
+- Speech Research: dMel quantization methodology

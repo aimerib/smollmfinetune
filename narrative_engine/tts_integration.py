@@ -275,35 +275,20 @@ class OrpheusTTS(TTSProvider):
             logger.warning("Orpheus model not loaded, using mock synthesis")
             return self._generate_mock_audio(tagged_text)
     
-    def _generate_mock_audio(self, text: str) -> np.ndarray:
-        """Generate mock audio that's more sophisticated than fallback"""
-        duration = len(text) * 0.06  # Slightly slower than Kokoro
+    def _generate_mock_audio(self, text: str) -> Tuple[np.ndarray, int]:
+        """Generate mock audio for testing"""
         sr = self.sample_rate
+        duration = len(text) * 0.05  # 50ms per character
         t = np.linspace(0, duration, int(sr * duration))
         
-        # Create more realistic speech-like waveform with harmonics
-        base_freq = 150  # Typical male voice fundamental
-        harmonics = [1, 2, 3, 4, 5]
-        audio = np.zeros_like(t)
+        # Simple sine wave
+        audio = 0.3 * np.sin(2 * np.pi * 220 * t)
         
-        for i, harmonic in enumerate(harmonics):
-            amplitude = 0.5 / (i + 1)  # Decreasing amplitude
-            audio += amplitude * np.sin(2 * np.pi * base_freq * harmonic * t)
-        
-        # Add expressiveness (formant-like modulation)
-        formant_mod = 1 + 0.3 * np.sin(2 * np.pi * 4 * t)  # 4Hz modulation
-        audio *= formant_mod
-        
-        # Add realistic noise
-        audio += 0.02 * np.random.randn(len(audio))
-        
-        # Normalize
-        audio = audio / np.max(np.abs(audio)) * 0.8
-        
-        return audio
+        logger.info(f"Generated mock audio for '{text[:20]}...'")
+        return audio.astype(np.float32), sr
     
     def get_available_voices(self) -> List[Dict[str, Any]]:
-        """Get available Orpheus voice configurations"""
+        """Get available Orpheus voices (mocked for now)"""
         return [
             {"id": "default", "name": "Orpheus Default", "gender": "neutral", "provider": "orpheus"},
             {"id": "narrator", "name": "Orpheus Narrator", "gender": "male", "provider": "orpheus"},

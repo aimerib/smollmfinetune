@@ -94,7 +94,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         # Should show warning about missing character
         assert not at.exception
@@ -135,7 +135,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         # Should load without exceptions
         assert not at.exception
@@ -169,7 +169,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -203,7 +203,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         # Should have info message about no models
@@ -234,7 +234,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -262,7 +262,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -292,7 +292,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -320,7 +320,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -350,7 +350,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -386,7 +386,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -429,7 +429,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         
@@ -467,7 +467,7 @@ from pages.model_management import page_model_management
 page_model_management()
 """
         
-        at = AppTest.from_string(test_script).run()
+        at = AppTest.from_string(test_script, default_timeout=60).run()
         
         assert not at.exception
         

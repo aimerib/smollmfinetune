@@ -171,7 +171,7 @@ class TestOrpheusProductionService:
     async def test_load_model_fallback(self, service):
         """Test model loading with fallback"""
         # Mock transformers import to fail
-        with patch('narrative_engine.orpheus_production_service.AutoModelForCausalLM') as mock_model:
+        with patch('transformers.AutoModelForCausalLM') as mock_model:
             mock_model.from_pretrained.side_effect = Exception("Model not found")
             
             result = await service._load_model()
@@ -226,7 +226,7 @@ class TestIntegrationWithTTSOrchestrator:
     async def test_orpheus_tts_production_service_integration(self):
         """Test OrpheusTTS provider with production service"""
         # Mock the production service
-        with patch('narrative_engine.tts_integration.get_orpheus_service') as mock_get_service:
+        with patch('narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
             mock_service = Mock()
             mock_result = Mock()
             mock_result.audio = np.random.randn(1000).astype(np.float32)
@@ -254,7 +254,7 @@ class TestIntegrationWithTTSOrchestrator:
     async def test_orpheus_tts_fallback_to_direct(self):
         """Test OrpheusTTS fallback to direct model when production service fails"""
         # Mock production service to fail
-        with patch('narrative_engine.tts_integration.get_orpheus_service') as mock_get_service:
+        with patch('narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
             mock_get_service.side_effect = Exception("Service unavailable")
             
             from narrative_engine.tts_integration import OrpheusTTS

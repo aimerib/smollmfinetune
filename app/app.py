@@ -701,6 +701,7 @@ def main():
             st.Page("pages/model_testing.py", title="🧪 Model Testing", icon="🧪"),
             st.Page("pages/model_comparison.py", title="⚔️ Model Comparison", icon="⚔️"),
             st.Page("pages/inference_inspector.py", title="🔍 Inference Inspector", icon="🔍"),
+            st.Page("pages/advanced_emotion_control.py", title="🎭 Advanced Emotion Control", icon="🎭"),
             st.Page("pages/model_management.py", title="🔧 Model Management", icon="🔧"),
         ],
     }

@@ -1,59 +1,149 @@
-## R6-6: Advanced Custom Speech Architecture (Research Alternative)
+# R6-6: Advanced Custom Speech Architecture (Research Alternative)
+Status: **Todo**
+Ring: R6
+Created: 2025-01-20
+---
 
-**Objective**: Develop novel speech synthesis architecture optimized specifically for narrative generation (alternative to Orpheus)
+## Goal
+Develop novel speech synthesis architecture optimized specifically for narrative generation within the unified React+FastAPI platform, providing an advanced alternative to Orpheus with deep platform integration.
 
-**Technical Requirements**:
-- Design transformer-based speech synthesis architecture
-- Implement flow matching for continuous mel-spectrogram generation
-- Develop narrative-aware attention mechanisms
-- Create end-to-end training framework
+## Context
+**Post-Migration**: This task assumes completion of R6-3.1, R6-3.2, R6-3.3 (Architecture Migration) and R6-5 (Multimodal Architecture Extension)
 
-**Architecture Specifications**:
+The unified platform now supports multimodal generation and streaming. This task develops a custom speech architecture that leverages the Dreamcast platform's capabilities for immersive, narrative-focused speech synthesis with deep React UI integration.
 
-**Flow-Matching Speech Generator** (Based on Flow-Omni Research):
-- **Base Architecture**: Continuous mel-spectrogram prediction using flow matching
-- **Model Size**: 1.5B parameters (encoder: 512M, decoder: 1B)
-- **Flow Matching Implementation**:
-  ```python
-  # Continuous flow matching for mel-spectrogram generation
-  def flow_matching_loss(model_output, target_mel, t, noise):
-      # Optimal transport conditional vector field
-      mu_t = t * target_mel
-      sigma_t = 1 - (1 - sigma_min) * t
-      
-      # Ground truth vector field
-      u_t = (target_mel - (1 - sigma_min) * noise) / (1 - (1 - sigma_min) * t)
-      
-      # Model prediction
-      v_t = model_output
-      
-      # Flow matching loss
-      return torch.mean((u_t - v_t) ** 2)
-  ```
+**Research Alternative**: Custom flow-matching architecture optimized for narrative contexts, with React-based training and monitoring interfaces.
 
-**Multi-Scale Attention System**:
-- **Local Attention**: 512-frame window for phoneme-level detail (25ms × 512 = 12.8s context)
-- **Global Attention**: Full sequence attention for prosody and rhythm consistency
-- **Cross-Modal Attention**: Text-to-speech alignment with learnable alignment matrix
-- **Control-Guided Attention**: Narrative control tokens modulate attention weights
+## Acceptance Criteria
 
-**Narrative-Aware Components**:
+### Custom Speech Architecture
+- [ ] **Flow-Matching Generator**: Continuous mel-spectrogram prediction using flow matching
+- [ ] **Narrative-Aware Attention**: Attention mechanisms optimized for story contexts
+- [ ] **Character Conditioning**: Deep character voice integration with personality traits
+- [ ] **Real-time Inference**: Streaming generation compatible with platform WebSocket architecture
+- [ ] **Platform Integration**: Native integration with React+FastAPI infrastructure
+
+### React Training Interface
+- [ ] **Training Dashboard**: React interface for monitoring flow-matching training
+- [ ] **Architecture Visualization**: Interactive visualization of model architecture
+- [ ] **Hyperparameter Tuning**: Real-time hyperparameter adjustment interface
+- [ ] **Quality Monitoring**: Real-time speech quality metrics and visualization
+- [ ] **Model Comparison**: A/B testing interface for different architectures
+
+### Advanced Features Implementation
+- [ ] **Zero-Shot Voice Cloning**: Speaker embedding extraction from reference audio
+- [ ] **Real-Time Voice Conversion**: Dynamic character voice switching mid-sentence
+- [ ] **Multi-Language Support**: Language-specific mel-spectrogram predictors
+- [ ] **Environmental Effects**: Acoustic environment modeling and application
+- [ ] **Emotion-Aware Morphing**: Real-time voice morphing based on emotional state
+
+### Platform Integration
+- [ ] **FastAPI Endpoints**: API endpoints for custom model training and inference
+- [ ] **WebSocket Streaming**: Real-time speech generation via platform WebSocket
+- [ ] **React Components**: Voice synthesis components integrated with platform UI
+- [ ] **Model Management**: Version control and deployment within platform infrastructure
+- [ ] **Performance Monitoring**: Integration with platform monitoring and analytics
+
+## Technical Architecture Design
+
+### Flow-Matching Speech Generator
+```python
+class NarrativeFlowMatchingTTS(nn.Module):
+    """Custom flow-matching TTS optimized for narrative generation"""
+    
+    def __init__(self, hidden_dim=768, num_mel_bins=80):
+        super().__init__()
+        self.text_encoder = NarrativeTextEncoder(hidden_dim)
+        self.flow_matcher = ContinuousFlowMatcher(hidden_dim, num_mel_bins)
+        self.character_conditioner = CharacterConditioner(hidden_dim)
+        self.narrative_attention = NarrativeAwareAttention(hidden_dim)
+        
+    def forward(self, text_tokens, character_id, narrative_context, target_mel=None):
+        # Encode text with narrative awareness
+        text_hidden = self.text_encoder(text_tokens, narrative_context)
+        
+        # Apply character conditioning
+        char_conditioned = self.character_conditioner(text_hidden, character_id)
+        
+        # Apply narrative-aware attention
+        attended_features = self.narrative_attention(
+            char_conditioned, narrative_context
+        )
+        
+        # Flow matching for mel-spectrogram generation
+        if self.training and target_mel is not None:
+            loss = self.flow_matcher.compute_loss(attended_features, target_mel)
+            return loss
+        else:
+            mel_output = self.flow_matcher.generate(attended_features)
+            return mel_output
+```
+
+### React Training Dashboard
+```typescript
+const FlowMatchingTrainingDashboard: React.FC = () => {
+  const [trainingMetrics, setTrainingMetrics] = useState<FlowMatchingMetrics>();
+  const [modelArchitecture, setModelArchitecture] = useState<ArchitectureConfig>();
+  const [isTraining, setIsTraining] = useState(false);
+  const wsRef = useRef<WebSocket>();
+  
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/flow-matching-training');
+    wsRef.current = ws;
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'training_metrics') {
+        setTrainingMetrics(data.metrics);
+      } else if (data.type === 'architecture_update') {
+        setModelArchitecture(data.architecture);
+      }
+    };
+    
+    return () => ws.close();
+  }, []);
+  
+  return (
+    <div className="flow-matching-dashboard">
+      <TrainingControls 
+        onStart={startFlowMatchingTraining}
+        onStop={stopTraining}
+        isTraining={isTraining}
+      />
+      <FlowMatchingLossChart metrics={trainingMetrics} />
+      <ArchitectureVisualizer architecture={modelArchitecture} />
+      <SpeechQualityMonitor metrics={trainingMetrics?.quality} />
+      <HyperparameterTuner 
+        onUpdate={updateHyperparameters}
+        currentParams={trainingMetrics?.hyperparams}
+      />
+    </div>
+  );
+};
+```
+
+### Narrative-Aware Components
 ```python
 class NarrativeAwareAttention(nn.Module):
     def __init__(self, hidden_dim=768):
+        super().__init__()
         self.text_attention = nn.MultiheadAttention(hidden_dim, 12)
         self.control_modulator = nn.Linear(200, hidden_dim)  # 200 control tokens
         self.character_embeddings = nn.Embedding(1000, hidden_dim)  # 1000 characters
+        self.narrative_projector = nn.Linear(hidden_dim, hidden_dim)
         
-    def forward(self, speech_hidden, text_hidden, control_tokens, character_id):
+    def forward(self, speech_hidden, text_hidden, control_tokens, character_id, narrative_context):
         # Character-specific attention bias
         char_bias = self.character_embeddings(character_id)
         
+        # Narrative context integration
+        narrative_features = self.narrative_projector(narrative_context)
+        
         # Control-modulated attention
         control_modulation = self.control_modulator(control_tokens)
-        modulated_text = text_hidden + control_modulation
+        modulated_text = text_hidden + control_modulation + narrative_features
         
-        # Cross-modal attention with character bias
+        # Cross-modal attention with character and narrative bias
         attended_output, alignment = self.text_attention(
             query=speech_hidden + char_bias,
             key=modulated_text,
@@ -62,106 +152,60 @@ class NarrativeAwareAttention(nn.Module):
         return attended_output, alignment
 ```
 
-**Training Framework**:
-- **Loss Functions**: 
-  ```python
-  total_loss = (
-      flow_matching_loss +           # Continuous mel generation
-      0.3 * perceptual_loss +        # STFT-based perceptual quality
-      0.1 * control_consistency_loss + # Control token adherence
-      0.2 * adversarial_loss         # GAN-based realism
-  )
-  ```
-- **Training Data Requirements**: 
-  - 10k+ hours of narrative-style speech with emotion annotations
-  - Character-labeled dialogue datasets
-  - Control token aligned speech corpora
-- **Optimization Strategy**:
+## Implementation Notes
+```text
+• Platform Architecture:
+  - Custom FastAPI endpoints for flow-matching training and inference
+  - React components for training visualization and model management
+  - WebSocket integration for real-time training monitoring
+  - Integration with platform's character and narrative systems
+  
+• Flow-Matching Design:
+  - Continuous mel-spectrogram prediction for high quality
+  - Narrative-aware positional encoding for story context
+  - Character-conditioned layer normalization for voice consistency
+  - Multi-scale attention for phoneme and prosody modeling
+  
+• Training Strategy:
   - Mixed-precision training (FP16) for memory efficiency
-  - Gradient accumulation over 8 steps for effective batch size
-  - Learning rate: 1e-4 with cosine annealing
-  - Gradient clipping: max_norm=1.0
-
-**Novel Architecture Components**:
-
-**Narrative-Aware Positional Encoding**:
-```python
-class NarrativePositionalEncoding(nn.Module):
-    def __init__(self, d_model=768, max_len=8192):
-        # Standard sinusoidal encoding
-        self.pe = self._generate_positional_encoding(d_model, max_len)
-        
-        # Narrative structure encoding (chapter, scene, dialogue turn)
-        self.structure_embeddings = nn.ModuleDict({
-            'chapter': nn.Embedding(100, d_model // 4),
-            'scene': nn.Embedding(1000, d_model // 4),
-            'turn': nn.Embedding(50, d_model // 4),
-            'emotion': nn.Embedding(20, d_model // 4)
-        })
-        
-    def forward(self, x, narrative_context):
-        pos_encoding = self.pe[:x.size(1)]
-        
-        # Add narrative structure information
-        structure_encoding = torch.cat([
-            self.structure_embeddings['chapter'](narrative_context['chapter']),
-            self.structure_embeddings['scene'](narrative_context['scene']),
-            self.structure_embeddings['turn'](narrative_context['turn']),
-            self.structure_embeddings['emotion'](narrative_context['emotion'])
-        ], dim=-1)
-        
-        return x + pos_encoding + structure_encoding
+  - Curriculum learning from simple to complex narratives
+  - Real-time monitoring via React dashboard
+  - A/B testing framework for architecture comparison
+  
+• Platform Integration:
+  - Native integration with emotion control system
+  - Character voice consistency with existing systems
+  - Seamless switching between Orpheus and custom architecture
+  - Export capabilities for cartridge integration
 ```
 
-**Character-Conditioned Layer Normalization**:
-```python
-class CharacterConditionedLayerNorm(nn.Module):
-    def __init__(self, normalized_shape, num_characters=1000):
-        self.ln = nn.LayerNorm(normalized_shape, elementwise_affine=False)
-        self.character_scale = nn.Embedding(num_characters, normalized_shape)
-        self.character_shift = nn.Embedding(num_characters, normalized_shape)
-        
-    def forward(self, x, character_id):
-        normalized = self.ln(x)
-        scale = self.character_scale(character_id)
-        shift = self.character_shift(character_id)
-        return normalized * scale + shift
-```
+## TDD Instructions
+- **Model Tests**: Test flow-matching architecture and forward pass
+- **Training Tests**: Test custom training pipeline and curriculum learning
+- **API Tests**: Test FastAPI endpoints for training and inference
+- **React Tests**: Test training dashboard and visualization components
+- **Integration Tests**: Test platform integration and voice consistency
 
-**Advanced Features**:
-- **Zero-Shot Voice Cloning**: 
-  - Speaker embedding extraction from 3-second reference audio
-  - Adaptive voice characteristics based on character profiles
-  - Cross-lingual voice transfer capabilities
-- **Real-Time Voice Conversion**: 
-  - Streaming inference with <100ms latency
-  - Dynamic character voice switching mid-sentence
-  - Emotion-aware voice morphing
-- **Multi-Language Architecture**:
-  - Language-specific mel-spectrogram predictors
-  - Cross-lingual phoneme alignment
-  - Cultural accent modeling
+## Checklist / Steps
+1. **Design flow-matching architecture** optimized for narrative generation
+2. **Implement narrative-aware attention** mechanisms and components
+3. **Create React training dashboard** with real-time monitoring
+4. **Implement FastAPI endpoints** for model training and management
+5. **Add character conditioning** and voice consistency features
+6. **Create zero-shot voice cloning** system with speaker embeddings
+7. **Implement real-time voice conversion** and morphing capabilities
+8. **Add multi-language support** with language-specific predictors
+9. **Create environmental effects** and acoustic modeling
+10. **Implement A/B testing framework** for architecture comparison
+11. **Add comprehensive evaluation** metrics and monitoring
+12. **Create model versioning** and deployment system
+13. **Implement streaming inference** for real-time generation
+14. **Add platform integration** with existing character and narrative systems
+15. **Create comprehensive documentation** and user guides
 
-**Evaluation Framework**:
-- **Objective Metrics**:
-  - MOS (Mean Opinion Score) for naturalness
-  - WER (Word Error Rate) for intelligibility  
-  - Emotion accuracy via classification models
-  - Character voice consistency metrics
-- **Subjective Evaluation**:
-  - Human preference studies
-  - A/B testing against commercial TTS
-  - Narrative immersion assessment
-
-**Deliverables**:
-- Custom flow-matching speech synthesis architecture
-- Narrative-aware attention mechanisms implementation
-- Zero-shot voice cloning system
-- Multi-language support framework
-- Comprehensive evaluation and benchmarking suite
-
-**Success Criteria**:
-- Achieve human-level naturalness in narrative contexts
-- Successfully integrate control tokens for fine-grained emotion control
-- Support real-time generation for interactive applications
-- Demonstrate superior narrative immersion compared to existing TTS systems
+## References
+- Depends on: R6-5 (Multimodal Architecture Extension)
+- Enables: R6-7 (Multi-Character Conversation)
+- Architecture: See overview.mdc architecture diagram
+- Platform Integration: React+FastAPI unified architecture
+- Research: Flow-Omni methodology and dMel quantization

@@ -13,7 +13,7 @@ Tests cover:
 
 import pytest
 from streamlit.testing.v1 import AppTest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 import sys
 import os
 import json
@@ -23,13 +23,20 @@ import hashlib
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'app'))
 
 from utils.character.models import CharacterCore, Personality, Relationship
+from pages.character_management import page_character_management
 
 
+@pytest.mark.ui
 class TestCharacterManagementBasic:
     """Basic UI tests for Character Management page structure"""
     
-    def test_character_management_page_loads(self):
+    @patch('utils.openai_client.get_client')
+    @patch('app.pages.character_management.WorldManager')
+    @patch('app.pages.character_management.CharacterManager')
+    @patch('app.components.personality_editor.llm_estimate_big5', new_callable=AsyncMock)
+    def test_character_management_page_loads(self, mock_llm_estimate, mock_char_manager, mock_world_manager, mock_get_client):
         """Test that the Character Management page loads without errors"""
+        mock_get_client.return_value = Mock()
         test_script = """
 import streamlit as st
 from unittest.mock import Mock
@@ -37,6 +44,7 @@ from unittest.mock import Mock
 # Set up minimal session state
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.list_characters_in_world.return_value = []
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 
@@ -52,14 +60,17 @@ page_character_management()
         # Should have the main title
         assert any("Character Management Studio" in md.value for md in at.markdown)
     
-    def test_character_selector_present(self):
+    @patch('utils.openai_client.get_client')
+    def test_character_selector_present(self, mock_get_client):
         """Test that character selector is present in sidebar"""
+        mock_get_client.return_value = Mock()
         test_script = """
 import streamlit as st
 from unittest.mock import Mock
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.list_characters_in_world.return_value = ["TestChar1", "TestChar2"]
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 
@@ -78,8 +89,14 @@ page_character_management()
         assert "TestChar1" in char_selector.options
         assert "TestChar2" in char_selector.options
     
-    def test_tabs_present_when_character_loaded(self):
+    @patch('utils.openai_client.get_client')
+    @patch('app.pages.character_management.WorldManager')
+    @patch('app.pages.character_management.CharacterManager')
+    @patch('app.components.personality_editor.llm_estimate_big5', new_callable=AsyncMock)
+    @patch('app.pages.character_management.CharacterIntelligenceService')
+    def test_tabs_present_when_character_loaded(self, mock_ci_service, mock_llm_estimate, mock_char_manager, mock_world_manager, mock_get_client):
         """Test that tabs are present when a character is loaded"""
+        mock_get_client.return_value = Mock()
         test_script = """
 import streamlit as st
 from unittest.mock import Mock
@@ -87,6 +104,7 @@ from utils.character.models import CharacterCore, Personality
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.list_characters_in_world.return_value = []  # Empty list, not Mock
 
 # Mock a character being loaded
@@ -127,6 +145,7 @@ page_character_management()
                 assert any(expected_tab in label for label in tab_labels)
 
 
+@pytest.mark.ui
 class TestUnsavedChangesDetection:
     """Tests for unsaved changes tracking and warnings"""
     
@@ -176,6 +195,7 @@ from utils.character.models import CharacterCore, Personality
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 
 # Create character with initial state
@@ -208,6 +228,7 @@ st.write("✅ Unsaved changes tracking works correctly" if has_changes_1 != has_
         assert any("✅ Unsaved changes tracking works correctly" in text for text in markdown_texts)
 
 
+@pytest.mark.ui
 class TestAISuggestionFunctionality:
     """Tests for AI suggestion features"""
     
@@ -223,6 +244,7 @@ from utils.character.models import CharacterCore, Personality
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 test_char = CharacterCore(name="Test", description="", personality_traits=Personality())
 
 from pages.character_management import render_profile_tab
@@ -236,8 +258,10 @@ render_profile_tab(test_char)
         ai_buttons = [btn for btn in at.button if "✨" in btn.label]
         assert len(ai_buttons) > 0
     
-    def test_structured_output_models_work(self):
+    @patch('utils.openai_client.get_client')
+    def test_structured_output_models_work(self, mock_get_client):
         """Test that Pydantic models for structured outputs are properly defined"""
+        mock_get_client.return_value = Mock()
         test_script = """
 import streamlit as st
 from pages.character_management import (
@@ -270,6 +294,7 @@ st.write("✅ Structured output models work correctly")
         assert any("✅ Structured output models work correctly" in text for text in markdown_texts)
 
 
+@pytest.mark.ui
 class TestCharacterToolbar:
     """Tests for character toolbar functionality"""
     
@@ -282,6 +307,7 @@ from utils.character.models import CharacterCore, Personality
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 
 test_char = CharacterCore(name="Test", description="Test", personality_traits=Personality())
@@ -309,6 +335,7 @@ from utils.character.models import CharacterCore, Personality
 
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 
 test_char = CharacterCore(name="Test", description="Test", personality_traits=Personality())
@@ -326,6 +353,7 @@ render_toolbar(test_char)
         assert len(delete_buttons) > 0
 
 
+@pytest.mark.ui
 class TestCharacterTabs:
     """Tests for individual tab functionality"""
     
@@ -361,8 +389,11 @@ render_profile_tab(test_char)
         for expected in expected_areas:
             assert any(expected in label for label in textarea_labels)
     
-    def test_personality_tab_integration(self):
+    @patch('app.components.personality_editor.llm_estimate_big5', new_callable=AsyncMock)
+    def test_personality_tab_integration(self, mock_llm_estimate):
         """Test that personality tab integrates with personality editor"""
+        mock_llm_estimate.return_value = Personality(openness=0.7, conscientiousness=0.6)
+        
         test_script = """
 import streamlit as st
 from unittest.mock import Mock, patch
@@ -414,8 +445,9 @@ st.write("✅ Goals and relationships tab rendered successfully")
         assert any("✅ Goals and relationships tab rendered successfully" in text for text in markdown_texts)
 
 
+@pytest.mark.ui
 class TestCharacterManagementIntegration:
-    """Integration tests for complete character management workflow"""
+    """High-level integration tests for the character management workflow"""
     
     def test_character_loading_and_editing_workflow(self):
         """Test complete workflow from character selection to editing"""
@@ -427,6 +459,7 @@ from utils.character.models import CharacterCore, Personality
 # Set up session state as if character was selected
 st.session_state.world_manager = Mock()
 st.session_state.character_manager = Mock()
+st.session_state.character_intelligence = Mock()
 st.session_state.character_manager.get_current_world.return_value = "Test World"
 st.session_state.character_manager.list_characters_in_world.return_value = []  # Empty list
 
@@ -464,7 +497,10 @@ if st.session_state.current_character_core:
         page_content = str(at)
         assert "Test Character" in page_content
     
-    def test_manager_integration_with_mocks(self):
+    @patch('app.pages.character_management.WorldManager')
+    @patch('app.pages.character_management.CharacterManager')
+    @patch('app.pages.character_management.CharacterIntelligenceService')
+    def test_manager_integration_with_mocks(self, mock_ci_service, mock_char_manager, mock_world_manager):
         """Test that page properly integrates with character and world managers"""
         test_script = """
 import streamlit as st

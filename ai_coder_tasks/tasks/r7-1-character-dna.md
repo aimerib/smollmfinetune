@@ -1,86 +1,125 @@
-# R7-1 Character DNA Breeding System
+# R7-1: Character DNA Breeding System
 Status: **Todo**
 Ring: R7
-Created: 2025-01-14
+Created: 2025-01-20
 ---
 
 ## Goal
-Implement a genetic breeding system that allows creators to combine two characters' traits to produce offspring with emergent personalities, creating natural character family trees and evolutionary narratives.
+Implement a genetic breeding system within the Dreamcast platform that allows creators to combine character traits and produce offspring with emergent personalities, creating natural character family trees and evolutionary narratives for rich world building.
 
 ## Context
-While creators can craft individual characters masterfully, they lack tools for exploring character relationships through lineage. This system would allow characters to have children, siblings, and ancestors, with traits that naturally flow through generations. This opens entirely new narrative possibilities and creates a marketplace for "breeding stock" characters with desirable traits.
+**Dreamcast Platform Vision**: This feature exemplifies the platform as both creative devkit and immersive console experience.
+
+While creators can craft individual characters masterfully, they lack tools for exploring character relationships through lineage within the unified React+FastAPI platform. This system allows characters to have children, siblings, and ancestors, with traits that naturally flow through generations. This opens entirely new narrative possibilities and creates a marketplace for "breeding stock" characters with desirable traits.
+
+**Platform Integration**: Full React UI with real-time breeding visualization, FastAPI backend for genetic algorithms, and potential cartridge export for family lineages.
 
 ## Acceptance Criteria
 
-### Core Breeding Mechanics
-- [ ] Create `CharacterGenetics` class that encodes Big Five traits as "genes"
-- [ ] Implement crossover algorithm that combines parent traits with variance
-- [ ] Add mutation system for emergent trait combinations (5-10% chance)
-- [ ] Support both sexual (two parents) and asexual (one parent + mutation) reproduction
-- [ ] Maintain trait constraints (all values 0-1 range, meaningful combinations)
+### Core Breeding Mechanics (React + FastAPI)
+- [ ] **Genetic Engine API**: FastAPI endpoints for genetic crossover and mutation algorithms
+- [ ] **React Breeding Interface**: Interactive breeding chamber with real-time trait preview
+- [ ] **Big Five Genetics**: Encode personality traits as "genes" with dominant/recessive modeling
+- [ ] **Crossover Algorithm**: Combine parent traits with variance and emergent properties
+- [ ] **Mutation System**: 5-10% chance for emergent trait combinations
+- [ ] **Reproduction Types**: Support both sexual (two parents) and asexual (one parent + mutation)
 
-### Inheritance System
-- [ ] Dominant/recessive trait modeling for personality aspects
-- [ ] Goal inheritance with generational drift
-- [ ] Relationship predispositions (e.g., "naturally trusting" as heritable)
-- [ ] Memory compatibility (offspring can access ancestral memories with decay)
-- [ ] Physical appearance description inheritance and combination
+### Inheritance System (Platform Integration)
+- [ ] **Trait Inheritance**: Dominant/recessive modeling for personality aspects
+- [ ] **Goal Evolution**: Goal inheritance with generational drift and adaptation
+- [ ] **Relationship Genetics**: Heritable predispositions (e.g., "naturally trusting")
+- [ ] **Memory Compatibility**: Offspring access ancestral memories with decay over generations
+- [ ] **Physical Inheritance**: Appearance description combination and evolution
+- [ ] **Voice Genetics**: Inherit and blend voice characteristics from parents
 
-### Family Tree Infrastructure
-- [ ] Database schema for character lineages and relationships
-- [ ] Visual family tree component using D3.js or similar
-- [ ] Generation tracking and ancestry queries
-- [ ] Breeding history and genetic diversity metrics
-- [ ] Export family trees as JSON or GraphML
+### Family Tree Infrastructure (React Visualization)
+- [ ] **Database Schema**: Character lineages, relationships, and genetic history
+- [ ] **Interactive Family Tree**: React component using D3.js for immersive visualization
+- [ ] **Generation Tracking**: Ancestry queries and lineage exploration
+- [ ] **Genetic Diversity**: Metrics and analytics for breeding optimization
+- [ ] **Export System**: Family trees as JSON, GraphML, or cartridge data
 
-### UI Integration
-- [ ] "Breeding Chamber" page in character management
-- [ ] Partner selection interface with compatibility scoring
-- [ ] Trait preview for potential offspring
-- [ ] Breeding animation/ritual for user engagement
-- [ ] Family tree browser with relationship details
+### Dreamcast Console Experience
+- [ ] **Breeding Chamber**: Immersive React interface with console-quality UX
+- [ ] **Partner Selection**: Compatibility scoring with visual trait comparison
+- [ ] **Trait Preview**: Real-time visualization of potential offspring
+- [ ] **Breeding Ritual**: Engaging animation/ceremony for user immersion
+- [ ] **Family Browser**: Rich relationship exploration with character details
+- [ ] **Genetic Analytics**: Dashboard for breeding strategy and optimization
 
-### Genetic Algorithms
-- [ ] Fitness functions for trait optimization
-- [ ] Multi-generation breeding simulations
-- [ ] Trait stability analysis across generations
-- [ ] Hybrid vigor modeling (crossbreeds stronger than purebreds)
+### Cartridge Integration (Mini Experience)
+- [ ] **Family Lineage Export**: Export family trees as portable cartridge data
+- [ ] **Genetic Summary**: Compressed genetic information for cartridge characters
+- [ ] **Lineage Stories**: Mini-narratives about character ancestry for cartridge users
+- [ ] **Breeding History**: Simplified family tree for cartridge character context
+
+### Advanced Genetic Features
+- [ ] **Fitness Functions**: Trait optimization algorithms for selective breeding
+- [ ] **Multi-Generation Simulation**: Simulate breeding across multiple generations
+- [ ] **Trait Stability**: Analysis of genetic stability across generations
+- [ ] **Hybrid Vigor**: Crossbreeds stronger than purebreds modeling
+- [ ] **Genetic Marketplace**: Platform for trading breeding stock characters
 
 ## Implementation Notes
 ```text
+• Platform Architecture:
+  - FastAPI genetic engine with async breeding algorithms
+  - React breeding interface with real-time trait visualization
+  - WebSocket updates for breeding progress and results
+  - Database integration for family lineage storage
+  
 • Genetics Encoding:
   - Each Big Five trait = 2 genes (dominant/recessive)
   - Goals encoded as "gene sequences" with inheritance probabilities
   - Mutation rates increase with "magical" or "sci-fi" world types
+  - Voice characteristics encoded as genetic parameters
   
 • Breeding Rules:
-  - Compatible species/type checking
+  - Compatible species/type checking via API validation
   - Minimum "maturity" (training completeness) before breeding
-  - Cooldown periods to prevent spam
-  - "Breeding licenses" for premium features
+  - Cooldown periods to prevent spam breeding
+  - "Breeding licenses" for premium platform features
   
-• Technical Architecture:
-  - Extend CharacterCore with genetic_code field
-  - New table: character_lineages (parent_ids, child_id, generation)
-  - Breeding transaction system to prevent conflicts
-  - Background job for complex multi-generation simulations
+• Dreamcast Experience:
+  - Console-quality UI with smooth animations and transitions
+  - Rich visual feedback for genetic combinations
+  - Immersive breeding ceremony with character interaction
+  - Family tree exploration with zoom and filter capabilities
+  
+• Cartridge Integration:
+  - Compress family lineage data for portable export
+  - Include genetic summaries in character cartridge metadata
+  - Enable mini-family tree viewing in cartridge players
 ```
 
+## TDD Instructions
+- **Genetic Algorithm Tests**: Test crossover, mutation, and inheritance algorithms
+- **React Component Tests**: Test breeding interface and family tree visualization
+- **API Tests**: Test FastAPI endpoints for breeding and lineage management
+- **Integration Tests**: Test end-to-end breeding workflow from selection to offspring
+- **Performance Tests**: Test breeding simulation performance with large family trees
+
 ## Checklist / Steps
-1. Design genetic encoding system for personality traits
-2. Implement core crossover and mutation algorithms
-3. Create database schema for lineages
-4. Build breeding compatibility calculator
-5. Develop trait inheritance logic
-6. Create family tree visualization component
-7. Implement breeding UI with preview
-8. Add breeding history tracking
-9. Create multi-generation simulation tools
-10. Write comprehensive genetic diversity analytics
-11. Build export system for family narratives
-12. Test with various character combinations
+1. **Design genetic encoding system** for personality traits and characteristics
+2. **Implement FastAPI genetic engine** with crossover and mutation algorithms
+3. **Create React breeding interface** with trait visualization and selection
+4. **Build database schema** for character lineages and relationships
+5. **Develop breeding compatibility calculator** with trait analysis
+6. **Implement trait inheritance logic** with dominant/recessive modeling
+7. **Create interactive family tree component** with D3.js visualization
+8. **Build breeding chamber UI** with immersive console experience
+9. **Add real-time breeding progress** with WebSocket updates
+10. **Implement genetic diversity analytics** and optimization tools
+11. **Create family lineage export system** for cartridge integration
+12. **Add breeding history tracking** and genealogy features
+13. **Build genetic marketplace** for character trading
+14. **Create multi-generation simulation** tools for advanced breeding
+15. **Test with various character combinations** and edge cases
+16. **Add comprehensive documentation** for breeding system usage
 
 ## References
-- Depends on: R1-2 (CharacterCore structure), R1-5 (Personality traits)
+- Depends on: R6-3.1, R6-3.2, R6-3.3 (Architecture Migration), R1-2 (CharacterCore), R1-5 (Personality traits)
 - Enhances: R3-0.9 (Character Selection - can now select relatives)
-- Enables: Character Dynasty narratives, Genetic marketplace
+- Enables: Character Dynasty narratives, Genetic marketplace, Advanced world building
+- Architecture: See overview.mdc architecture diagram
+- Platform Integration: React+FastAPI unified architecture

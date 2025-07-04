@@ -1,268 +1,321 @@
-## R6-7: Multi-Character Conversation & Advanced Speech Features
+# R6-7: Multi-Character Conversation & Advanced Speech Features
+Status: **Todo**
+Ring: R6
+Created: 2025-01-20
+---
 
-**Objective**: Enable sophisticated multi-character conversations and implement advanced speech features for immersive narrative experiences
+## Goal
+Enable sophisticated multi-character conversations and implement advanced speech features within the unified React+FastAPI platform for immersive, console-quality narrative experiences.
 
-**Technical Requirements**:
-- Implement multi-speaker conversation management with voice switching
-- Create advanced prosody control for narrative contexts
-- Develop conversation dynamics (interruptions, overlaps, emotional contagion)
-- Build environmental audio effects and spatial positioning
+## Context
+**Post-Migration**: This task assumes completion of R6-3.1, R6-3.2, R6-3.3 (Architecture Migration) and R6-6 (Advanced Custom Speech Architecture)
 
-**Multi-Character Voice Management**:
+The unified platform now supports custom speech architecture and streaming. This task builds advanced multi-character conversation capabilities with React-based controls and real-time audio mixing through the platform's WebSocket infrastructure.
 
-**Speaker Switching Architecture**:
+**Console-Quality Experience**: Advanced speech features that rival AAA game audio with immersive spatial positioning, environmental effects, and dynamic character interactions.
+
+## Acceptance Criteria
+
+### Multi-Character Voice Management
+- [ ] **Speaker Switching**: Seamless voice switching between characters mid-conversation
+- [ ] **Conversation State**: Persistent conversation context and character relationships
+- [ ] **Voice Scheduling**: Intelligent scheduling of multi-character dialogue
+- [ ] **Interrupt Handling**: Natural conversation interruptions and overlaps
+- [ ] **Character Dynamics**: Relationship-based conversation flow modulation
+
+### React Audio Control Interface
+- [ ] **Multi-Speaker Mixer**: React interface for real-time audio mixing
+- [ ] **Conversation Visualizer**: Visual representation of multi-character dialogue
+- [ ] **Voice Profile Manager**: Character voice configuration and switching
+- [ ] **Environmental Controls**: Real-time environmental audio effects
+- [ ] **Spatial Audio Interface**: 3D positioning controls for character voices
+
+### Advanced Speech Features
+- [ ] **Dynamic Prosody Control**: Narrative pacing and emotional contagion
+- [ ] **Spatial Audio Engine**: 3D positioning and environmental effects
+- [ ] **Voice Evolution System**: Character voice adaptation over time
+- [ ] **Real-Time Processing**: Streaming audio effects and modifications
+- [ ] **Performance Optimization**: Efficient multi-character audio processing
+
+### Platform Integration
+- [ ] **FastAPI Audio Endpoints**: Multi-character conversation API
+- [ ] **WebSocket Audio Streaming**: Real-time multi-speaker audio delivery
+- [ ] **React Audio Components**: Integrated audio controls and visualization
+- [ ] **Character System Integration**: Deep integration with platform character management
+- [ ] **Narrative Context Awareness**: Story-driven audio behavior
+
+## Technical Architecture Design
+
+### Multi-Character Manager
 ```python
-class MultiCharacterManager:
-    def __init__(self):
+class MultiCharacterConversationManager:
+    """Manages multi-character conversations with advanced speech features"""
+    
+    def __init__(self, platform_websocket: WebSocketManager):
         self.active_characters = {}  # character_id -> voice_model
         self.conversation_state = ConversationState()
         self.voice_scheduler = VoiceScheduler()
+        self.spatial_audio = SpatialAudioEngine()
+        self.websocket = platform_websocket
         
-    async def generate_dialogue(self, dialogue_sequence):
+    async def generate_multi_character_dialogue(self, dialogue_sequence: List[DialogueTurn]):
+        """Generate multi-character conversation with advanced features"""
+        
         for turn in dialogue_sequence:
-            character_voice = self.get_character_voice(turn.character_id)
+            # Get character voice and context
+            character_voice = await self.get_character_voice(turn.character_id)
+            speech_context = await self.build_speech_context(turn)
             
-            # Apply conversation context
-            speech_context = self.build_speech_context(
-                character=turn.character_id,
-                emotion=turn.emotion_state,
-                previous_speakers=self.conversation_state.recent_speakers,
-                narrative_tension=self.conversation_state.tension_level
-            )
+            # Apply conversation dynamics
+            audio_params = self.calculate_audio_parameters(turn, speech_context)
             
-            # Generate with context-aware parameters
-            audio_chunk = await character_voice.generate_streaming(
+            # Generate with streaming
+            async for audio_chunk in character_voice.generate_streaming(
                 text=turn.text,
                 context=speech_context,
-                interrupt_handler=self.handle_interruptions
+                audio_params=audio_params
+            ):
+                # Apply spatial positioning and effects
+                positioned_audio = self.spatial_audio.position_voice(
+                    audio_chunk, turn.character_id
+                )
+                
+                # Stream to React client via WebSocket
+                await self.websocket.send_audio_chunk({
+                    'type': 'multi_character_audio',
+                    'character_id': turn.character_id,
+                    'audio_data': positioned_audio,
+                    'spatial_info': self.spatial_audio.get_position_info(turn.character_id)
+                })
+    
+    async def handle_conversation_interruption(self, interrupting_turn: DialogueTurn):
+        """Handle natural conversation interruptions"""
+        current_speakers = self.conversation_state.get_active_speakers()
+        
+        if current_speakers:
+            # Calculate interruption probability based on relationships
+            should_interrupt = self.calculate_interruption_probability(
+                interrupting_turn.character_id, current_speakers
             )
             
-            yield audio_chunk
+            if should_interrupt:
+                # Fade out current speakers, fade in interrupting character
+                await self.execute_voice_crossfade(current_speakers, interrupting_turn)
 ```
 
-**Advanced Prosody Control System**:
-- **Narrative Pacing**: Dynamic speech rate based on story tension
-  ```python
-  def calculate_narrative_pace(narrative_context):
-      base_rate = 1.0
-      tension_modifier = narrative_context.tension * 0.3  # 0-30% speed increase
-      scene_type_modifier = {
-          'action': 0.2,    # 20% faster
-          'dialogue': 0.0,  # normal speed
-          'reflection': -0.2 # 20% slower
-      }[narrative_context.scene_type]
-      
-      return base_rate + tension_modifier + scene_type_modifier
-  ```
-- **Emotional Contagion**: Characters react to each other's emotional states
-- **Turn-Taking Dynamics**: Natural conversation flow with realistic pauses
-- **Emphasis Control**: Stress important narrative elements through prosody
+### React Multi-Speaker Interface
+```typescript
+const MultiCharacterAudioMixer: React.FC = () => {
+  const [activeCharacters, setActiveCharacters] = useState<CharacterVoice[]>([]);
+  const [conversationState, setConversationState] = useState<ConversationState>();
+  const [spatialPositions, setSpatialPositions] = useState<SpatialPositions>({});
+  const [audioMixerSettings, setAudioMixerSettings] = useState<MixerSettings>();
+  const wsRef = useRef<WebSocket>();
+  
+  useEffect(() => {
+    const ws = new WebSocket('ws://localhost:8000/ws/multi-character-audio');
+    wsRef.current = ws;
+    
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      if (data.type === 'multi_character_audio') {
+        handleMultiCharacterAudio(data);
+      } else if (data.type === 'conversation_state_update') {
+        setConversationState(data.state);
+      }
+    };
+    
+    return () => ws.close();
+  }, []);
+  
+  const handleSpatialPositionChange = (characterId: string, position: Vector3D) => {
+    setSpatialPositions(prev => ({
+      ...prev,
+      [characterId]: position
+    }));
+    
+    // Send position update to backend
+    wsRef.current?.send(JSON.stringify({
+      type: 'update_spatial_position',
+      character_id: characterId,
+      position: position
+    }));
+  };
+  
+  return (
+    <div className="multi-character-audio-mixer">
+      <ConversationVisualizer 
+        characters={activeCharacters}
+        conversationState={conversationState}
+      />
+      <SpatialAudioControls
+        characters={activeCharacters}
+        positions={spatialPositions}
+        onPositionChange={handleSpatialPositionChange}
+      />
+      <VoiceMixerPanel
+        characters={activeCharacters}
+        mixerSettings={audioMixerSettings}
+        onMixerChange={setAudioMixerSettings}
+      />
+      <EnvironmentalEffectsPanel
+        onEffectChange={handleEnvironmentalEffectChange}
+      />
+    </div>
+  );
+};
+```
 
-**Conversation Dynamics Implementation**:
-
-**Interruption System**:
+### Advanced Voice Features
 ```python
-class InterruptionHandler:
+class AdvancedVoiceProcessor:
+    """Advanced voice processing for multi-character conversations"""
+    
     def __init__(self):
-        self.active_speakers = []
-        self.interruption_probability = 0.1  # Base chance
+        self.environmental_processor = EnvironmentalAudioProcessor()
+        self.emotion_processor = EmotionalAudioProcessor()
+        self.spatial_processor = SpatialAudioProcessor()
         
-    def should_interrupt(self, current_speaker, interrupting_character):
-        # Character relationship affects interruption likelihood
-        relationship = self.get_relationship(current_speaker, interrupting_character)
+    async def apply_conversation_dynamics(self, audio_chunk: AudioChunk, context: ConversationContext):
+        """Apply dynamic conversation effects"""
         
-        interruption_chance = (
-            self.interruption_probability * 
-            relationship.familiarity * 
-            interrupting_character.personality.assertiveness *
-            self.narrative_tension_factor()
-        )
+        # Emotional contagion - characters react to each other's emotions
+        if context.previous_speaker_emotion:
+            audio_chunk = self.emotion_processor.apply_emotional_contagion(
+                audio_chunk, context.previous_speaker_emotion, context.character_relationship
+            )
         
-        return random.random() < interruption_chance
+        # Narrative pacing - adjust speech rate based on story tension
+        narrative_pace = self.calculate_narrative_pace(context.narrative_tension)
+        audio_chunk = self.apply_dynamic_pacing(audio_chunk, narrative_pace)
         
-    def handle_interruption(self, current_audio, interrupting_audio):
-        # Fade out current speaker, fade in interrupting speaker
-        fade_duration = 0.5  # seconds
-        mixed_audio = self.crossfade_voices(
-            current_audio, interrupting_audio, fade_duration
-        )
-        return mixed_audio
+        # Environmental effects - apply acoustic environment
+        if context.environment:
+            audio_chunk = self.environmental_processor.apply_environment(
+                audio_chunk, context.environment
+            )
+        
+        return audio_chunk
+    
+    def calculate_interruption_probability(self, interrupting_char: str, current_speakers: List[str]) -> float:
+        """Calculate probability of conversation interruption"""
+        base_probability = 0.1
+        
+        # Factor in character relationships
+        relationship_modifier = 0.0
+        for speaker in current_speakers:
+            relationship = self.get_character_relationship(interrupting_char, speaker)
+            relationship_modifier += relationship.familiarity * 0.2
+        
+        # Factor in character personality
+        personality = self.get_character_personality(interrupting_char)
+        personality_modifier = personality.assertiveness * 0.3
+        
+        # Factor in narrative tension
+        tension_modifier = self.get_narrative_tension() * 0.2
+        
+        return min(0.8, base_probability + relationship_modifier + personality_modifier + tension_modifier)
 ```
 
-**Overlap Management**:
-```python
-class ConversationMixer:
-    def __init__(self):
-        self.max_simultaneous_speakers = 3
-        self.voice_channels = {}
-        
-    def mix_simultaneous_speech(self, voice_streams):
-        # Implement ducking: reduce volume of background speakers
-        primary_speaker = voice_streams[0]  # Most recent speaker
-        background_speakers = voice_streams[1:]
-        
-        mixed_audio = primary_speaker
-        for bg_voice in background_speakers:
-            # Reduce background voice volume based on importance
-            bg_voice.volume *= 0.3  # 30% volume for background
-            mixed_audio = self.audio_mix(mixed_audio, bg_voice)
-            
-        return mixed_audio
-```
-
-**Advanced Voice Features**:
-
-**Dynamic Range & Environmental Effects**:
-```python
-class AdvancedVoiceEffects:
-    def apply_distance_effect(self, audio, distance):
-        """Apply distance-based volume and frequency filtering"""
-        volume_factor = 1.0 / max(1.0, distance * 0.5)
-        frequency_cutoff = 8000 - (distance * 1000)  # Reduce high frequencies
-        
-        filtered_audio = self.low_pass_filter(audio, frequency_cutoff)
-        return filtered_audio * volume_factor
-        
-    def apply_environmental_reverb(self, audio, environment):
-        """Apply environmental acoustic effects"""
-        reverb_settings = {
-            'indoor': {'decay': 0.3, 'damping': 0.7},
-            'outdoor': {'decay': 0.1, 'damping': 0.9},
-            'cave': {'decay': 1.2, 'damping': 0.3},
-            'forest': {'decay': 0.5, 'damping': 0.8}
-        }
-        
-        settings = reverb_settings.get(environment, reverb_settings['indoor'])
-        return self.apply_reverb(audio, **settings)
-        
-    def apply_emotional_processing(self, audio, emotion_state):
-        """Modify audio characteristics based on emotional state"""
-        if emotion_state.fear > 0.7:
-            audio = self.add_tremolo(audio, rate=6.0, depth=0.4)
-        elif emotion_state.anger > 0.7:
-            audio = self.add_distortion(audio, amount=0.2)
-        elif emotion_state.sadness > 0.7:
-            audio = self.reduce_high_frequencies(audio, cutoff=6000)
-            
-        return audio
-```
-
-**Spatial Audio Positioning**:
+### Spatial Audio Engine
 ```python
 class SpatialAudioEngine:
+    """3D spatial audio positioning for multi-character conversations"""
+    
     def __init__(self):
-        self.listener_position = (0, 0, 0)
+        self.listener_position = Vector3D(0, 0, 0)
         self.character_positions = {}
+        self.hrtf_processor = HRTFProcessor()
         
-    def position_character_voice(self, audio, character_id):
+    def position_character_voice(self, audio: AudioChunk, character_id: str) -> SpatialAudioChunk:
         """Apply 3D positioning to character voice"""
-        char_pos = self.character_positions[character_id]
+        char_position = self.character_positions.get(character_id, Vector3D(0, 0, 0))
         
-        # Calculate distance and angle
-        distance = self.calculate_distance(self.listener_position, char_pos)
-        angle = self.calculate_angle(self.listener_position, char_pos)
+        # Calculate spatial audio parameters
+        distance = self.calculate_distance(self.listener_position, char_position)
+        azimuth = self.calculate_azimuth(self.listener_position, char_position)
+        elevation = self.calculate_elevation(self.listener_position, char_position)
         
-        # Apply HRTF (Head-Related Transfer Function) for 3D audio
-        left_channel, right_channel = self.apply_hrtf(audio, angle, distance)
-        
-        return self.create_stereo_audio(left_channel, right_channel)
-```
-
-**Character Voice Evolution System**:
-```python
-class VoiceEvolutionEngine:
-    def __init__(self):
-        self.character_voice_history = {}
-        self.adaptation_rate = 0.01  # How quickly voices evolve
-        
-    def evolve_character_voice(self, character_id, interaction_context):
-        """Gradually evolve character voice based on story events"""
-        current_voice = self.get_character_voice(character_id)
-        
-        # Factor in story events that might change voice
-        trauma_events = interaction_context.get_trauma_events()
-        positive_events = interaction_context.get_positive_events()
-        
-        voice_modifications = {}
-        
-        # Trauma makes voice more subdued
-        if trauma_events:
-            voice_modifications['energy'] = -0.1
-            voice_modifications['pitch_variance'] = -0.05
-            
-        # Positive events make voice more expressive
-        if positive_events:
-            voice_modifications['energy'] = +0.1
-            voice_modifications['emotion_range'] = +0.05
-            
-        # Apply gradual changes
-        adapted_voice = self.apply_voice_modifications(
-            current_voice, voice_modifications, self.adaptation_rate
+        # Apply HRTF for 3D audio
+        spatial_audio = self.hrtf_processor.apply_hrtf(
+            audio, azimuth, elevation, distance
         )
         
-        return adapted_voice
-```
-
-**Integration Architecture**:
-```python
-class NarrativeVoiceOrchestrator:
-    def __init__(self):
-        self.character_manager = MultiCharacterManager()
-        self.conversation_mixer = ConversationMixer()
-        self.effects_engine = AdvancedVoiceEffects()
-        self.spatial_engine = SpatialAudioEngine()
-        self.evolution_engine = VoiceEvolutionEngine()
-        
-    async def generate_scene_audio(self, scene_data):
-        """Generate complete audio for a narrative scene"""
-        scene_audio_streams = []
-        
-        for dialogue_turn in scene_data.dialogue_sequence:
-            # Get evolved character voice
-            character_voice = self.evolution_engine.evolve_character_voice(
-                dialogue_turn.character_id, scene_data.context
-            )
-            
-            # Generate basic speech
-            raw_audio = await character_voice.generate(dialogue_turn.text)
-            
-            # Apply environmental effects
-            environmental_audio = self.effects_engine.apply_environmental_reverb(
-                raw_audio, scene_data.environment
-            )
-            
-            # Apply emotional processing
-            emotional_audio = self.effects_engine.apply_emotional_processing(
-                environmental_audio, dialogue_turn.emotion_state
-            )
-            
-            # Apply spatial positioning
-            positioned_audio = self.spatial_engine.position_character_voice(
-                emotional_audio, dialogue_turn.character_id
-            )
-            
-            scene_audio_streams.append(positioned_audio)
-            
-        # Mix all audio streams with conversation dynamics
-        final_scene_audio = self.conversation_mixer.mix_conversation(
-            scene_audio_streams, scene_data.conversation_dynamics
+        return SpatialAudioChunk(
+            audio_data=spatial_audio,
+            position=char_position,
+            distance=distance,
+            azimuth=azimuth,
+            elevation=elevation
         )
+    
+    def update_character_position(self, character_id: str, position: Vector3D):
+        """Update character position for spatial audio"""
+        self.character_positions[character_id] = position
         
-        return final_scene_audio
+        # Notify React client of position update
+        return {
+            'character_id': character_id,
+            'position': position,
+            'distance': self.calculate_distance(self.listener_position, position)
+        }
 ```
 
-**Deliverables**:
-- Multi-character conversation management system
-- Advanced prosody control engine
-- Conversation dynamics with interruption/overlap handling
-- Environmental audio effects and spatial positioning
-- Character voice evolution system
-- Integrated narrative voice orchestration platform
+## Implementation Notes
+```text
+• Platform Architecture:
+  - FastAPI endpoints for multi-character conversation management
+  - WebSocket streaming for real-time multi-speaker audio
+  - React components for conversation visualization and control
+  - Deep integration with platform character and narrative systems
+  
+• Conversation Dynamics:
+  - Relationship-based interruption probabilities
+  - Emotional contagion between characters
+  - Narrative tension affecting speech pacing
+  - Natural turn-taking with realistic pauses
+  
+• Advanced Audio Features:
+  - 3D spatial positioning with HRTF processing
+  - Environmental acoustic effects (reverb, distance filtering)
+  - Real-time voice mixing and crossfading
+  - Character voice evolution over time
+  
+• React Interface:
+  - Real-time conversation visualization
+  - Spatial audio positioning controls
+  - Voice mixer with per-character controls
+  - Environmental effects panel
+  - Performance monitoring and optimization
+```
 
-**Success Criteria**:
-- Support 3+ characters in simultaneous conversation with natural dynamics
-- Seamless voice switching and character consistency
-- Realistic conversation interruptions and overlaps
-- Environmental audio effects enhance narrative immersion
-- Character voices evolve naturally based on story events
-- System integrates smoothly with existing narrative generation
+## TDD Instructions
+- **Conversation Tests**: Test multi-character dialogue generation and management
+- **Audio Tests**: Test spatial audio processing and effects
+- **API Tests**: Test FastAPI endpoints for conversation management
+- **React Tests**: Test multi-speaker interface and controls
+- **Integration Tests**: Test platform integration and WebSocket streaming
+
+## Checklist / Steps
+1. **Implement multi-character manager** with conversation state management
+2. **Create speaker switching system** with seamless voice transitions
+3. **Build React audio mixer interface** with real-time controls
+4. **Implement conversation dynamics** (interruptions, emotional contagion)
+5. **Create spatial audio engine** with 3D positioning
+6. **Add environmental effects** and acoustic modeling
+7. **Implement voice evolution system** for character development
+8. **Create conversation visualizer** for React interface
+9. **Add performance optimization** for multi-character processing
+10. **Implement WebSocket streaming** for real-time audio delivery
+11. **Add character relationship integration** for conversation dynamics
+12. **Create comprehensive testing** for all conversation features
+13. **Implement monitoring and analytics** for conversation quality
+14. **Add platform integration** with existing character and narrative systems
+15. **Create documentation** and user guides
+
+## References
+- Depends on: R6-6 (Advanced Custom Speech Architecture)
+- Enables: R6-8 (Production Deployment)
+- Architecture: See overview.mdc architecture diagram
+- Platform Integration: React+FastAPI unified architecture
+- Audio Processing: Spatial audio and environmental effects

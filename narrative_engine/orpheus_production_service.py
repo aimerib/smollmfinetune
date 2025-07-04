@@ -54,7 +54,7 @@ class SynthesisRequest:
     
     def __post_init__(self):
         if not self.request_id:
-            self.request_id = f"req_{int(self.created_at * 1000)}"
+            self.request_id = f"req_{time.time_ns()}"
 
 
 @dataclass
