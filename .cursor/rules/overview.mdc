@@ -1,3 +1,8 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
 # Project Overview
 
 This file is a living document that gives the **big-picture context** needed by both humans and AIs.
