@@ -7,7 +7,8 @@ from backend.app.config import settings
 from backend.app.database import create_tables
 from backend.app.routers import (
     characters, worlds, datasets, multimodal, training, inference, 
-    websocket, voice_streaming, quad_head_training, quad_head_streaming
+    websocket, voice_streaming, quad_head_training, quad_head_streaming,
+    flow_matching
 )
 from backend.app.redis_client import get_redis_pool
 import time
@@ -84,6 +85,7 @@ app.include_router(websocket.router)
 app.include_router(voice_streaming.router)
 app.include_router(quad_head_training.router)
 app.include_router(quad_head_streaming.router)
+app.include_router(flow_matching.router)
 
 # Root endpoint
 @app.get("/")
