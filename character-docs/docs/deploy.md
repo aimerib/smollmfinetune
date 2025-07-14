@@ -571,6 +571,319 @@ networks:
     driver: bridge
 ```
 
+## Multi-Character Conversation Deployment
+
+The multi-character conversation system requires special deployment considerations for optimal performance and reliability.
+
+### WebSocket Infrastructure
+
+**Load Balancer Configuration**
+
+Configure your load balancer to support WebSocket connections:
+
+```nginx
+# nginx.conf for multi-character WebSocket support
+upstream multi_character_backend {
+    server app1:8000;
+    server app2:8000;
+    server app3:8000;
+}
+
+server {
+    listen 443 ssl http2;
+    server_name your-domain.com;
+
+    # WebSocket upgrade headers
+    location /ws/multi-character {
+        proxy_pass http://multi_character_backend;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        # WebSocket timeout settings
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+        proxy_connect_timeout 86400;
+    }
+    
+    # API endpoints
+    location /api/multi-character {
+        proxy_pass http://multi_character_backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+}
+```
+
+**Session Affinity**
+
+For optimal WebSocket performance, configure session affinity:
+
+```yaml
+# docker-compose.prod.yml additions
+services:
+  nginx:
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+    environment:
+      - SESSION_AFFINITY=true
+
+  app:
+    environment:
+      - WEBSOCKET_SESSION_STORAGE=redis
+      - REDIS_URL=redis://redis:6379
+```
+
+### Audio Processing Deployment
+
+**Resource Requirements**
+
+Multi-character conversations require additional resources:
+
+```yaml
+# Kubernetes deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: character-ai-app
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: app
+        image: character-ai:latest
+        resources:
+          requests:
+            memory: "2Gi"
+            cpu: "1000m"
+          limits:
+            memory: "4Gi"
+            cpu: "2000m"
+        env:
+        - name: MULTI_CHARACTER_ENABLED
+          value: "true"
+        - name: MAX_CONCURRENT_CONVERSATIONS
+          value: "10"
+        - name: SPATIAL_AUDIO_PROCESSING
+          value: "server-side"
+```
+
+**CDN Configuration for Audio Streaming**
+
+```terraform
+# CloudFront distribution for audio streaming
+resource "aws_cloudfront_distribution" "audio_cdn" {
+  origin {
+    domain_name = aws_s3_bucket.audio_assets.bucket_regional_domain_name
+    origin_id   = "audio-origin"
+    
+    s3_origin_config {
+      origin_access_identity = aws_cloudfront_origin_access_identity.audio_oai.cloudfront_access_identity_path
+    }
+  }
+  
+  # Cache behavior for audio chunks
+  ordered_cache_behavior {
+    path_pattern           = "/audio/chunks/*"
+    target_origin_id       = "audio-origin"
+    viewer_protocol_policy = "redirect-to-https"
+    compress               = true
+    
+    # Short TTL for real-time audio
+    default_ttl = 300
+    max_ttl     = 3600
+    
+    forwarded_values {
+      query_string = false
+      headers      = ["Origin", "Access-Control-Request-Headers", "Access-Control-Request-Method"]
+    }
+  }
+}
+```
+
+### Environment Variables
+
+**Required Configuration**
+
+```bash
+# Multi-character conversation settings
+MULTI_CHARACTER_ENABLED=true
+MAX_CONCURRENT_CONVERSATIONS=20
+MAX_CHARACTERS_PER_CONVERSATION=6
+SPATIAL_AUDIO_ENABLED=true
+
+# WebSocket settings
+WEBSOCKET_MAX_CONNECTIONS=1000
+WEBSOCKET_HEARTBEAT_INTERVAL=30
+WEBSOCKET_TIMEOUT=300
+
+# Audio processing
+AUDIO_CHUNK_SIZE=1024
+AUDIO_SAMPLE_RATE=44100
+SPATIAL_AUDIO_PROCESSING=server-side
+TTS_CONCURRENT_REQUESTS=10
+
+# Performance tuning
+CONVERSATION_MEMORY_LIMIT=100MB
+AUDIO_BUFFER_SIZE=8192
+CHARACTER_VOICE_CACHE_SIZE=50
+```
+
+### Database Schema Migrations
+
+**Multi-Character Tables**
+
+```sql
+-- Add to your migration scripts
+CREATE TABLE multi_character_conversations (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    session_id VARCHAR(255) NOT NULL,
+    character_ids TEXT[] NOT NULL,
+    environment VARCHAR(50) DEFAULT 'room',
+    spatial_enabled BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW(),
+    status VARCHAR(20) DEFAULT 'active'
+);
+
+CREATE TABLE conversation_dialogue_turns (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    conversation_id UUID REFERENCES multi_character_conversations(id),
+    character_id VARCHAR(255) NOT NULL,
+    text TEXT NOT NULL,
+    audio_url VARCHAR(512),
+    spatial_position JSONB,
+    timestamp TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_conversations_session ON multi_character_conversations(session_id);
+CREATE INDEX idx_dialogue_conversation ON conversation_dialogue_turns(conversation_id);
+```
+
+### Monitoring Multi-Character Features
+
+**Key Metrics to Monitor**
+
+```yaml
+# Prometheus metrics for multi-character system
+- name: multi_character_conversations_active
+  help: Number of active multi-character conversations
+  type: gauge
+  
+- name: websocket_connections_total
+  help: Total WebSocket connections
+  type: gauge
+  
+- name: spatial_audio_processing_duration
+  help: Time spent processing spatial audio
+  type: histogram
+  
+- name: character_voice_generation_errors
+  help: Voice generation failures by character
+  type: counter
+```
+
+**Health Checks**
+
+```python
+# Add to your health check endpoint
+@app.get("/health/multi-character")
+async def multi_character_health():
+    return {
+        "websocket_server": "healthy",
+        "active_conversations": await get_active_conversation_count(),
+        "audio_processing": "operational",
+        "spatial_engine": "ready"
+    }
+```
+
+### Security Considerations
+
+**WebSocket Security**
+
+```python
+# Rate limiting for WebSocket connections
+WEBSOCKET_RATE_LIMITS = {
+    "connections_per_ip": 5,
+    "messages_per_second": 50,
+    "max_conversation_duration": 3600  # 1 hour
+}
+
+# Authentication middleware
+async def websocket_auth_middleware(websocket, session_id):
+    if not await validate_session(session_id):
+        await websocket.close(code=4001, reason="Unauthorized")
+        return False
+    return True
+```
+
+**Audio Data Security**
+
+```yaml
+# Encryption for audio streaming
+apiVersion: v1
+kind: Secret
+metadata:
+  name: audio-encryption-keys
+data:
+  audio_encryption_key: <base64-encoded-key>
+  spatial_processing_key: <base64-encoded-key>
+```
+
+### Performance Optimization
+
+**Redis Configuration for Sessions**
+
+```redis
+# redis.conf optimizations for WebSocket sessions
+maxmemory 2gb
+maxmemory-policy allkeys-lru
+save 900 1
+save 300 10
+save 60 10000
+
+# Pub/Sub for multi-character coordination
+client-output-buffer-limit pubsub 32mb 8mb 60
+```
+
+**Auto-scaling Rules**
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: character-ai-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: character-ai-app
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Object
+    object:
+      metric:
+        name: websocket_connections_per_pod
+      target:
+        type: AverageValue
+        averageValue: "100"
+```
+
+This multi-character deployment configuration ensures your platform can handle real-time spatial audio conversations at scale with proper monitoring and security.
+
 ## Monitoring and Observability
 
 ### Prometheus Configuration

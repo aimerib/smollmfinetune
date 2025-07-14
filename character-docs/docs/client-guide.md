@@ -198,8 +198,92 @@ Some characters can initiate conversations:
 Advanced feature for character interactions:
 
 1. **Character Switching**: Seamlessly switch between characters
-2. **Group Conversations**: Multiple characters in one chat
-3. **Relationship Dynamics**: See how characters interact
+2. **Multi-Character Audio Mixer**: Experience console-quality conversations with spatial audio
+3. **Group Conversations**: Multiple characters in one chat
+4. **Relationship Dynamics**: See how characters interact
+
+### 🎮 Multi-Character Audio Mixer
+
+**The crown jewel of the platform** - experience console-quality conversations with multiple AI characters in immersive 3D audio!
+
+#### Key Features
+
+**🎧 Spatial Audio Experience**
+- **3D Positioning**: Characters positioned in virtual 3D space around you
+- **HRTF Processing**: Professional head-related transfer function for realistic directional audio
+- **Headphones Recommended**: For the full immersive experience
+
+**🎭 Character Voice Management**
+- **Real-time Switching**: Seamless transitions between character voices
+- **Activity Indicators**: Visual feedback showing which character is speaking
+- **Voice Profiles**: Displays TTS provider (Kokoro, Orpheus) for each character
+- **Natural Interruptions**: Characters can interrupt each other based on personality
+
+**🌍 Environmental Controls**
+- **Acoustic Environments**: Studio, Room, Hall, Outdoor settings
+- **Reverb Control**: Adjust room reflection intensity (0-100%)
+- **Ambient Noise**: Add background environmental sounds
+- **Distance Attenuation**: Control how distance affects volume
+
+**🎚️ Master Audio Controls**
+- **Master Volume**: Overall conversation level control
+- **Conversation Pacing**: Speed control (0.5x - 2.0x)
+- **Recording**: Capture entire conversations
+- **Session Management**: Track active sessions and characters
+
+#### How to Use
+
+**1. Access the Mixer**
+```
+Main Navigation → Multi-Character Audio Mixer
+```
+
+**2. Set Up Characters**
+- Characters with voice profiles automatically appear
+- Each shows name and TTS provider
+- Activity indicators show speaking status
+
+**3. Enable Spatial Audio**
+- Check "Enable 3D Audio" toggle
+- Put on headphones for best experience
+- Drag character icons to position them in 3D space
+
+**4. Create Conversations**
+- Select character from dropdown
+- Type dialogue and send
+- Watch real-time conversation timeline
+- Characters respond naturally with interruptions
+
+**5. Control the Experience**
+- Adjust environmental settings for your scene
+- Fine-tune volume and pacing
+- Record conversations for later playback
+
+#### Pro Tips
+
+:::tip[🎧 Audio Tips]
+- **Use headphones** for the full spatial audio experience
+- **Start with 2 characters** and gradually add more
+- **Position characters** at extreme left/right to feel the spatial effect
+- **Match environment** to your story setting (tavern = Room, outdoor = Outdoor)
+:::
+
+#### Troubleshooting
+
+**No Audio Playing?**
+1. Check browser audio permissions (🔇 icon in address bar)
+2. Verify characters have voice profiles configured
+3. Ensure WebSocket connection is active
+
+**Spatial Audio Not Working?**
+1. **Must use headphones** - speakers don't provide spatial positioning
+2. Enable "3D Audio" in controls
+3. Try repositioning characters to notice difference
+
+**Performance Issues?**
+1. Use "Studio" environment for best performance
+2. Limit to 2-4 active characters
+3. Check internet connection for WebSocket stability
 
 ## UI Customization
 

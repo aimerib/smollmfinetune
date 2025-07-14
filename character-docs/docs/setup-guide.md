@@ -37,6 +37,7 @@ This guide will help you get the Character Creation Platform up and running from
       <li><strong>Python</strong>: 3.11 or higher</li>
       <li><strong>Node.js</strong>: 16+ (for React client)</li>
       <li><strong>Git</strong>: For cloning repository</li>
+      <li><strong>Audio Support</strong>: Modern browser with Web Audio API</li>
     </ul>
   </div>
 </div>
