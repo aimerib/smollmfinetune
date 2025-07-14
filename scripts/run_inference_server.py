@@ -20,7 +20,7 @@ import argparse
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from app.inference_engine import ProductionInferenceEngine
+from backend.app.inference_engine import ProductionInferenceEngine
 
 
 # Configure logging

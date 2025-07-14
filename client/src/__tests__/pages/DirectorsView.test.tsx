@@ -245,7 +245,9 @@ describe('DirectorsView Component', () => {
     await waitFor(() => {
       expect(screen.getByText(/Current Mood/i)).toBeInTheDocument();
       expect(screen.getByText(/Curious/i)).toBeInTheDocument();
-      expect(screen.getByText(/Relationships/i)).toBeInTheDocument();
+      // Use getAllByText to handle multiple "Relationships" elements
+      const relationshipElements = screen.getAllByText(/Relationships/i);
+      expect(relationshipElements.length).toBeGreaterThan(0);
       expect(screen.getByText('2')).toBeInTheDocument();
     });
   });

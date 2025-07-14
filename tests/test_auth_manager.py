@@ -18,8 +18,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 # These imports will be created during implementation
-from app.utils.auth.auth_manager import AuthManager, UserRole, AuthenticationError, PermissionError
-from app.utils.auth.models import User, UserSession
+from backend.app.services.auth.auth_manager import AuthManager, UserRole, AuthenticationError, PermissionError
+from backend.app.services.auth.models import User, UserSession
 
 
 class TestAuthManager(unittest.TestCase):

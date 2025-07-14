@@ -11,9 +11,9 @@ from pathlib import Path
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
-from app.utils.world_discovery import WorldDiscoveryManager, PublishResult
-from app.utils.auth.models import User, UserRole
-from app.utils.world import WorldManager, WorldLore
+from backend.app.services.world.world_discovery import WorldDiscoveryManager, PublishResult
+from backend.app.services.auth.models import User, UserRole
+from backend.app.services.world.world import WorldManager, WorldLore
 
 
 @pytest.fixture

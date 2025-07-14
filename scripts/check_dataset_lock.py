@@ -24,7 +24,7 @@ from typing import List, Set, Tuple, Optional
 # Add app to path so we can import our modules
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from app.utils.dataset_versioning import DatasetVersioning, ConsistencyResult
+from backend.app.services.dataset_versioning import DatasetVersioning, ConsistencyResult
 
 
 def setup_logging(verbose: bool = False) -> None:

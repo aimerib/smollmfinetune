@@ -3,11 +3,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
-from app.database import get_db
-from app.models import Character, World, User
-from app.schemas import CharacterCreate, CharacterUpdate, CharacterResponse
-from app.auth import get_current_user
-from app.redis_client import RedisCache
+from backend.app.database import get_db
+from backend.app.models import Character, World, User
+from backend.app.schemas import CharacterCreate, CharacterUpdate, CharacterResponse
+from backend.app.auth import get_current_user
+from backend.app.redis_client import RedisCache
 
 router = APIRouter(prefix="/characters", tags=["characters"])
 
@@ -255,7 +255,7 @@ async def export_character(
         )
     
     # Queue export task
-    from app.tasks import export_character_packet
+    from backend.app.tasks import export_character_packet
     task = export_character_packet.delay(character_id)
     
     return {

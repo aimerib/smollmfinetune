@@ -125,7 +125,7 @@ class SyntheticDataGenerator:
         
         # Import OpenAI client lazily
         try:
-            from app.utils.openai_client import get_client
+            from backend.app.core.openai_client import get_client
             self.client = get_client()
         except ImportError:
             logger.warning("OpenAI client not available, using mock responses")

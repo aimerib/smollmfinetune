@@ -2,8 +2,8 @@
 
 from typing import Dict, Any, Optional, Tuple, List
 import numpy as np
-from app.utils.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
-from app.utils.character.control_token_translator import ControlTokenTranslator
+from backend.app.services.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
+from backend.app.services.character.control_token_translator import ControlTokenTranslator
 from .tts_integration import MicroserviceTTSProvider
 
 class CharacterVoiceSynthesizer:

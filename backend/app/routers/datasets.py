@@ -12,7 +12,7 @@ from ..schemas import (
     DatasetBase, DatasetCreate, DatasetResponse, DatasetListResponse,
     DatasetGenerationParams
 )
-from ..redis_client import redis_client
+from ..redis_client import get_redis
 from ..celery_app import celery_app
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])

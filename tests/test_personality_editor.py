@@ -16,7 +16,7 @@ import streamlit as st
 from streamlit.testing.v1 import AppTest
 import plotly.graph_objects as go
 
-from app.utils.character.models import CharacterCore, Personality
+from backend.app.services.character.models import CharacterCore, Personality
 from app.components.personality_editor import (
     render_personality_editor,
     create_personality_radar,

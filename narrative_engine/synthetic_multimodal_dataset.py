@@ -26,9 +26,9 @@ import uuid
 from .data_schema import DatasetSample, Turn
 from .config import NarrativeLLMConfig
 from .character_voice_integration import CharacterVoiceSynthesizer
-from app.utils.openai_client import get_client
-from app.utils.dataset import character_analysis, prompt_generators
-from app.utils.control_tokens import load_control_tokens
+from backend.app.core.openai_client import get_client
+from backend.app.services.dataset import character_analysis, prompt_generators
+from backend.app.core.control_tokens import load_control_tokens
 
 logger = logging.getLogger(__name__)
 

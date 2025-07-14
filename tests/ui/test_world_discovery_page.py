@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import streamlit as st
 from streamlit.testing.v1 import AppTest
 
-from app.utils.auth.models import User, UserRole
+from backend.app.services.auth.models import User, UserRole
 
 
 class TestWorldDiscoveryPage:

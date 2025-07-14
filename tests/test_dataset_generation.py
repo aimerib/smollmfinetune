@@ -138,7 +138,7 @@ def test_dataset_manager_import():
         sys.path.insert(0, app_dir)
         
         # Import DatasetManager
-        from app.utils.dataset import DatasetManager
+        from backend.app.services.dataset import DatasetManager
         
         # Verify it has the generate_dataset method
         assert hasattr(DatasetManager, 'generate_dataset'), "DatasetManager should have generate_dataset method"

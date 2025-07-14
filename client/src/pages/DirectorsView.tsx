@@ -426,7 +426,9 @@ const DirectorsView: React.FC = () => {
     
     return () => {
       websocketService.disconnect();
-      unsubscribeRelationship();
+      if (typeof unsubscribeRelationship === 'function') {
+        unsubscribeRelationship();
+      }
     };
   }, []);
   

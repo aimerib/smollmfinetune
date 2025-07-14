@@ -6,7 +6,7 @@ the dual-output Iceberg Model functionality.
 """
 
 import pytest
-from app.utils.prompt_templates import (
+from backend.app.core.prompt_templates import (
     SUBTEXT_ACTION_PROMPT_SUFFIX,
     build_subtext_prompt
 )

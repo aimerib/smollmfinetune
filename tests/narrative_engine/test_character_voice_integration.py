@@ -3,8 +3,8 @@ import numpy as np
 from unittest.mock import patch, MagicMock, AsyncMock
 
 # Mock the modules that will be imported by the class under test
-from app.utils.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
-from app.utils.character.control_token_translator import ControlTokenTranslator
+from backend.app.services.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
+from backend.app.services.character.control_token_translator import ControlTokenTranslator
 from narrative_engine.tts_integration import MicroserviceTTSProvider
 
 # Since the file doesn't exist yet, we'll define a dummy class for type hinting

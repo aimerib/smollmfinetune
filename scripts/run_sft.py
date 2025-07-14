@@ -46,7 +46,7 @@ from narrative_engine import (
 )
 from narrative_engine.clara_trainer import CLARATrainer
 from scripts.generate_synthetic_conversations import SyntheticDataGenerator
-from app.utils.openai_client import get_client
+from backend.app.core.openai_client import get_client
 
 # Configure logging
 logging.basicConfig(

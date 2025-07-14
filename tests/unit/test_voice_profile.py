@@ -1,5 +1,5 @@
 import pytest
-from app.utils.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
+from backend.app.services.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
 
 @pytest.fixture
 def character_voice_manager():

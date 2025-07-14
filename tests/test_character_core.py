@@ -2,9 +2,9 @@ import unittest
 import pytest
 import tempfile
 
-from app.utils.character.models import CharacterCore, Personality, Relationship, llm_estimate_big5
-from app.utils.character.character import CharacterManager
-from app.utils.world import WorldManager
+from backend.app.services.character.models import CharacterCore, Personality, Relationship, llm_estimate_big5
+from backend.app.services.character.character import CharacterManager
+from backend.app.services.world.world import WorldManager
 
 
 class TestCharacterCoreModels(unittest.TestCase):

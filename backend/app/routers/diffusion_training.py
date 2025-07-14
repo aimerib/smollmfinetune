@@ -17,8 +17,8 @@ from narrative_engine.diffusion_config import (
 from narrative_engine.diffusion_model import DiffusionMultimodalModel
 from narrative_engine.diffusion_trainer import DiffusionTrainingManager
 from narrative_engine.synthetic_multimodal_dataset import SyntheticMultimodalDatasetGenerator
-from app.utils.character.manager import CharacterManager
-from app.utils.world.manager import WorldManager
+from backend.app.services.character.character import CharacterManager
+from backend.app.services.world.world import WorldManager
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/diffusion", tags=["diffusion"])

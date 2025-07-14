@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch, mock_open
 
-from app.utils.dataset_versioning import (
+from backend.app.services.dataset.dataset_versioning import (
     DatasetManifest,
     DatasetVersioning,
     compute_dataset_hash,
@@ -339,7 +339,7 @@ class TestTelemetryIntegration:
             assert "dataset1" in names
             assert "dataset2" in names
     
-    @patch('app.utils.telemetry_sdk.log')
+    @patch('backend.app.core.telemetry_sdk.log')
     def test_dataset_manifest_auto_attached_to_telemetry(self, mock_log):
         """Dataset manifests should be automatically attached to telemetry runs"""
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -351,7 +351,7 @@ class TestTelemetryIntegration:
             manifest = update_dataset_lock(str(dataset_path), "test_dataset")
             
             # Simulate training run with dataset attachment
-            from app.utils.dataset_versioning import attach_dataset_to_telemetry
+            from backend.app.services.dataset.dataset_versioning import attach_dataset_to_telemetry
             attach_dataset_to_telemetry([str(dataset_path)])
             
             # Verify telemetry was called with dataset info

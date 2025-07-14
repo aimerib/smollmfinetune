@@ -13,11 +13,12 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 # Import the modules we'll be testing
-from app.utils.world_discovery import WorldDiscoveryManager
-from app.utils.character.character import CharacterManager
-from app.utils.character.models import CharacterCore, Personality, Relationship
-from app.utils.world import WorldManager
-from app.utils.auth.models import User, UserRole
+from backend.app.services.world.world_discovery import WorldDiscoveryManager
+from backend.app.services.character.character import CharacterManager
+from backend.app.services.character.models import CharacterCore, Personality, Relationship
+from backend.app.services.world.world import WorldManager
+from backend.app.core.database.models import User
+from backend.app.services.auth.models import UserRole
 
 
 @pytest.fixture

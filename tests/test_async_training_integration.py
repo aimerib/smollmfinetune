@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 def test_async_training_service_import():
     """Test that AsyncTrainingService can be imported and instantiated"""
     try:
-        from app.utils.async_training import AsyncTrainingService
+        from backend.app.services.training.async_training import AsyncTrainingService
         service = AsyncTrainingService()
         assert service is not None
         assert hasattr(service, 'start_training')
@@ -21,7 +21,7 @@ def test_async_training_service_import():
 def test_data_collection_service_import():
     """Test that DataCollectionService can be imported and instantiated"""
     try:
-        from app.utils.async_training import DataCollectionService
+        from backend.app.services.training.async_training import DataCollectionService
         service = DataCollectionService()
         assert service is not None
         assert hasattr(service, 'collect_conversation')
@@ -32,7 +32,7 @@ def test_data_collection_service_import():
 def test_database_models_exist():
     """Test that required database models exist with proper fields"""
     try:
-        from app.utils.database.models import TrainingRun, ConversationLog, User, Character
+        from backend.app.core.database.models import TrainingRun, ConversationLog, User, Character
         
         # Test TrainingRun model
         tr = TrainingRun()
@@ -71,7 +71,7 @@ def test_worker_functions_importable():
 def test_async_training_basic_flow(mock_session_scope):
     """Test basic async training flow"""
     try:
-        from app.utils.async_training import AsyncTrainingService
+        from backend.app.services.training.async_training import AsyncTrainingService
         
         # Mock database session
         mock_session = Mock()
@@ -101,7 +101,7 @@ def test_async_training_basic_flow(mock_session_scope):
 def test_data_collection_basic_flow():
     """Test basic data collection flow"""
     try:
-        from app.utils.async_training import DataCollectionService
+        from backend.app.services.training.async_training import DataCollectionService
         
         # Create service without Celery
         with patch.object(DataCollectionService, '_setup_celery'):

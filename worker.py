@@ -69,11 +69,11 @@ app.conf.update(
 
 # Import utilities after app configuration
 try:
-    from app.utils.database.session import session_scope
-    from app.utils.database.models import TrainingRun, User, Character, ConversationLog
-    from app.utils.training import TrainingManager
-    from app.utils.character.character import CharacterManager
-    from app.utils.dataset.manager import DatasetManager
+    from backend.app.core.database.session import session_scope
+    from backend.app.core.database.models import TrainingRun, User, Character, ConversationLog
+    from backend.app.services.training.training import TrainingManager
+    from backend.app.services.character.character import CharacterManager
+    from backend.app.services.dataset.manager import DatasetManager
 except ImportError as e:
     logger.error(f"Failed to import required modules: {e}")
     logger.error("Make sure to run worker from project root with proper PYTHONPATH")

@@ -22,14 +22,14 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     def test_module_exists(self):
         """Test that the personality_metric module can be imported"""
         try:
-            from app.utils.evaluation.personality_metric import calculate_personality_alignment
+            from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
             self.assertTrue(True)
         except ImportError:
             self.fail("personality_metric module does not exist")
     
     def test_calculate_personality_alignment_exists(self):
         """Test that the calculate_personality_alignment function exists"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         self.assertTrue(callable(calculate_personality_alignment))
     
     @pytest.mark.slow
@@ -37,7 +37,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_calculate_personality_alignment_returns_float(self):
         """Test that the function returns a float between 0 and 1"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         result = calculate_personality_alignment(self.sample_response, self.sample_big_five_scores)
         
@@ -50,7 +50,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_personality_alignment_high_openness_extraversion(self):
         """Test alignment scoring for high openness and extraversion traits"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         # Response that should align well with high openness and extraversion
         high_oe_response = "I absolutely love exploring new places, meeting new people, and trying exciting adventures!"
@@ -75,7 +75,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_personality_alignment_low_extraversion(self):
         """Test alignment scoring for low extraversion traits"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         # Response that should align with low extraversion
         low_e_response = "I prefer quiet evenings at home, reading a book by myself."
@@ -100,7 +100,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_personality_misalignment_detection(self):
         """Test that misaligned personality traits are detected"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         # Introverted response with extraverted target traits
         introverted_response = "I really prefer staying home alone and avoiding social gatherings."
@@ -122,7 +122,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     
     def test_validates_empty_response(self):
         """Test that the function raises ValueError for empty response"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         with self.assertRaises(ValueError) as context:
             calculate_personality_alignment("", self.sample_big_five_scores)
@@ -131,7 +131,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     
     def test_validates_empty_big_five_scores(self):
         """Test that the function raises ValueError for empty big_five_scores"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         with self.assertRaises(ValueError) as context:
             calculate_personality_alignment(self.sample_response, {})
@@ -140,7 +140,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     
     def test_validates_score_ranges(self):
         """Test that the function validates score ranges"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         invalid_scores = {
             "openness": 1.5,  # Out of range
@@ -160,7 +160,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_cached_version_consistency(self):
         """Test that the cached version returns consistent results"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment_cached
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment_cached
         
         # Convert dict to tuple for cached version
         big_five_tuple = (0.8, 0.3, 0.9, 0.6, 0.2)
@@ -179,7 +179,7 @@ class TestPersonalityAlignmentMetric(unittest.TestCase):
     @pytest.mark.evaluation
     def test_scoring_consistency_across_similar_responses(self):
         """Test that similar responses get similar scores"""
-        from app.utils.evaluation.personality_metric import calculate_personality_alignment
+        from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
         
         # Similar extraverted, open responses
         responses = [
@@ -207,7 +207,7 @@ class TestTrainingQualityTrackerIntegration(unittest.TestCase):
     
     def test_tracker_has_personality_alignment_field(self):
         """Test that TrainingQualityTracker can track personality alignment"""
-        from app.utils.metrics import TrainingQualityTracker
+        from backend.app.core.metrics.metrics import TrainingQualityTracker
         
         tracker = TrainingQualityTracker()
         
@@ -219,7 +219,7 @@ class TestTrainingQualityTrackerIntegration(unittest.TestCase):
     @pytest.mark.evaluation
     def test_tracker_logs_personality_alignment_to_wandb(self):
         """Test that personality alignment is logged to WandB"""
-        from app.utils.metrics import TrainingQualityTracker
+        from backend.app.core.metrics.metrics import TrainingQualityTracker
         
         tracker = TrainingQualityTracker()
         

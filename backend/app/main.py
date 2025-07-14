@@ -3,10 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 import logging
-from app.config import settings
-from app.database import create_tables
-from app.routers import auth, characters, worlds, datasets, multimodal
-from app.redis_client import get_redis_pool
+from backend.app.config import settings
+from backend.app.database import create_tables
+from backend.app.routers import auth, characters, worlds, datasets, multimodal, inference, evaluation, websocket
+from backend.app.redis_client import get_redis_pool
 import time
 
 # Configure logging
@@ -27,10 +27,20 @@ async def lifespan(app: FastAPI):
     await get_redis_pool()
     logger.info("Redis connection pool initialized")
     
+    # Initialize inference engine
+    from backend.app.routers.inference import engine
+    await engine.initialize()
+    logger.info("Inference engine initialized")
+    
     yield
     
     # Shutdown
     logger.info("Shutting down...")
+    
+    # Shutdown inference engine
+    from backend.app.routers.inference import engine
+    await engine.shutdown()
+    logger.info("Inference engine shutdown complete")
 
 # Create FastAPI app
 app = FastAPI(
@@ -66,6 +76,11 @@ app.include_router(characters.router, prefix="/api/v1")
 app.include_router(worlds.router, prefix="/api/v1")
 app.include_router(datasets.router, prefix="/api/v1")
 app.include_router(multimodal.router, prefix="/api/v1")
+
+# Import and include unified inference & evaluation routers
+app.include_router(inference.router, prefix="/api/v1")
+app.include_router(evaluation.router, prefix="/api/v1")
+app.include_router(websocket.router, prefix="/api/v1")
 
 # Root endpoint
 @app.get("/")

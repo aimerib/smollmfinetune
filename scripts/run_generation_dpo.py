@@ -29,7 +29,7 @@ from narrative_engine.dpo_trainer import (
     prepare_dpo_dataset,
     load_head_specific_preferences
 )
-from app.utils.rlhf_trainer import prepare_preference_dataset
+from backend.app.services.training.rlhf_trainer import prepare_preference_dataset
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)

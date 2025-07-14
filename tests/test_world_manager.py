@@ -2,8 +2,8 @@ import unittest
 import tempfile
 import shutil
 from pathlib import Path
-from app.utils.world import WorldManager, WorldLore, Faction, TimelineEvent, Place, NPC, PlaceEvent
-from app.utils.character.character import CharacterManager
+from backend.app.services.world.world import WorldManager, WorldLore, Faction, TimelineEvent, Place, NPC, PlaceEvent
+from backend.app.services.character.character import CharacterManager
 
 
 class TestWorldManager(unittest.TestCase):

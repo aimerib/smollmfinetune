@@ -10,7 +10,7 @@ from ..schemas import (
     WorldBase, WorldCreate, WorldUpdate, WorldResponse, 
     WorldListResponse
 )
-from ..redis_client import redis_client
+from ..redis_client import get_redis
 import json
 
 router = APIRouter(prefix="/api/worlds", tags=["worlds"])
@@ -51,7 +51,8 @@ async def create_world(
     db.refresh(db_world)
     
     # Clear cache
-    await redis_client.delete(f"worlds:project:{world.project_id}")
+    r = await get_redis()
+    await r.delete(f"worlds:project:{world.project_id}")
     
     return db_world
 
@@ -63,7 +64,8 @@ async def get_world(
 ):
     """Get a specific world"""
     # Check cache first
-    cached = await redis_client.get(f"world:{world_id}")
+    r = await get_redis()
+    cached = await r.get(f"world:{world_id}")
     if cached:
         return json.loads(cached)
     
@@ -80,7 +82,7 @@ async def get_world(
         )
     
     # Cache for 5 minutes
-    await redis_client.setex(
+    await r.setex(
         f"world:{world_id}",
         300,
         json.dumps({
@@ -120,7 +122,8 @@ async def list_project_worlds(
         )
     
     # Check cache
-    cached = await redis_client.get(f"worlds:project:{project_id}")
+    r = await get_redis()
+    cached = await r.get(f"worlds:project:{project_id}")
     if cached:
         return json.loads(cached)
     
@@ -140,7 +143,7 @@ async def list_project_worlds(
     } for world in worlds]
     
     # Cache for 1 minute
-    await redis_client.setex(
+    await r.setex(
         f"worlds:project:{project_id}",
         60,
         json.dumps(result)
@@ -179,8 +182,9 @@ async def update_world(
     db.refresh(world)
     
     # Clear cache
-    await redis_client.delete(f"world:{world_id}")
-    await redis_client.delete(f"worlds:project:{world.project_id}")
+    r = await get_redis()
+    await r.delete(f"world:{world_id}")
+    await r.delete(f"worlds:project:{world.project_id}")
     
     return world
 
@@ -210,8 +214,9 @@ async def delete_world(
     db.commit()
     
     # Clear cache
-    await redis_client.delete(f"world:{world_id}")
-    await redis_client.delete(f"worlds:project:{project_id}")
+    r = await get_redis()
+    await r.delete(f"world:{world_id}")
+    await r.delete(f"worlds:project:{project_id}")
     
     return {"message": "World deleted successfully"}
 

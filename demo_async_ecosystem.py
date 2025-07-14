@@ -21,7 +21,7 @@ def demo_async_training():
     print("=" * 50)
     
     try:
-        from app.utils.async_training import async_training_service
+        from backend.app.services.training.async_training import async_training_service
         
         # Mock character data
         character_data = {
@@ -86,7 +86,7 @@ def demo_data_collection():
     print("=" * 50)
     
     try:
-        from app.utils.async_training import data_collection_service
+        from backend.app.services.training.async_training import data_collection_service
         
         # Mock conversation data
         conversation_messages = [

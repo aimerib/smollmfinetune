@@ -1,7 +1,7 @@
 import redis.asyncio as redis
 import json
 from typing import Optional, Any, Dict
-from app.config import settings
+from backend.app.config import settings
 
 # Redis connection pool
 redis_pool = None

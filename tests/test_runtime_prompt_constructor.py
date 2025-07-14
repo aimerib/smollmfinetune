@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 # Import the class we're testing
-from app.utils.runtime.prompt_constructor import RuntimePromptConstructor
+from backend.app.services.runtime.prompt_constructor import RuntimePromptConstructor
 
 
 class TestRuntimePromptConstructor(unittest.TestCase):

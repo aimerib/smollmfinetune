@@ -2,10 +2,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from app.database import get_db
-from app.models import User
-from app.schemas import UserCreate, UserResponse, Token, LoginRequest
-from app.auth import (
+from backend.app.database import get_db
+from backend.app.models import User
+from backend.app.schemas import UserCreate, UserResponse, Token, LoginRequest
+from backend.app.auth import (
     authenticate_user,
     create_access_token,
     create_refresh_token,
@@ -92,7 +92,7 @@ async def refresh_token(
     """Refresh access token using refresh token."""
     
     from jose import jwt, JWTError
-    from app.config import settings
+    from backend.app.config import settings
     
     try:
         payload = jwt.decode(refresh_token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])

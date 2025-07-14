@@ -14,9 +14,9 @@ from datetime import datetime, timezone
 
 # We expect the SDK to be importable like this
 try:
-    from app.utils.telemetry_sdk import init, log, capture_cfg
-    from app.utils.telemetry_sdk.backends import SQLiteBackend, WandBBackend, CSVBackend
-    from app.utils.telemetry_sdk.cli import format_run_report
+    from backend.app.core.telemetry_sdk import init, log, capture_cfg
+    from backend.app.core.telemetry_sdk.backends import SQLiteBackend, WandBBackend, CSVBackend
+    from backend.app.core.telemetry_sdk.cli import format_run_report
 except ImportError:
     # These will fail initially - that's expected in TDD Red phase
     init = None
@@ -227,7 +227,7 @@ class TestWandBBackend:
                 mock_wandb.init.assert_not_called()
                 assert run_id == "wandb_disabled"
     
-    @patch('app.utils.telemetry_sdk.backends.wandb')
+    @patch('backend.app.core.telemetry_sdk.backends.wandb')
     def test_wandb_backend_initializes_run(self, mock_wandb):
         """WandB backend should initialize wandb run with proper config"""
         mock_run = MagicMock()
@@ -244,7 +244,7 @@ class TestWandBBackend:
         mock_wandb.init.assert_called_once()
         assert run_id == "wandb_test_123"
     
-    @patch('app.utils.telemetry_sdk.backends.wandb')
+    @patch('backend.app.core.telemetry_sdk.backends.wandb')
     def test_wandb_backend_logs_metrics(self, mock_wandb):
         """WandB backend should log metrics to wandb"""
         mock_run = MagicMock()

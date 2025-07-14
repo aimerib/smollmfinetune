@@ -25,7 +25,7 @@ import sys
 sys.path.append('..')
 
 # Import our existing infrastructure
-from app.utils.training import TrainingManager, TrainingCallback
+from backend.app.services.training.training import TrainingManager, TrainingCallback
 from narrative_engine.model import NarrativeLLM, create_narrative_model
 from narrative_engine.config import NarrativeLLMConfig
 from narrative_engine.evaluation import run_evaluation_suite

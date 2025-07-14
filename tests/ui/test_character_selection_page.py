@@ -11,8 +11,8 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 from streamlit.testing.v1 import AppTest
 
-from app.utils.auth.models import User, UserRole
-from app.utils.character.models import CharacterCore, Personality, Relationship
+from backend.app.services.auth.models import User, UserRole
+from backend.app.services.character.models import CharacterCore, Personality, Relationship
 
 
 @pytest.fixture

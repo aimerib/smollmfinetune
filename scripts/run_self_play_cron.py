@@ -28,9 +28,9 @@ project_root = Path(__file__).parent.parent
 sys.path.append(str(project_root))
 
 # Core imports
-from app.utils.inference import InferenceManager
-from app.utils.world import WorldManager
-from app.utils.character.character import CharacterManager
+from backend.app.core.inference.inference import InferenceManager
+from backend.app.services.world.world import WorldManager
+from backend.app.services.character.character import CharacterManager
 from narrative_engine.data_schema import DatasetSample, Turn
 
 # Optional WandB import

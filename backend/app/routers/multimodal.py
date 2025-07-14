@@ -19,7 +19,7 @@ from ..schemas import (
     MultimodalDatasetResponse, 
     MultimodalProgressUpdate
 )
-from ..redis_client import redis_client
+from ..redis_client import get_redis
 from ..celery_app import celery_app
 
 logger = logging.getLogger(__name__)

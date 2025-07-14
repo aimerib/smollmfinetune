@@ -1,6 +1,6 @@
 import pytest
-from app.utils.character.control_token_translator import ControlTokenTranslator
-from app.utils.character.voice_profile import VoiceCharacteristics
+from backend.app.services.character.control_token_translator import ControlTokenTranslator
+from backend.app.services.character.voice_profile import VoiceCharacteristics
 
 @pytest.fixture
 def translator():

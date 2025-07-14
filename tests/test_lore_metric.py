@@ -14,7 +14,7 @@ import json
 import logging
 
 # These imports will fail initially (TDD - red phase)
-from app.utils.evaluation.lore_metric import (
+from backend.app.core.evaluation.lore_metric import (
     calculate_lore_adherence,
     evaluate_multiple_lore_facts,
     LoreEvaluationResult

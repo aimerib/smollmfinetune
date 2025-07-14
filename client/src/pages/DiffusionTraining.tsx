@@ -1,10 +1,6 @@
 import React from 'react';
-import DiffusionTrainingWizard from '@/components/DiffusionTrainingWizard';
-import { Card, CardContent } from '@/components/ui/card';
-import { useDiffusionTraining } from '@/hooks/useDiffusionTraining';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Wifi, WifiOff, Activity, Terminal } from 'lucide-react';
+import DiffusionTrainingWizard from '../components/DiffusionTrainingWizard';
+import { useDiffusionTraining } from '../hooks/useDiffusionTraining';
 
 const DiffusionTrainingPage: React.FC = () => {
   const { connectionStatus, connectWebSocket, disconnectWebSocket } = useDiffusionTraining();
@@ -25,47 +21,47 @@ const DiffusionTrainingPage: React.FC = () => {
 
         {/* Connection Status Panel */}
         <div className="mb-8">
-          <Card className="bg-white border-2 border-blue-100">
-            <CardContent className="p-6">
+          <div className="bg-white border-2 border-blue-100 rounded-lg shadow-sm">
+            <div className="p-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
                   <div className="flex items-center gap-2">
-                    <Terminal className="w-5 h-5 text-gray-600" />
                     <span className="font-semibold">Enhanced Training Server</span>
                   </div>
                   
                   {connectionStatus === 'connected' && (
-                    <Badge className="bg-green-100 text-green-800 border-green-200">
-                      <Wifi className="w-3 h-3 mr-1" />
+                    <span className="px-2 py-1 bg-green-100 text-green-800 border border-green-200 rounded-full text-sm">
                       Connected (ws://localhost:8765)
-                    </Badge>
+                    </span>
                   )}
                   {connectionStatus === 'connecting' && (
-                    <Badge variant="secondary" className="bg-yellow-100 text-yellow-800 border-yellow-200">
-                      <Activity className="w-3 h-3 mr-1 animate-pulse" />
+                    <span className="px-2 py-1 bg-yellow-100 text-yellow-800 border border-yellow-200 rounded-full text-sm">
                       Connecting...
-                    </Badge>
+                    </span>
                   )}
                   {connectionStatus === 'disconnected' && (
-                    <Badge variant="outline" className="bg-gray-100 text-gray-600 border-gray-300">
-                      <WifiOff className="w-3 h-3 mr-1" />
+                    <span className="px-2 py-1 bg-gray-100 text-gray-600 border border-gray-300 rounded-full text-sm">
                       Disconnected
-                    </Badge>
+                    </span>
                   )}
                 </div>
                 
                 <div className="flex gap-2">
                   {connectionStatus === 'disconnected' && (
-                    <Button size="sm" onClick={connectWebSocket}>
-                      <Wifi className="w-4 h-4 mr-1" />
+                    <button 
+                      className="px-3 py-1 text-sm bg-blue-500 text-white rounded hover:bg-blue-600"
+                      onClick={connectWebSocket}
+                    >
                       Connect
-                    </Button>
+                    </button>
                   )}
                   {connectionStatus === 'connected' && (
-                    <Button size="sm" variant="outline" onClick={disconnectWebSocket}>
-                      <WifiOff className="w-4 h-4 mr-1" />
+                    <button 
+                      className="px-3 py-1 text-sm bg-gray-500 text-white rounded hover:bg-gray-600"
+                      onClick={disconnectWebSocket}
+                    >
                       Disconnect
-                    </Button>
+                    </button>
                   )}
                 </div>
               </div>
@@ -79,41 +75,41 @@ const DiffusionTrainingPage: React.FC = () => {
                   💡 <strong>Start the enhanced trainer:</strong> <code className="bg-gray-100 px-1 rounded">python scripts/enhanced_diffusion_training_demo.py</code>
                 </p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {/* Info Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <Card className="bg-blue-50 border-blue-200">
-            <CardContent className="p-6 text-center">
+          <div className="bg-blue-50 border border-blue-200 rounded-lg shadow-sm">
+            <div className="p-6 text-center">
               <div className="text-3xl mb-2">🧠</div>
               <h3 className="font-semibold text-blue-900 mb-2">Multimodal Intelligence</h3>
               <p className="text-sm text-blue-700">
                 Generate text, speech, control tokens, and memory vectors in a unified model architecture
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
           
-          <Card className="bg-purple-50 border-purple-200">
-            <CardContent className="p-6 text-center">
+          <div className="bg-purple-50 border border-purple-200 rounded-lg shadow-sm">
+            <div className="p-6 text-center">
               <div className="text-3xl mb-2">🔗</div>
               <h3 className="font-semibold text-purple-900 mb-2">Cross-Modal Attention</h3>
               <p className="text-sm text-purple-700">
                 Advanced attention mechanisms that align and correlate different modalities
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
           
-          <Card className="bg-green-50 border-green-200">
-            <CardContent className="p-6 text-center">
+          <div className="bg-green-50 border border-green-200 rounded-lg shadow-sm">
+            <div className="p-6 text-center">
               <div className="text-3xl mb-2">⚡</div>
               <h3 className="font-semibold text-green-900 mb-2">Scalable Training</h3>
               <p className="text-sm text-green-700">
                 From small validation models to large production-ready character models
               </p>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
 
         {/* Main Wizard */}
@@ -121,8 +117,8 @@ const DiffusionTrainingPage: React.FC = () => {
         
         {/* Footer Info */}
         <div className="mt-12 text-center">
-          <Card className="bg-gray-50 border-gray-200">
-            <CardContent className="p-6">
+          <div className="bg-gray-50 border border-gray-200 rounded-lg shadow-sm">
+            <div className="p-6">
               <h3 className="font-semibold text-gray-900 mb-2">💡 Training Tips</h3>
               <div className="text-sm text-gray-600 space-y-1">
                 <p>• Start with the <strong>small model</strong> for quick validation and testing</p>
@@ -133,8 +129,8 @@ const DiffusionTrainingPage: React.FC = () => {
                 <p>• 🔗 <strong>Real-time updates</strong> show live training progress via WebSocket connection</p>
                 <p>• 🎯 <strong>Custom features</strong> include layer freezing, progressive unfreezing, and adaptive learning rates</p>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         </div>
       </div>
     </div>

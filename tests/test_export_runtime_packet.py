@@ -11,9 +11,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
 # Import the classes we need to test
-from app.utils.training import TrainingManager
-from app.utils.character.models import CharacterCore, Personality, Relationship
-from app.utils.world import WorldManager, WorldLore, TimelineEvent, Faction
+from backend.app.services.training.training import TrainingManager
+from backend.app.services.character.models import CharacterCore, Personality, Relationship
+from backend.app.services.world.world import WorldManager, WorldLore, TimelineEvent, Faction
 
 
 class TestExportRuntimePacket(unittest.TestCase):

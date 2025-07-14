@@ -348,7 +348,7 @@ class TestDPOIntegration:
     
     def test_dpo_with_rlhf_trainer(self):
         """Test that DPO can use existing RLHF infrastructure"""
-        from app.utils.rlhf_trainer import RLHFConfig
+        from backend.app.services.training.rlhf_trainer import RLHFConfig
         
         # Create DPO-specific config
         config = RLHFConfig(

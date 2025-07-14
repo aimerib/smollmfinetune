@@ -13,7 +13,7 @@ import re
 from pydantic import BaseModel, Field
 import asyncio
 
-from app.utils.openai_client import get_client
+from backend.app.core.openai_client import get_client
 
 logger = logging.getLogger(__name__)
 

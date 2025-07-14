@@ -9,7 +9,7 @@ import pytest
 from datetime import datetime
 from pathlib import Path
 
-from app.utils.world import WorldManager, WorldLore, Place, NPC
+from backend.app.services.world.world import WorldManager, WorldLore, Place, NPC
 from narrative_engine.state_manager import StateManager, EntityState, StateUpdate
 from narrative_engine.memory_schema import MemoryAnnotation
 

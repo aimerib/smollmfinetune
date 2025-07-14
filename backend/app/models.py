@@ -200,8 +200,8 @@ class ChatSession(Base):
     messages = Column(JSON, default=list)
     message_count = Column(Integer, default=0)
     
-    # Metadata
-    metadata = Column(JSON)
+    # Session metadata
+    session_metadata = Column(JSON)
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

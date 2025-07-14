@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Dict, Any
 
 # Import telemetry SDK
-from app.utils.telemetry_sdk import init, log, capture_cfg
+from backend.app.core.telemetry_sdk import init, log, capture_cfg
 
 
 @dataclass

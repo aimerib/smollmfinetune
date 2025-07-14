@@ -1,12 +1,12 @@
 from celery import Celery
-from app.config import settings
+from backend.app.config import settings
 
 # Create Celery app
 celery_app = Celery(
     'character_devkit',
     broker=settings.CELERY_BROKER_URL,
     backend=settings.CELERY_RESULT_BACKEND,
-    include=['app.tasks']
+    include=['backend.app.tasks']
 )
 
 # Configure Celery
@@ -25,7 +25,7 @@ celery_app.conf.update(
 
 # Task routing
 celery_app.conf.task_routes = {
-    'app.tasks.dataset_generation.*': {'queue': 'dataset'},
-    'app.tasks.training.*': {'queue': 'training'},
-    'app.tasks.export.*': {'queue': 'export'},
+    'backend.app.tasks.dataset_generation.*': {'queue': 'dataset'},
+    'backend.app.tasks.training.*': {'queue': 'training'},
+    'backend.app.tasks.export.*': {'queue': 'export'},
 } 

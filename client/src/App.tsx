@@ -10,6 +10,9 @@ import DiffusionTraining from './pages/DiffusionTraining';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import DirectorsView from './pages/DirectorsView';
+import LoginPage from './pages/LoginPage';
+import RegisterPage from './pages/RegisterPage';
+import ProfilePage from './pages/ProfilePage';
 import './styles/design-system.css';
 import './App.css';
 
@@ -19,6 +22,8 @@ function App() {
       <Routes>
         {/* Public routes */}
         <Route path="/" element={<HomePage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         
         {/* Creator routes with layout */}
         <Route path="/creator" element={<CreatorLayout />}>
@@ -34,7 +39,7 @@ function App() {
           <Route path="projects" element={<div>All Projects (TODO)</div>} />
           <Route path="project/:id" element={<div>Project Details (TODO)</div>} />
           <Route path="new-project" element={<div>New Project (TODO)</div>} />
-          <Route path="profile" element={<div>Profile (TODO)</div>} />
+          <Route path="profile" element={<ProfilePage />} />
           <Route path="settings" element={<div>Settings (TODO)</div>} />
           <Route path="api-keys" element={<div>API Keys (TODO)</div>} />
         </Route>

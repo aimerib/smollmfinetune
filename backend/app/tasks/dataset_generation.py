@@ -13,9 +13,9 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import from main app utils
-from app.utils.dataset.multi_turn_dataset_generator import MultiTurnDatasetGenerator
-from app.utils.character.character import CharacterManager
-from app.utils.world import WorldManager
+from backend.app.services.dataset.multi_turn_dataset_generator import MultiTurnDatasetGenerator
+from backend.app.services.character.character import CharacterManager
+from backend.app.services.world.world import WorldManager
 
 class DatasetGenerationTask(Task):
     """Custom task class for dataset generation."""
