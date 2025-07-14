@@ -104,7 +104,7 @@ class TestExportRuntimePacket(unittest.TestCase):
             json.dump(self.training_metadata, f, indent=2)
         
         # Mock the training manager
-        with patch('app.utils.training.TrainingManager.__init__', return_value=None):
+        with patch('backend.app.services.training.training.TrainingManager.__init__', return_value=None):
             self.training_manager = TrainingManager()
             self.training_manager.project_dir = self.training_output_dir
             self.training_manager.base_model = "HuggingFaceTB/SmolLM2-360M-Instruct"

@@ -11,14 +11,14 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Any
 from unittest.mock import Mock, AsyncMock, patch
 
-from narrative_engine.group_dynamics import (
+from backend.app.narrative_engine.group_dynamics import (
     SocialGroup, GroupType, GroupDynamicsManager,
     GroupAwareAgent, GroupInteractionAnalyzer,
     MultiGroupManager, GroupMemoryManager,
     SharedMemory, GroupScenario
 )
-from narrative_engine.state_manager import StateManager, EntityState
-from narrative_engine.relationship_manager import RelationshipManager, EnhancedRelationship
+from backend.app.narrative_engine.state_manager import StateManager, EntityState
+from backend.app.narrative_engine.relationship_manager import RelationshipManager, EnhancedRelationship
 
 
 class TestGroupFormation:

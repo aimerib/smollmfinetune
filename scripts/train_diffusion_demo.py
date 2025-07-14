@@ -22,8 +22,8 @@ import argparse
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.diffusion_trainer import create_diffusion_trainer
-from narrative_engine.diffusion_config import get_small_config, get_medium_config
+from backend.app.narrative_engine.diffusion_trainer import create_diffusion_trainer
+from backend.app.narrative_engine.diffusion_config import get_small_config, get_medium_config
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

@@ -9,9 +9,9 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 from datetime import datetime
 
-from narrative_engine.agent import BaseAgent, Perception, MoveToAction, SpeakToAction
-from narrative_engine.types import ThinkResult, SubtextParseError
-from narrative_engine.state_manager import StateManager
+from backend.app.narrative_engine.agent import BaseAgent, Perception, MoveToAction, SpeakToAction
+from backend.app.narrative_engine.types import ThinkResult, SubtextParseError
+from backend.app.narrative_engine.state_manager import StateManager
 
 
 class TestAgentThink:

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 
 from pydantic import BaseModel, Field, conlist, field_validator
 
-from utils.openai_client import get_client, OpenAIClient
+from .openai_client import get_client, OpenAIClient
 
 logger = logging.getLogger(__name__)
 

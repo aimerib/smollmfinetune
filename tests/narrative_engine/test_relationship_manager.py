@@ -11,9 +11,9 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-from narrative_engine.ecology import RelationshipManager, EnhancedRelationship
-from narrative_engine.state_manager import StateManager, EntityState, StateUpdate, EventLog
-from narrative_engine.agent import Action, SpeakToAction, ProactiveAgent
+from backend.app.narrative_engine.ecology import RelationshipManager, EnhancedRelationship
+from backend.app.narrative_engine.state_manager import StateManager, EntityState, StateUpdate, EventLog
+from backend.app.narrative_engine.agent import Action, SpeakToAction, ProactiveAgent
 
 
 @pytest.fixture

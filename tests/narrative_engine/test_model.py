@@ -1,7 +1,7 @@
 import pytest
 import torch
-from narrative_engine.model import NarrativeLLM, create_narrative_model
-from narrative_engine.config import NarrativeLLMConfig
+from backend.app.narrative_engine.model import NarrativeLLM, create_narrative_model
+from backend.app.narrative_engine.config import NarrativeLLMConfig
 
 
 def test_model_imports():

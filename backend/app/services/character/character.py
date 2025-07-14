@@ -6,7 +6,7 @@ import logging
 
 from backend.app.core.openai_client import get_client
 
-# from utils.openai_client import OpenAIClient
+# from .openai_client import OpenAIClient
 
 from backend.app.services.world.world import WorldManager
 from .models import CharacterCore, Personality, Relationship, llm_estimate_big5

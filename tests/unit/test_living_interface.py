@@ -18,7 +18,7 @@ class TestLivingInterfaceModels:
 
     def test_head_output_creation(self):
         """Test HeadOutput dataclass creation."""
-        from utils.living_interface import HeadOutput, HeadType
+        from backend.app.core.living_interface import HeadOutput, HeadType
         
         output = HeadOutput(
             head_type=HeadType.MEMORY,
@@ -35,7 +35,7 @@ class TestLivingInterfaceModels:
 
     def test_user_interaction_creation(self):
         """Test UserInteraction dataclass creation."""
-        from utils.living_interface import UserInteraction, InteractionType
+        from backend.app.core.living_interface import UserInteraction, InteractionType
         
         interaction = UserInteraction(
             interaction_type=InteractionType.DIALOGUE,
@@ -50,7 +50,7 @@ class TestLivingInterfaceModels:
 
     def test_voice_adaptation_config(self):
         """Test VoiceAdaptationConfig model."""
-        from utils.living_interface import VoiceAdaptationConfig
+        from backend.app.core.living_interface import VoiceAdaptationConfig
         
         config = VoiceAdaptationConfig(
             adaptation_speed=0.8,
@@ -70,7 +70,7 @@ class TestTriHeadInterface:
 
     def test_interface_initialization(self):
         """Test TriHeadInterface initialization."""
-        from utils.living_interface import TriHeadInterface
+        from backend.app.core.living_interface import TriHeadInterface
         
         interface = TriHeadInterface("test_character")
         
@@ -82,7 +82,7 @@ class TestTriHeadInterface:
     @pytest.mark.asyncio
     async def test_query_memory_head(self):
         """Test querying the memory head."""
-        from utils.living_interface import TriHeadInterface, HeadType
+        from backend.app.core.living_interface import TriHeadInterface, HeadType
         
         interface = TriHeadInterface("test_character")
         
@@ -100,8 +100,8 @@ class TestTriHeadInterface:
     @pytest.mark.asyncio
     async def test_query_story_head(self):
         """Test querying the story generation head."""
-        from utils.living_interface import TriHeadInterface, HeadType
-        from utils.narrative_context import NarrativeContext
+        from backend.app.core.living_interface import TriHeadInterface, HeadType
+        from backend.app.core.narrative_context import NarrativeContext
         
         interface = TriHeadInterface("test_character")
         
@@ -124,7 +124,7 @@ class TestTriHeadInterface:
     @pytest.mark.asyncio
     async def test_query_control_head(self):
         """Test querying the control head."""
-        from utils.living_interface import TriHeadInterface, HeadType
+        from backend.app.core.living_interface import TriHeadInterface, HeadType
         
         interface = TriHeadInterface("test_character")
         
@@ -164,7 +164,7 @@ class TestLivingInterfaceOrchestrator:
 
     def test_orchestrator_initialization(self, mock_client):
         """Test LivingInterfaceOrchestrator initialization."""
-        from utils.living_interface import LivingInterfaceOrchestrator, VoiceAdaptationConfig
+        from backend.app.core.living_interface import LivingInterfaceOrchestrator, VoiceAdaptationConfig
         
         config = VoiceAdaptationConfig(adaptation_speed=0.9)
         orchestrator = LivingInterfaceOrchestrator(
@@ -180,7 +180,7 @@ class TestLivingInterfaceOrchestrator:
     @pytest.mark.asyncio
     async def test_process_user_interaction(self, mock_client):
         """Test processing a user interaction."""
-        from utils.living_interface import (
+        from backend.app.core.living_interface import (
             LivingInterfaceOrchestrator, UserInteraction, InteractionType
         )
         
@@ -225,10 +225,10 @@ class TestLivingInterfaceOrchestrator:
     @pytest.mark.asyncio
     async def test_apply_tri_head_influences(self, mock_client):
         """Test applying tri-head influences to emotional state."""
-        from utils.living_interface import (
+        from backend.app.core.living_interface import (
             LivingInterfaceOrchestrator, HeadOutput, HeadType
         )
-        from utils.narrative_context import EmotionalState
+        from backend.app.core.narrative_context import EmotionalState
         
         orchestrator = LivingInterfaceOrchestrator("test_character", client=mock_client)
         
@@ -286,8 +286,8 @@ class TestLivingInterfaceOrchestrator:
 
     def test_get_character_emotional_summary(self, mock_client):
         """Test getting character emotional summary."""
-        from utils.living_interface import LivingInterfaceOrchestrator
-        from utils.narrative_context import EmotionalState
+        from backend.app.core.living_interface import LivingInterfaceOrchestrator
+        from backend.app.core.narrative_context import EmotionalState
         
         orchestrator = LivingInterfaceOrchestrator("test_character", client=mock_client)
         
@@ -310,8 +310,8 @@ class TestLivingInterfaceOrchestrator:
     @pytest.mark.asyncio
     async def test_adapt_voice_parameters(self, mock_client):
         """Test adapting voice parameters based on emotional state."""
-        from utils.living_interface import LivingInterfaceOrchestrator
-        from utils.narrative_context import EmotionalState, NarrativeContext
+        from backend.app.core.living_interface import LivingInterfaceOrchestrator
+        from backend.app.core.narrative_context import EmotionalState, NarrativeContext
         
         orchestrator = LivingInterfaceOrchestrator("test_character", client=mock_client)
         
@@ -354,8 +354,8 @@ class TestLivingInterfaceOrchestrator:
     @pytest.mark.asyncio
     async def test_adapt_voice_parameters_no_state(self, mock_client):
         """Test adapting voice parameters when no emotional state exists."""
-        from utils.living_interface import LivingInterfaceOrchestrator
-        from utils.narrative_context import NarrativeContext
+        from backend.app.core.living_interface import LivingInterfaceOrchestrator
+        from backend.app.core.narrative_context import NarrativeContext
         
         orchestrator = LivingInterfaceOrchestrator("test_character", client=mock_client)
         
@@ -383,7 +383,7 @@ class TestLivingInterfaceOrchestrator:
     @pytest.mark.asyncio
     async def test_emotional_state_progression(self, mock_client):
         """Test that emotional states progress naturally through interactions."""
-        from utils.living_interface import (
+        from backend.app.core.living_interface import (
             LivingInterfaceOrchestrator, UserInteraction, InteractionType
         )
         
@@ -430,7 +430,7 @@ class TestLivingInterfaceOrchestrator:
 
     def test_voice_adaptation_config_influences(self, mock_client):
         """Test that VoiceAdaptationConfig properly influences the system."""
-        from utils.living_interface import LivingInterfaceOrchestrator, VoiceAdaptationConfig
+        from backend.app.core.living_interface import LivingInterfaceOrchestrator, VoiceAdaptationConfig
         
         # High memory influence config
         high_memory_config = VoiceAdaptationConfig(

@@ -67,7 +67,7 @@ def test_worker_functions_importable():
     except ImportError as e:
         pytest.skip(f"Worker functions not available: {e}")
 
-@patch('app.utils.async_training.session_scope')
+@patch('backend.app.services.training.async_training.session_scope')
 def test_async_training_basic_flow(mock_session_scope):
     """Test basic async training flow"""
     try:

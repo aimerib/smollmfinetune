@@ -6,7 +6,7 @@ from model output, ensuring proper error handling and edge cases.
 """
 
 import pytest
-from narrative_engine.subtext_parser import (
+from backend.app.narrative_engine.subtext_parser import (
     parse_subtext_and_action,
     validate_tagged_output,
     SubtextParseError

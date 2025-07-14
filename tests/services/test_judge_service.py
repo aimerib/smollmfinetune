@@ -36,7 +36,7 @@ class TestJudgeService(unittest.TestCase):
         self.test_lore_fact = "Magic is forbidden in the capital city"
         
         # This will fail initially since the service doesn't exist yet
-        from services.judge_service.main import app
+        from backend.app.services.judge_service.main import app
         self.client = TestClient(app)
     
     def test_health_endpoint(self):
@@ -83,7 +83,7 @@ class TestJudgeService(unittest.TestCase):
     
     def test_cache_functionality(self):
         """Test that identical requests are cached"""
-        from services.judge_service.cache import CacheManager
+        from backend.app.services.judge_service.cache import CacheManager
         
         with tempfile.NamedTemporaryFile(delete=False) as temp_db:
             cache = CacheManager(temp_db.name)
@@ -106,7 +106,7 @@ class TestJudgeService(unittest.TestCase):
     
     def test_cache_key_generation(self):
         """Test SHA256 cache key generation"""
-        from services.judge_service.cache import CacheManager
+        from backend.app.services.judge_service.cache import CacheManager
         
         cache = CacheManager()
         key1 = cache._generate_cache_key("text1", "target1")
@@ -122,7 +122,7 @@ class TestJudgeService(unittest.TestCase):
     
     def test_cache_expiry(self):
         """Test cache expiry functionality"""
-        from services.judge_service.cache import CacheManager
+        from backend.app.services.judge_service.cache import CacheManager
         import time
         
         with tempfile.NamedTemporaryFile(delete=False) as temp_db:
@@ -200,7 +200,7 @@ class TestJudgeService(unittest.TestCase):
     
     def test_telemetry_logging(self):
         """Test that telemetry data is logged correctly"""
-        from services.judge_service.main import telemetry_logger
+        from backend.app.services.judge_service.main import telemetry_logger
         
         # Simple test - just ensure endpoint works and telemetry logger exists
         response = self.client.post("/personality_alignment", json={
@@ -215,7 +215,7 @@ class TestJudgeService(unittest.TestCase):
     
     def test_prompt_template_loading(self):
         """Test that prompt templates are loaded correctly"""
-        from services.judge_service.prompts import load_personality_prompt, load_lore_prompt
+        from backend.app.services.judge_service.prompts import load_personality_prompt, load_lore_prompt
         
         personality_prompt = load_personality_prompt()
         lore_prompt = load_lore_prompt()
@@ -236,7 +236,7 @@ class TestJudgeServiceIntegration(unittest.TestCase):
     def test_end_to_end_personality_evaluation(self):
         """Test end-to-end personality evaluation with real LLM calls"""
         # This test will initially fail - that's expected in TDD
-        from services.judge_service.main import app
+        from backend.app.services.judge_service.main import app
         
         client = TestClient(app)
         
@@ -268,7 +268,7 @@ class TestJudgeServiceIntegration(unittest.TestCase):
     @pytest.mark.evaluation
     def test_end_to_end_lore_adherence_evaluation(self):
         """Test end-to-end lore adherence evaluation with real LLM calls"""
-        from services.judge_service.main import app
+        from backend.app.services.judge_service.main import app
         
         client = TestClient(app)
         
@@ -308,7 +308,7 @@ class TestJudgeServiceIntegration(unittest.TestCase):
     @pytest.mark.evaluation
     def test_caching_with_real_requests(self):
         """Test that caching works correctly with real LLM requests"""
-        from services.judge_service.main import app
+        from backend.app.services.judge_service.main import app
         
         client = TestClient(app)
         

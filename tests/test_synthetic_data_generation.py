@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch, AsyncMock
 from typing import List, Dict, Any
 
-from narrative_engine.data_schema import DatasetSample, Turn
+from backend.app.narrative_engine.data_schema import DatasetSample, Turn
 
 
 class TestSyntheticDataGeneration:

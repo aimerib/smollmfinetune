@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 # Check for narrative engine availability
 try:
-    from narrative_engine.model import NarrativeLLM, NarrativeLLMConfig
+    from .narrative_engine.model import NarrativeLLM, NarrativeLLMConfig
     NARRATIVE_ENGINE_AVAILABLE = True
 except ImportError:
     NARRATIVE_ENGINE_AVAILABLE = False

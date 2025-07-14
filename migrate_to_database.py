@@ -14,7 +14,7 @@ from pathlib import Path
 # Add the app directory to Python path
 sys.path.insert(0, str(Path(__file__).parent / "app"))
 
-from utils.database import (
+from backend.app.core.database import (
     init_database, DatabaseMigrator, 
     DatabaseWorldManager, session_scope,
     User, World, Character

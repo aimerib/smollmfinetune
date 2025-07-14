@@ -183,7 +183,7 @@ def main(argv: List[str] | None = None) -> None:
         model_b = _MockTripleHeadModel("ModelB")
     else:
         try:
-            from narrative_engine.model import create_narrative_model  # heavy import
+            from backend.app.narrative_engine.model import create_narrative_model  # heavy import
         except Exception as exc:
             print("❌ Failed to import Narrative-LLM. Try --mock-mode for quick tests.", file=sys.stderr)
             raise exc

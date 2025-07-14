@@ -20,9 +20,9 @@ from typing import Dict, Any, Optional
 # Add narrative engine to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from narrative_engine.evaluation import run_evaluation_suite
-from narrative_engine.model import NarrativeLLM, create_narrative_model
-from narrative_engine.config import NarrativeLLMConfig
+from backend.app.narrative_engine.evaluation import run_evaluation_suite
+from backend.app.narrative_engine.model import NarrativeLLM, create_narrative_model
+from backend.app.narrative_engine.config import NarrativeLLMConfig
 
 logging.basicConfig(
     level=logging.INFO,

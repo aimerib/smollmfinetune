@@ -13,7 +13,7 @@ import numpy as np
 # Test that evaluation module exists and has expected structure
 def test_evaluation_module_structure():
     """Test that the evaluation module has the expected structure"""
-    from narrative_engine.evaluation import (
+    from backend.app.narrative_engine.evaluation import (
         eval_basic_generation,
         eval_dual_head_sanity,
         eval_training_progress,
@@ -31,7 +31,7 @@ def test_evaluation_module_structure():
 @pytest.mark.evaluation
 def test_basic_generation_evaluation():
     """Test basic text generation evaluation"""
-    from narrative_engine.evaluation.eval_basic_generation import BasicGenerationEvaluator
+    from backend.app.narrative_engine.evaluation.eval_basic_generation import BasicGenerationEvaluator
     
     evaluator = BasicGenerationEvaluator()
     
@@ -67,7 +67,7 @@ def test_basic_generation_evaluation():
 
 def test_dual_head_sanity_evaluation():
     """Test dual-head output validation"""
-    from narrative_engine.evaluation.eval_dual_head_sanity import DualHeadSanityEvaluator
+    from backend.app.narrative_engine.evaluation.eval_dual_head_sanity import DualHeadSanityEvaluator
     
     evaluator = DualHeadSanityEvaluator()
     
@@ -94,7 +94,7 @@ def test_dual_head_sanity_evaluation():
 
 def test_training_progress_evaluation():
     """Test training progress tracking"""
-    from narrative_engine.evaluation.eval_training_progress import TrainingProgressEvaluator
+    from backend.app.narrative_engine.evaluation.eval_training_progress import TrainingProgressEvaluator
     
     evaluator = TrainingProgressEvaluator()
     
@@ -121,7 +121,7 @@ def test_training_progress_evaluation():
 
 def test_evaluation_suite_integration():
     """Test the main evaluation suite runner"""
-    from narrative_engine.evaluation import run_evaluation_suite
+    from backend.app.narrative_engine.evaluation import run_evaluation_suite
     
     # Mock model and tokenizer
     mock_model = Mock()
@@ -168,7 +168,7 @@ def test_evaluation_suite_integration():
 
 def test_wandb_logging_integration():
     """Test that evaluation results are logged to wandb"""
-    from narrative_engine.evaluation import run_evaluation_suite
+    from backend.app.narrative_engine.evaluation import run_evaluation_suite
     
     with patch('wandb.log') as mock_wandb_log:
         # Mock components
@@ -200,7 +200,7 @@ def test_wandb_logging_integration():
 
 def test_json_output_format():
     """Test that results are saved in correct JSON format"""
-    from narrative_engine.evaluation import run_evaluation_suite
+    from backend.app.narrative_engine.evaluation import run_evaluation_suite
     
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "eval_results.json"
@@ -231,7 +231,7 @@ def test_json_output_format():
 
 def test_evaluation_failure_handling():
     """Test that evaluation handles failures gracefully"""
-    from narrative_engine.evaluation import run_evaluation_suite
+    from backend.app.narrative_engine.evaluation import run_evaluation_suite
     
     # Mock model that raises exception
     mock_model = Mock()
@@ -255,7 +255,7 @@ def test_evaluation_failure_handling():
 
 def test_checkpoint_blocking_criteria():
     """Test that bad checkpoints are properly identified"""
-    from narrative_engine.evaluation import run_evaluation_suite
+    from backend.app.narrative_engine.evaluation import run_evaluation_suite
     
     # Mock a model that generates garbage
     mock_model = Mock()

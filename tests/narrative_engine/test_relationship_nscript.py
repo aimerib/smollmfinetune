@@ -13,13 +13,13 @@ import asyncio
 from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime
 
-from narrative_engine.nscript import (
+from backend.app.narrative_engine.nscript import (
     RelationshipQueryEngine, RelationshipQuery, RelationshipConditionEvaluator,
     TriggerMonitor, ScriptManager, Script, NScriptTrigger, NScriptAction,
     TriggerType, ActionType, GenerationParams, ControlParams, MemoryParams
 )
-from narrative_engine.state_manager import StateManager, EntityState, StateUpdate
-from narrative_engine.relationship_manager import RelationshipManager, EnhancedRelationship
+from backend.app.narrative_engine.state_manager import StateManager, EntityState, StateUpdate
+from backend.app.narrative_engine.relationship_manager import RelationshipManager, EnhancedRelationship
 
 
 class TestRelationshipQueryEngine:
@@ -479,7 +479,7 @@ class TestRelationshipScriptIntegration:
     @pytest.mark.asyncio
     async def test_betrayal_scenario_complete_workflow(self):
         """Test complete betrayal scenario from relationship change to script execution"""
-        from narrative_engine.nscript import GenerationParams, ControlParams, MemoryParams
+        from backend.app.narrative_engine.nscript import GenerationParams, ControlParams, MemoryParams
         
         # Create betrayal script
         betrayal_script = Script(
@@ -585,7 +585,7 @@ class TestRelationshipScriptIntegration:
     @pytest.mark.asyncio
     async def test_multiple_relationship_triggers_coexist(self):
         """Test that multiple relationship trigger types can coexist and fire independently"""
-        from narrative_engine.nscript import GenerationParams, ControlParams, MemoryParams
+        from backend.app.narrative_engine.nscript import GenerationParams, ControlParams, MemoryParams
         
         # Create multiple scripts with different trigger types
         scripts = [

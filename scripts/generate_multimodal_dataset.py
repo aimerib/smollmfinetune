@@ -16,11 +16,11 @@ import sys
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.synthetic_multimodal_dataset import (
+from backend.app.narrative_engine.synthetic_multimodal_dataset import (
     MultimodalDatasetGenerator,
     SyntheticGenerationConfig
 )
-from narrative_engine.tts_integration import TTSOrchestrator
+from backend.app.narrative_engine.tts_integration import TTSOrchestrator
 
 logging.basicConfig(
     level=logging.INFO,

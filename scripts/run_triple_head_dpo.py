@@ -22,9 +22,9 @@ import numpy as np
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.model import NarrativeLLM
-from narrative_engine.config import NarrativeLLMConfig
-from narrative_engine.dpo_trainer import (
+from backend.app.narrative_engine.model import NarrativeLLM
+from backend.app.narrative_engine.config import NarrativeLLMConfig
+from backend.app.narrative_engine.dpo_trainer import (
     CoordinatedDPOTrainer,
     TripleHeadDPOConfig,
     load_head_specific_preferences

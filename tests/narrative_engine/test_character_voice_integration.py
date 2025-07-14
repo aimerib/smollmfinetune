@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock, AsyncMock
 # Mock the modules that will be imported by the class under test
 from backend.app.services.character.voice_profile import CharacterVoiceManager, VoiceCharacteristics
 from backend.app.services.character.control_token_translator import ControlTokenTranslator
-from narrative_engine.tts_integration import MicroserviceTTSProvider
+from backend.app.narrative_engine.tts_integration import MicroserviceTTSProvider
 
 # Since the file doesn't exist yet, we'll define a dummy class for type hinting
 # and to allow the test file to be written. This will be replaced by the
@@ -41,9 +41,9 @@ async def test_synthesize_character_speech_integration(sample_character):
     Tests the full integration of the character voice synthesizer.
     """
     # We will patch the dependencies of CharacterVoiceSynthesizer
-    with patch('narrative_engine.character_voice_integration.CharacterVoiceManager') as MockVoiceManager, \
-         patch('narrative_engine.character_voice_integration.ControlTokenTranslator') as MockTokenTranslator, \
-         patch('narrative_engine.character_voice_integration.MicroserviceTTSProvider') as MockTTSProvider:
+    with patch('backend.app.narrative_engine.character_voice_integration.CharacterVoiceManager') as MockVoiceManager, \
+         patch('backend.app.narrative_engine.character_voice_integration.ControlTokenTranslator') as MockTokenTranslator, \
+         patch('backend.app.narrative_engine.character_voice_integration.MicroserviceTTSProvider') as MockTTSProvider:
         
         # Configure mocks
         mock_voice_manager = MockVoiceManager.return_value
@@ -64,7 +64,7 @@ async def test_synthesize_character_speech_integration(sample_character):
         mock_token_translator.extract_control_tokens.return_value = ("I am happy!", {"emotion": "joy"})
 
         # Now import the class to be tested
-        from narrative_engine.character_voice_integration import CharacterVoiceSynthesizer
+        from backend.app.narrative_engine.character_voice_integration import CharacterVoiceSynthesizer
 
         # Instantiate the synthesizer
         synthesizer = CharacterVoiceSynthesizer()

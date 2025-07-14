@@ -130,7 +130,7 @@ class TestTelemetrySDKCore:
             with patch('subprocess.check_output') as mock_subprocess:
                 mock_subprocess.side_effect = [b'abc123\n', b'numpy==1.0\n']
                 
-                with patch('app.utils.telemetry_sdk.backends.wandb') as mock_wandb:
+                with patch('backend.app.core.telemetry_sdk.backends.wandb') as mock_wandb:
                     mock_wandb.init.return_value = MagicMock()
                     
                     run_id = init(
@@ -220,7 +220,7 @@ class TestWandBBackend:
     def test_wandb_backend_respects_disabled_flag(self):
         """WandB backend should not initialize when WANDB_DISABLED is set"""
         with patch.dict(os.environ, {'WANDB_DISABLED': 'true'}):
-            with patch('app.utils.telemetry_sdk.backends.wandb') as mock_wandb:
+            with patch('backend.app.core.telemetry_sdk.backends.wandb') as mock_wandb:
                 backend = WandBBackend()
                 run_id = backend.init_run("test_run", {"lr": 0.01}, {"git_sha": "abc123"})
                 
@@ -363,7 +363,7 @@ class TestFailureHandlingAndResilience:
             csv_path = os.path.join(temp_dir, 'fallback.csv')
             
             # Mock SQLite failure
-            with patch('app.utils.telemetry_sdk.backends.sqlite3.connect', side_effect=Exception("DB Error")):
+            with patch('backend.app.core.telemetry_sdk.backends.sqlite3.connect', side_effect=Exception("DB Error")):
                 # Should fallback to CSV and not crash
                 run_id = init(
                     run_name="test_run",

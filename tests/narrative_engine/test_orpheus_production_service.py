@@ -33,7 +33,7 @@ class TestServiceMode:
     
     def test_service_modes(self):
         """Test ServiceMode enum values"""
-        from narrative_engine.orpheus_production_service import ServiceMode
+        from backend.app.narrative_engine.orpheus_production_service import ServiceMode
         
         assert ServiceMode.PLATFORM.value == "platform"
         assert ServiceMode.DATA_GENERATION.value == "data_generation"
@@ -44,7 +44,7 @@ class TestWorkloadScheduler:
     
     def test_scheduler_init(self):
         """Test WorkloadScheduler initialization"""
-        from narrative_engine.orpheus_production_service import WorkloadScheduler
+        from backend.app.narrative_engine.orpheus_production_service import WorkloadScheduler
         
         scheduler = WorkloadScheduler()
         assert scheduler.platform_start == dt_time(8, 0)
@@ -53,31 +53,31 @@ class TestWorkloadScheduler:
     
     def test_platform_hours(self):
         """Test platform mode during business hours"""
-        from narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
+        from backend.app.narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
         
         scheduler = WorkloadScheduler()
         
         # Mock current time to 10 AM
-        with patch('narrative_engine.orpheus_production_service.datetime') as mock_dt:
+        with patch('backend.app.narrative_engine.orpheus_production_service.datetime') as mock_dt:
             mock_dt.now.return_value.time.return_value = dt_time(10, 0)
             mode = scheduler.get_current_mode()
             assert mode == ServiceMode.PLATFORM
     
     def test_data_generation_hours(self):
         """Test data generation mode during night hours"""
-        from narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
+        from backend.app.narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
         
         scheduler = WorkloadScheduler()
         
         # Mock current time to 2 AM
-        with patch('narrative_engine.orpheus_production_service.datetime') as mock_dt:
+        with patch('backend.app.narrative_engine.orpheus_production_service.datetime') as mock_dt:
             mock_dt.now.return_value.time.return_value = dt_time(2, 0)
             mode = scheduler.get_current_mode()
             assert mode == ServiceMode.DATA_GENERATION
     
     def test_manual_override(self):
         """Test manual override functionality"""
-        from narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
+        from backend.app.narrative_engine.orpheus_production_service import WorkloadScheduler, ServiceMode
         
         scheduler = WorkloadScheduler()
         
@@ -95,7 +95,7 @@ class TestSynthesisRequest:
     
     def test_request_creation(self):
         """Test SynthesisRequest creation"""
-        from narrative_engine.orpheus_production_service import SynthesisRequest
+        from backend.app.narrative_engine.orpheus_production_service import SynthesisRequest
         
         request = SynthesisRequest(
             text="Hello world",
@@ -111,7 +111,7 @@ class TestSynthesisRequest:
     
     def test_request_auto_id(self):
         """Test automatic request ID generation"""
-        from narrative_engine.orpheus_production_service import SynthesisRequest
+        from backend.app.narrative_engine.orpheus_production_service import SynthesisRequest
         
         request1 = SynthesisRequest(text="Test 1")
         request2 = SynthesisRequest(text="Test 2")
@@ -127,7 +127,7 @@ class TestOrpheusProductionService:
     @pytest.fixture
     def service(self):
         """Create test service instance"""
-        from narrative_engine.orpheus_production_service import OrpheusProductionService
+        from backend.app.narrative_engine.orpheus_production_service import OrpheusProductionService
         return OrpheusProductionService()
     
     def test_service_init(self, service):
@@ -182,7 +182,7 @@ class TestOrpheusProductionService:
     @pytest.mark.asyncio
     async def test_synthesize_request(self, service):
         """Test synthesis request processing"""
-        from narrative_engine.orpheus_production_service import SynthesisRequest
+        from backend.app.narrative_engine.orpheus_production_service import SynthesisRequest
         
         # Mock model loading to avoid actual model
         service.model = None
@@ -226,7 +226,7 @@ class TestIntegrationWithTTSOrchestrator:
     async def test_orpheus_tts_production_service_integration(self):
         """Test OrpheusTTS provider with production service"""
         # Mock the production service
-        with patch('narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
+        with patch('backend.app.narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
             mock_service = Mock()
             mock_result = Mock()
             mock_result.audio = np.random.randn(1000).astype(np.float32)
@@ -236,7 +236,7 @@ class TestIntegrationWithTTSOrchestrator:
             mock_service.synthesize = AsyncMock(return_value=mock_result)
             mock_get_service.return_value = mock_service
             
-            from narrative_engine.tts_integration import OrpheusTTS
+            from backend.app.narrative_engine.tts_integration import OrpheusTTS
             
             # Create provider with production service enabled
             orpheus = OrpheusTTS(use_production_service=True)
@@ -254,10 +254,10 @@ class TestIntegrationWithTTSOrchestrator:
     async def test_orpheus_tts_fallback_to_direct(self):
         """Test OrpheusTTS fallback to direct model when production service fails"""
         # Mock production service to fail
-        with patch('narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
+        with patch('backend.app.narrative_engine.orpheus_production_service.get_orpheus_service') as mock_get_service:
             mock_get_service.side_effect = Exception("Service unavailable")
             
-            from narrative_engine.tts_integration import OrpheusTTS
+            from backend.app.narrative_engine.tts_integration import OrpheusTTS
             
             # Create provider with production service enabled
             orpheus = OrpheusTTS(use_production_service=True)
@@ -283,7 +283,7 @@ class TestIntegrationWithTTSOrchestrator:
     @pytest.mark.asyncio
     async def test_tts_orchestrator_with_production_orpheus(self):
         """Test TTSOrchestrator using production Orpheus service"""
-        from narrative_engine.tts_integration import TTSOrchestrator
+        from backend.app.narrative_engine.tts_integration import TTSOrchestrator
         
         orchestrator = TTSOrchestrator()
         
@@ -320,7 +320,7 @@ class TestDualModeWorkflow:
     @pytest.mark.asyncio
     async def test_mode_switching_workflow(self):
         """Test the complete mode switching workflow"""
-        from narrative_engine.orpheus_production_service import (
+        from backend.app.narrative_engine.orpheus_production_service import (
             OrpheusProductionService, 
             ServiceMode,
             SynthesisRequest
@@ -366,7 +366,7 @@ class TestPerformanceMetrics:
     @pytest.mark.asyncio
     async def test_metrics_collection(self):
         """Test performance metrics collection"""
-        from narrative_engine.orpheus_production_service import (
+        from backend.app.narrative_engine.orpheus_production_service import (
             OrpheusProductionService,
             SynthesisRequest
         )
@@ -386,7 +386,7 @@ class TestPerformanceMetrics:
     @pytest.mark.asyncio
     async def test_memory_usage_monitoring(self):
         """Test memory usage monitoring"""
-        from narrative_engine.orpheus_production_service import OrpheusProductionService
+        from backend.app.narrative_engine.orpheus_production_service import OrpheusProductionService
         
         service = OrpheusProductionService()
         memory_stats = service._get_memory_usage()

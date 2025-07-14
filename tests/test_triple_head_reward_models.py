@@ -16,7 +16,7 @@ import numpy as np
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.reward_models import RewardModelOutput
+from backend.app.narrative_engine.reward_models import RewardModelOutput
 
 
 class TestGenerationHeadRewardModel:
@@ -24,7 +24,7 @@ class TestGenerationHeadRewardModel:
     
     def test_reward_model_architecture(self):
         """Test generation head reward model architecture"""
-        from narrative_engine.reward_models import GenerationRewardModel
+        from backend.app.narrative_engine.reward_models import GenerationRewardModel
         
         # Create model
         model = GenerationRewardModel(
@@ -54,7 +54,7 @@ class TestGenerationHeadRewardModel:
     
     def test_generation_reward_training(self):
         """Test training generation reward model on preference data"""
-        from narrative_engine.reward_models import GenerationRewardModel, train_reward_model
+        from backend.app.narrative_engine.reward_models import GenerationRewardModel, train_reward_model
         
         # Mock preference data
         preferences = [
@@ -66,7 +66,7 @@ class TestGenerationHeadRewardModel:
         ]
         
         # Create mock model
-        with patch('narrative_engine.reward_models.GenerationRewardModel') as MockModel:
+        with patch('backend.app.narrative_engine.reward_models.GenerationRewardModel') as MockModel:
             mock_model = MockModel.return_value
             # Add parameters method that returns actual tensors
             mock_param = torch.nn.Parameter(torch.zeros(1))
@@ -90,7 +90,7 @@ class TestControlHeadRewardModel:
     
     def test_control_reward_architecture(self):
         """Test control head reward model architecture"""
-        from narrative_engine.reward_models import ControlRewardModel
+        from backend.app.narrative_engine.reward_models import ControlRewardModel
         
         # Create model
         model = ControlRewardModel(
@@ -117,7 +117,7 @@ class TestControlHeadRewardModel:
     
     def test_control_preference_format(self):
         """Test control head preference data format"""
-        from narrative_engine.reward_models import prepare_control_preferences
+        from backend.app.narrative_engine.reward_models import prepare_control_preferences
         
         # Mock preference data
         raw_preferences = [
@@ -143,7 +143,7 @@ class TestMemoryHeadRewardModel:
     
     def test_memory_reward_architecture(self):
         """Test memory head reward model architecture"""
-        from narrative_engine.reward_models import MemoryRewardModel
+        from backend.app.narrative_engine.reward_models import MemoryRewardModel
         
         # Create model
         model = MemoryRewardModel(
@@ -173,7 +173,7 @@ class TestMemoryHeadRewardModel:
     
     def test_memory_preference_processing(self):
         """Test memory preference data processing"""
-        from narrative_engine.reward_models import prepare_memory_preferences
+        from backend.app.narrative_engine.reward_models import prepare_memory_preferences
         
         # Mock preference data
         raw_preferences = [
@@ -200,7 +200,7 @@ class TestCoordinatedRewardModel:
     
     def test_coordinated_architecture(self):
         """Test coordinated reward model that evaluates all heads together"""
-        from narrative_engine.reward_models import CoordinatedRewardModel
+        from backend.app.narrative_engine.reward_models import CoordinatedRewardModel
         
         # Create model
         model = CoordinatedRewardModel(
@@ -250,7 +250,7 @@ class TestRewardModelTrainingScripts:
     
     def test_preference_data_loading(self):
         """Test loading preference data from JSONL files"""
-        from narrative_engine.reward_models import load_head_preferences
+        from backend.app.narrative_engine.reward_models import load_head_preferences
         
         # Create mock preference files
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -276,11 +276,11 @@ class TestRewardModelIntegration:
     
     def test_reward_models_with_dpo(self):
         """Test that reward models can be used in DPO training"""
-        from narrative_engine.reward_models import GenerationRewardModel
-        from narrative_engine.dpo_trainer import CoordinatedDPOTrainer
+        from backend.app.narrative_engine.reward_models import GenerationRewardModel
+        from backend.app.narrative_engine.dpo_trainer import CoordinatedDPOTrainer
         
         # Mock components
-        with patch('narrative_engine.reward_models.GenerationRewardModel') as MockRM:
+        with patch('backend.app.narrative_engine.reward_models.GenerationRewardModel') as MockRM:
             mock_rm = MockRM.return_value
             mock_rm.forward = MagicMock(return_value=torch.tensor([1.0, 0.5]))
             

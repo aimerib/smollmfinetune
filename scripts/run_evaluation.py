@@ -21,7 +21,7 @@ from typing import Dict, Any, Optional
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.evaluation import (
+from backend.app.narrative_engine.evaluation import (
     run_evaluation_suite,
     eval_json_correctness,
     eval_coherence,
@@ -29,9 +29,9 @@ from narrative_engine.evaluation import (
     eval_memory_consistency,
     SafetyLayer
 )
-from narrative_engine.evaluation.eval_basic_generation import BasicGenerationEvaluator
-from narrative_engine.evaluation.eval_triple_head_sanity import TripleHeadSanityEvaluator
-from narrative_engine.evaluation.eval_training_progress import TrainingProgressEvaluator
+from backend.app.narrative_engine.evaluation.eval_basic_generation import BasicGenerationEvaluator
+from backend.app.narrative_engine.evaluation.eval_triple_head_sanity import TripleHeadSanityEvaluator
+from backend.app.narrative_engine.evaluation.eval_training_progress import TrainingProgressEvaluator
 
 # Configure logging
 logging.basicConfig(

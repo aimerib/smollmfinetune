@@ -10,7 +10,7 @@ from datetime import datetime
 from typing import Dict, Any, List
 import asyncio
 
-from narrative_engine.state_manager import (
+from backend.app.narrative_engine.state_manager import (
     StateManager,
     EntityState,
     StateUpdate,

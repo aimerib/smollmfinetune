@@ -22,8 +22,8 @@ from dataclasses import dataclass
 sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
 
 # Import evaluation metrics
-from utils.evaluation.personality_metric import calculate_personality_alignment
-from utils.telemetry_sdk import init, log
+from backend.app.core.evaluation.personality_metric import calculate_personality_alignment
+from backend.app.core.telemetry_sdk import init, log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

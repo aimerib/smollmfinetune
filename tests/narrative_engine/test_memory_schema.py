@@ -8,7 +8,7 @@ import pytest
 from datetime import datetime
 from pydantic import ValidationError
 
-from narrative_engine.memory_schema import (
+from backend.app.narrative_engine.memory_schema import (
     Turn,
     MemoryAnnotation,
     MemoryFormationEvent,

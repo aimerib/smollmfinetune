@@ -28,8 +28,8 @@ try:
 except ImportError:
     try:
         # Try absolute import for standalone scripts
-        from narrative_engine.model import NarrativeLLM, create_narrative_model
-        from narrative_engine.config import NarrativeLLMConfig
+        from .narrative_engine.model import NarrativeLLM, create_narrative_model
+        from .narrative_engine.config import NarrativeLLMConfig
         NARRATIVE_ENGINE_AVAILABLE = True
     except ImportError:
         NARRATIVE_ENGINE_AVAILABLE = False

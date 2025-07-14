@@ -3,10 +3,10 @@ Integration test for Narrative Engine components
 """
 
 import torch
-from narrative_engine.model import NarrativeLLM, NarrativeLLMConfig
-from narrative_engine.data_pipeline import DatasetProcessor
-from narrative_engine.data_schema import DatasetSample, Turn
-from narrative_engine.loss import DualHeadLoss
+from backend.app.narrative_engine.model import NarrativeLLM, NarrativeLLMConfig
+from backend.app.narrative_engine.data_pipeline import DatasetProcessor
+from backend.app.narrative_engine.data_schema import DatasetSample, Turn
+from backend.app.narrative_engine.loss import DualHeadLoss
 from transformers import AutoTokenizer
 
 

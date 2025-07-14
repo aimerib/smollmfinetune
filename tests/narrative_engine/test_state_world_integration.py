@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 
 from backend.app.services.world.world import WorldManager, WorldLore, Place, NPC
-from narrative_engine.state_manager import StateManager, EntityState, StateUpdate
-from narrative_engine.memory_schema import MemoryAnnotation
+from backend.app.narrative_engine.state_manager import StateManager, EntityState, StateUpdate
+from backend.app.narrative_engine.memory_schema import MemoryAnnotation
 
 
 class TestFullIntegration:

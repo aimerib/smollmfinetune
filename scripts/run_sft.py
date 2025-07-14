@@ -36,7 +36,7 @@ from transformers import (
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Import narrative engine components
-from narrative_engine import (
+from backend.app.narrative_engine import (
     NarrativeLLM,
     NarrativeLLMConfig,
     create_narrative_model,
@@ -44,7 +44,7 @@ from narrative_engine import (
     DatasetProcessor,
     run_evaluation_suite
 )
-from narrative_engine.clara_trainer import CLARATrainer
+from backend.app.narrative_engine.clara_trainer import CLARATrainer
 from scripts.generate_synthetic_conversations import SyntheticDataGenerator
 from backend.app.core.openai_client import get_client
 

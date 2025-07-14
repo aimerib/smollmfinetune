@@ -8,14 +8,14 @@ import pytest
 import asyncio
 from datetime import datetime
 
-from narrative_engine.memory_generator import (
+from backend.app.narrative_engine.memory_generator import (
     MemoryGenerator,
     MemoryGenerationRequest,
     GeneratedMemory,
     MemoryBatch,
     generate_memories_for_dataset,
 )
-from narrative_engine.memory_schema import Turn, MemoryAnnotation
+from backend.app.narrative_engine.memory_schema import Turn, MemoryAnnotation
 
 
 class TestMemoryGenerator:

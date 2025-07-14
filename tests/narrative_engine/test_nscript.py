@@ -12,13 +12,13 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from narrative_engine.nscript import (
+from backend.app.narrative_engine.nscript import (
     ScriptManager, TriggerMonitor, ActionExecutor, 
     NScriptTrigger, NScriptAction, Script,
     GenerationParams, ControlParams, MemoryParams, CoordinationParams
 )
-from narrative_engine.state_manager import StateManager, EntityState, EventLog, StateUpdate
-from narrative_engine.agent import BaseAgent
+from backend.app.narrative_engine.state_manager import StateManager, EntityState, EventLog, StateUpdate
+from backend.app.narrative_engine.agent import BaseAgent
 
 
 class TestNScriptParsing:

@@ -18,7 +18,7 @@ from dataclasses import dataclass, field
 from collections import defaultdict
 import logging
 
-from narrative_engine.data_schema import DatasetSample, Turn
+from backend.app.narrative_engine.data_schema import DatasetSample, Turn
 
 logger = logging.getLogger(__name__)
 

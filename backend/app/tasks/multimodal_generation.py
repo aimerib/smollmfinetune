@@ -17,7 +17,7 @@ from typing import Dict, Any, Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # Import narrative engine
-from narrative_engine.synthetic_multimodal_dataset import (
+from .narrative_engine.synthetic_multimodal_dataset import (
     MultimodalDatasetGenerator, 
     SyntheticGenerationConfig
 )

@@ -13,16 +13,16 @@ from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 # Import the classes we'll be implementing
-from narrative_engine.personality_decision_engine import (
+from backend.app.narrative_engine.personality_decision_engine import (
     PersonalityDecisionEngine,
     DecisionContext,
     ChoiceOption,
     DecisionResult,
     PersonalityWeights
 )
-from narrative_engine.emotional_decision_modifiers import EmotionalDecisionModifier
-from narrative_engine.relationship_decision_influence import RelationshipDecisionInfluence
-from narrative_engine.decision_consistency_tracker import (
+from backend.app.narrative_engine.emotional_decision_modifiers import EmotionalDecisionModifier
+from backend.app.narrative_engine.relationship_decision_influence import RelationshipDecisionInfluence
+from backend.app.narrative_engine.decision_consistency_tracker import (
     DecisionConsistencyTracker,
     DecisionRecord,
     PersonalityConsistencyReport,

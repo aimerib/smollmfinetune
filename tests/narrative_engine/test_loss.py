@@ -5,7 +5,7 @@ Test suite for Narrative Engine Dual-Head Loss Function
 import torch
 import torch.nn as nn
 import pytest
-from narrative_engine.loss import DualHeadLoss
+from backend.app.narrative_engine.loss import DualHeadLoss
 
 
 class TestDualHeadLoss:

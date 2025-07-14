@@ -15,14 +15,14 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.diffusion_config import (
+from backend.app.narrative_engine.diffusion_config import (
     DiffusionMultimodalConfig, 
     get_small_config, 
     get_medium_config, 
     get_large_config
 )
-from narrative_engine.diffusion_model import create_diffusion_model
-from narrative_engine.synthetic_multimodal_dataset import (
+from backend.app.narrative_engine.diffusion_model import create_diffusion_model
+from backend.app.narrative_engine.synthetic_multimodal_dataset import (
     MultimodalDatasetGenerator, 
     SyntheticGenerationConfig
 )
@@ -304,7 +304,7 @@ def main():
         logger.info("   python scripts/generate_multimodal_dataset.py --num-samples 1000")
         logger.info("")
         logger.info("2. Start diffusion training:")
-        logger.info("   from narrative_engine.diffusion_trainer import DiffusionTrainingManager")
+        logger.info("   from backend.app.narrative_engine.diffusion_trainer import DiffusionTrainingManager")
         logger.info("   manager = DiffusionTrainingManager()")
         logger.info("   manager.start_diffusion_training(character, dataset_path, config)")
         logger.info("")

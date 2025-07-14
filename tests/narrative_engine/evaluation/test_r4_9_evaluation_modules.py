@@ -17,7 +17,7 @@ class TestJSONCorrectnessEvaluation:
     
     def test_json_evaluation_with_valid_json(self):
         """Test that valid JSON outputs get a score of 1.0"""
-        from narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
+        from backend.app.narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
         
         evaluator = JSONCorrectnessEvaluator()
         
@@ -29,7 +29,7 @@ class TestJSONCorrectnessEvaluation:
     
     def test_json_evaluation_with_malformed_json(self):
         """Test that malformed JSON outputs get a score of 0.0"""
-        from narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
+        from backend.app.narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
         
         evaluator = JSONCorrectnessEvaluator()
         
@@ -41,7 +41,7 @@ class TestJSONCorrectnessEvaluation:
     
     def test_json_evaluation_with_model(self):
         """Test JSON evaluation with a mock model"""
-        from narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
+        from backend.app.narrative_engine.evaluation.eval_json_correctness import JSONCorrectnessEvaluator
         
         evaluator = JSONCorrectnessEvaluator()
         
@@ -81,7 +81,7 @@ class TestCoherenceEvaluation:
     @pytest.mark.evaluation
     def test_coherence_evaluation_basic(self):
         """Test basic coherence evaluation setup"""
-        from narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
+        from backend.app.narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
         
         evaluator = CoherenceEvaluator()
         
@@ -108,7 +108,7 @@ class TestCoherenceEvaluation:
     @pytest.mark.evaluation
     def test_coherence_evaluation_with_long_conversation(self):
         """Test coherence evaluation handles long conversations properly"""
-        from narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
+        from backend.app.narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
         
         evaluator = CoherenceEvaluator()
         
@@ -135,7 +135,7 @@ class TestCoherenceEvaluation:
     @pytest.mark.evaluation  
     def test_coherence_evaluation_consistent_conversation(self):
         """Test coherence evaluation with a consistent conversation"""
-        from narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
+        from backend.app.narrative_engine.evaluation.eval_coherence import CoherenceEvaluator
         
         evaluator = CoherenceEvaluator()
         
@@ -162,7 +162,7 @@ class TestLatencyEvaluation:
     
     def test_latency_measurement_basic(self):
         """Test basic latency measurement functionality"""
-        from narrative_engine.evaluation.eval_latency import LatencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_latency import LatencyEvaluator
         
         evaluator = LatencyEvaluator()
         
@@ -192,7 +192,7 @@ class TestLatencyEvaluation:
     
     def test_latency_statistics(self):
         """Test that latency statistics are computed correctly"""
-        from narrative_engine.evaluation.eval_latency import LatencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_latency import LatencyEvaluator
         
         evaluator = LatencyEvaluator()
         
@@ -212,7 +212,7 @@ class TestMemoryConsistencyEvaluation:
     
     def test_memory_consistency_basic(self):
         """Test basic memory consistency evaluation"""
-        from narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
         
         evaluator = MemoryConsistencyEvaluator()
         
@@ -245,7 +245,7 @@ class TestMemoryConsistencyEvaluation:
     
     def test_memory_consistency_with_invalid_embeddings(self):
         """Test memory evaluation with non-normalized embeddings"""
-        from narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
         
         evaluator = MemoryConsistencyEvaluator()
         
@@ -272,7 +272,7 @@ class TestMemoryConsistencyEvaluation:
     @pytest.mark.evaluation
     def test_memory_formation_accuracy(self):
         """Test memory formation accuracy evaluation"""
-        from narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_memory_consistency import MemoryConsistencyEvaluator
         
         evaluator = MemoryConsistencyEvaluator()
         
@@ -309,7 +309,7 @@ class TestSafetyLayer:
     
     def test_safety_layer_initialization(self):
         """Test SafetyLayer initialization with blocklists"""
-        from narrative_engine.evaluation.safety_layer import SafetyLayer
+        from backend.app.narrative_engine.evaluation.safety_layer import SafetyLayer
         
         blocklist = ["harmful_word", "dangerous_phrase"]
         safety = SafetyLayer(blocklist=blocklist)
@@ -319,7 +319,7 @@ class TestSafetyLayer:
     
     def test_safety_layer_input_filtering(self):
         """Test that SafetyLayer blocks harmful inputs"""
-        from narrative_engine.evaluation.safety_layer import SafetyLayer
+        from backend.app.narrative_engine.evaluation.safety_layer import SafetyLayer
         
         safety = SafetyLayer(blocklist=["violence", "explicit"])
         
@@ -333,7 +333,7 @@ class TestSafetyLayer:
     
     def test_safety_layer_output_filtering(self):
         """Test that SafetyLayer filters harmful outputs"""
-        from narrative_engine.evaluation.safety_layer import SafetyLayer
+        from backend.app.narrative_engine.evaluation.safety_layer import SafetyLayer
         
         safety = SafetyLayer(blocklist=["inappropriate"])
         
@@ -349,7 +349,7 @@ class TestSafetyLayer:
     
     def test_safety_layer_wrapped_generation(self):
         """Test SafetyLayer wrapping a model's generation function"""
-        from narrative_engine.evaluation.safety_layer import SafetyLayer
+        from backend.app.narrative_engine.evaluation.safety_layer import SafetyLayer
         
         # Mock model
         mock_model = Mock()
@@ -374,7 +374,7 @@ class TestSafetyLayer:
     
     def test_safety_layer_configuration(self):
         """Test SafetyLayer configuration loading"""
-        from narrative_engine.evaluation.safety_layer import SafetyLayer
+        from backend.app.narrative_engine.evaluation.safety_layer import SafetyLayer
         
         with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
             config = {
@@ -397,10 +397,10 @@ class TestSafetyLayer:
 class TestEvaluationOrchestration:
     """Tests for the main evaluation orchestration script"""
     
-    @patch('narrative_engine.evaluation.eval_json_correctness.JSONCorrectnessEvaluator')
-    @patch('narrative_engine.evaluation.eval_coherence.CoherenceEvaluator')
-    @patch('narrative_engine.evaluation.eval_latency.LatencyEvaluator')
-    @patch('narrative_engine.evaluation.eval_memory_consistency.MemoryConsistencyEvaluator')
+    @patch('backend.app.narrative_engine.evaluation.eval_json_correctness.JSONCorrectnessEvaluator')
+    @patch('backend.app.narrative_engine.evaluation.eval_coherence.CoherenceEvaluator')
+    @patch('backend.app.narrative_engine.evaluation.eval_latency.LatencyEvaluator')
+    @patch('backend.app.narrative_engine.evaluation.eval_memory_consistency.MemoryConsistencyEvaluator')
     def test_run_r4_9_evaluation_suite(self, mock_memory, mock_latency, mock_coherence, mock_json):
         """Test that all R4-9 evaluations are orchestrated correctly"""
         # This will test the main orchestration script

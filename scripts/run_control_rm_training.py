@@ -22,7 +22,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.reward_models import (
+from backend.app.narrative_engine.reward_models import (
     ControlRewardModel, 
     load_head_preferences,
     prepare_control_preferences

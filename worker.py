@@ -119,7 +119,7 @@ def run_training(self, training_run_id: int) -> Dict[str, Any]:
         
         if use_contamination_moe:
             logger.info("🔥 Initializing Contamination-Isolation MoE training!")
-            from narrative_engine.contamination_moe_trainer import create_contamination_moe_training_manager
+            from backend.app.narrative_engine.contamination_moe_trainer import create_contamination_moe_training_manager
             training_manager = create_contamination_moe_training_manager(
                 base_model=training_run.base_model,
                 force_gpu=True

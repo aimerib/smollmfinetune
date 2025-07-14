@@ -282,7 +282,7 @@ def run_rlhf(
         
         # Import DPO components
         try:
-            from narrative_engine.dpo_trainer import GenerationDPOTrainer, TripleHeadDPOConfig
+            from .narrative_engine.dpo_trainer import GenerationDPOTrainer, TripleHeadDPOConfig
             from transformers import TrainingArguments
         except ImportError:
             logger.warning("DPO trainer not found. Falling back to TRL DPOTrainer if available.")

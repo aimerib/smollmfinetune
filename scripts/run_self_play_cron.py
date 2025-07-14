@@ -31,7 +31,7 @@ sys.path.append(str(project_root))
 from backend.app.core.inference.inference import InferenceManager
 from backend.app.services.world.world import WorldManager
 from backend.app.services.character.character import CharacterManager
-from narrative_engine.data_schema import DatasetSample, Turn
+from backend.app.narrative_engine.data_schema import DatasetSample, Turn
 
 # Optional WandB import
 try:

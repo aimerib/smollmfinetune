@@ -11,13 +11,13 @@ from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional
 
-from narrative_engine.agent import (
+from backend.app.narrative_engine.agent import (
     ProactiveAgent, BaseAgent, Perception, Action, ActionResult,
     MoveToAction, SpeakToAction, TakeItemAction, UpdateGoalAction,
     AgentState
 )
-from narrative_engine.state_manager import StateManager, EntityState, StateUpdate
-from narrative_engine.types import ThinkResult
+from backend.app.narrative_engine.state_manager import StateManager, EntityState, StateUpdate
+from backend.app.narrative_engine.types import ThinkResult
 
 
 @pytest.fixture

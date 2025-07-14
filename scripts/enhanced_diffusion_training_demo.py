@@ -29,8 +29,8 @@ logger = logging.getLogger(__name__)
 import sys
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.diffusion_config import get_small_config, get_medium_config
-from narrative_engine.diffusion_trainer import DiffusionTrainingManager
+from backend.app.narrative_engine.diffusion_config import get_small_config, get_medium_config
+from backend.app.narrative_engine.diffusion_trainer import DiffusionTrainingManager
 
 def create_dummy_dataloader(batch_size: int = 4, num_batches: int = 10):
     """Create a dummy dataloader for demonstration"""

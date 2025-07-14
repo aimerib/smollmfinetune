@@ -14,13 +14,13 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from narrative_engine.diffusion_config import (
+from backend.app.narrative_engine.diffusion_config import (
     get_small_config, 
     get_medium_config, 
     get_large_config
 )
-from narrative_engine.diffusion_model import DiffusionMultimodalModel
-from narrative_engine.diffusion_trainer import DiffusionTrainingManager
+from backend.app.narrative_engine.diffusion_model import DiffusionMultimodalModel
+from backend.app.narrative_engine.diffusion_trainer import DiffusionTrainingManager
 
 def test_configurations():
     """Test all predefined configurations"""

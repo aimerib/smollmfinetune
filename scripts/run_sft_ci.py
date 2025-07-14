@@ -21,11 +21,13 @@ from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Dict, Any
 
-# Add the app directory to Python path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent / "app"))
+# Add project root and backend to path so we can import backend modules
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "backend"))
 
 # Import telemetry SDK for experiment tracking
-from utils.telemetry_sdk import init, log
+from backend.app.core.telemetry_sdk import init, log
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

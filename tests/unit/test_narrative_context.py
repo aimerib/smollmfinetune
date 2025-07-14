@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "app"))
 
 # Delayed import to allow for patching
-# from utils.narrative_context import NarrativeContext, NarrativeContextService
+# from backend.app.core.narrative_context import NarrativeContext, NarrativeContextService
 
 
 class TestNarrativeContextModels:
@@ -22,7 +22,7 @@ class TestNarrativeContextModels:
 
     def test_narrative_context_model(self):
         """Test the creation and validation of the NarrativeContext model."""
-        from utils.narrative_context import NarrativeContext
+        from backend.app.core.narrative_context import NarrativeContext
         context_data = {
             "narrative_tension": 0.8,
             "character_arc_stage": "rising_action",
@@ -38,7 +38,7 @@ class TestNarrativeContextModels:
 
     def test_emotion_blend_model(self):
         """Test the EmotionBlend model creation and validation."""
-        from utils.narrative_context import EmotionBlend
+        from backend.app.core.narrative_context import EmotionBlend
         
         blend_data = {
             "primary_emotion": "determination",
@@ -52,7 +52,7 @@ class TestNarrativeContextModels:
 
     def test_emotion_blend_validation(self):
         """Test that EmotionBlend validates emotion weights correctly."""
-        from utils.narrative_context import EmotionBlend
+        from backend.app.core.narrative_context import EmotionBlend
         
         with pytest.raises(ValueError, match="must be between 0.0 and 1.0"):
             EmotionBlend(
@@ -63,7 +63,7 @@ class TestNarrativeContextModels:
 
     def test_prosody_control_model(self):
         """Test the ProsodyControl model creation and validation."""
-        from utils.narrative_context import ProsodyControl
+        from backend.app.core.narrative_context import ProsodyControl
         
         prosody_data = {
             "speaking_rate": 1.2,
@@ -79,14 +79,14 @@ class TestNarrativeContextModels:
 
     def test_prosody_control_validation(self):
         """Test that ProsodyControl validates rate ranges correctly."""
-        from utils.narrative_context import ProsodyControl
+        from backend.app.core.narrative_context import ProsodyControl
         
         with pytest.raises(ValueError, match="Rate must be between 0.5 and 2.0"):
             ProsodyControl(speaking_rate=3.0)  # Invalid rate
 
     def test_emotional_state_model(self):
         """Test the EmotionalState model creation."""
-        from utils.narrative_context import EmotionalState
+        from backend.app.core.narrative_context import EmotionalState
         
         state_data = {
             "primary_emotion": "joy",
@@ -105,7 +105,7 @@ class TestNarrativeContextModels:
 
     def test_emotional_transition_model(self):
         """Test the EmotionalTransition model creation."""
-        from utils.narrative_context import EmotionalState, EmotionalTransition
+        from backend.app.core.narrative_context import EmotionalState, EmotionalTransition
         
         from_state = EmotionalState(
             primary_emotion="calm",
@@ -140,7 +140,7 @@ class TestTemporalConsistencyTracker:
 
     def test_tracker_initialization(self):
         """Test basic tracker initialization."""
-        from utils.narrative_context import TemporalConsistencyTracker
+        from backend.app.core.narrative_context import TemporalConsistencyTracker
         
         tracker = TemporalConsistencyTracker("character_1", max_history_length=10)
         assert tracker.character_id == "character_1"
@@ -150,7 +150,7 @@ class TestTemporalConsistencyTracker:
 
     def test_add_emotional_state(self):
         """Test adding emotional states to the tracker."""
-        from utils.narrative_context import TemporalConsistencyTracker, EmotionalState
+        from backend.app.core.narrative_context import TemporalConsistencyTracker, EmotionalState
         
         tracker = TemporalConsistencyTracker("character_1")
         
@@ -170,7 +170,7 @@ class TestTemporalConsistencyTracker:
 
     def test_history_length_limit(self):
         """Test that history length is properly limited."""
-        from utils.narrative_context import TemporalConsistencyTracker, EmotionalState
+        from backend.app.core.narrative_context import TemporalConsistencyTracker, EmotionalState
         
         tracker = TemporalConsistencyTracker("character_1", max_history_length=3)
         
@@ -191,7 +191,7 @@ class TestTemporalConsistencyTracker:
 
     def test_get_emotional_arc(self):
         """Test getting emotional arc within a time window."""
-        from utils.narrative_context import TemporalConsistencyTracker, EmotionalState
+        from backend.app.core.narrative_context import TemporalConsistencyTracker, EmotionalState
         
         tracker = TemporalConsistencyTracker("character_1")
         
@@ -227,7 +227,7 @@ class TestTemporalConsistencyTracker:
 
     def test_calculate_emotional_momentum(self):
         """Test emotional momentum calculation."""
-        from utils.narrative_context import TemporalConsistencyTracker, EmotionalState
+        from backend.app.core.narrative_context import TemporalConsistencyTracker, EmotionalState
         
         tracker = TemporalConsistencyTracker("character_1")
         
@@ -249,7 +249,7 @@ class TestTemporalConsistencyTracker:
 
     def test_predict_next_emotional_state_no_history(self):
         """Test predicting next state when no history exists."""
-        from utils.narrative_context import (
+        from backend.app.core.narrative_context import (
             TemporalConsistencyTracker, EmotionBlendingService, 
             NarrativeContext
         )
@@ -274,7 +274,7 @@ class TestTemporalConsistencyTracker:
 
     def test_predict_next_emotional_state_with_history(self):
         """Test predicting next state with existing history."""
-        from utils.narrative_context import (
+        from backend.app.core.narrative_context import (
             TemporalConsistencyTracker, EmotionBlendingService,
             NarrativeContext, EmotionalState
         )
@@ -309,7 +309,7 @@ class TestTemporalConsistencyTracker:
 
     def test_create_smooth_transition(self):
         """Test creating smooth transitions between emotional states."""
-        from utils.narrative_context import (
+        from backend.app.core.narrative_context import (
             TemporalConsistencyTracker, EmotionalState
         )
         
@@ -341,7 +341,7 @@ class TestTemporalConsistencyTracker:
 
     def test_create_smooth_transition_no_history(self):
         """Test creating transition when no history exists."""
-        from utils.narrative_context import (
+        from backend.app.core.narrative_context import (
             TemporalConsistencyTracker, EmotionalState
         )
         
@@ -365,7 +365,7 @@ class TestEmotionBlendingService:
 
     def test_create_emotion_blend_basic(self):
         """Test basic emotion blend creation."""
-        from utils.narrative_context import EmotionBlendingService
+        from backend.app.core.narrative_context import EmotionBlendingService
         
         service = EmotionBlendingService()
         blend = service.create_emotion_blend(
@@ -381,7 +381,7 @@ class TestEmotionBlendingService:
 
     def test_create_emotion_blend_tension_scaling(self):
         """Test that narrative tension affects emotion blend intensity."""
-        from utils.narrative_context import EmotionBlendingService
+        from backend.app.core.narrative_context import EmotionBlendingService
         
         service = EmotionBlendingService()
         
@@ -404,7 +404,7 @@ class TestEmotionBlendingService:
 
     def test_create_emotion_blend_from_state(self):
         """Test creating emotion blend from emotional state."""
-        from utils.narrative_context import EmotionBlendingService, EmotionalState
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionalState
         
         service = EmotionBlendingService()
         
@@ -423,7 +423,7 @@ class TestEmotionBlendingService:
 
     def test_calculate_prosody_from_context(self):
         """Test prosody calculation from emotion blend and narrative context."""
-        from utils.narrative_context import EmotionBlendingService, EmotionBlend, NarrativeContext
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionBlend, NarrativeContext
         
         service = EmotionBlendingService()
         
@@ -450,7 +450,7 @@ class TestEmotionBlendingService:
 
     def test_calculate_prosody_different_emotions(self):
         """Test prosody calculation for different emotion types."""
-        from utils.narrative_context import EmotionBlendingService, EmotionBlend, NarrativeContext
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionBlend, NarrativeContext
         
         service = EmotionBlendingService()
         
@@ -476,7 +476,7 @@ class TestEmotionBlendingService:
 
     def test_generate_emotion_tag_simple(self):
         """Test emotion tag generation for simple emotions."""
-        from utils.narrative_context import EmotionBlendingService, EmotionBlend
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionBlend
         
         service = EmotionBlendingService()
         
@@ -491,7 +491,7 @@ class TestEmotionBlendingService:
 
     def test_generate_emotion_tag_complex(self):
         """Test emotion tag generation for complex emotion blends."""
-        from utils.narrative_context import EmotionBlendingService, EmotionBlend
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionBlend
         
         service = EmotionBlendingService()
         
@@ -509,7 +509,7 @@ class TestEmotionBlendingService:
 
     def test_generate_emotion_tag_filters_weak_emotions(self):
         """Test that weak secondary emotions are filtered out of tags."""
-        from utils.narrative_context import EmotionBlendingService, EmotionBlend
+        from backend.app.core.narrative_context import EmotionBlendingService, EmotionBlend
         
         service = EmotionBlendingService()
         
@@ -552,7 +552,7 @@ class TestNarrativeContextService:
     @pytest.mark.asyncio
     async def test_analyze_context_from_dialogue(self, mock_llm_client):
         """Test that the service can analyze a piece of dialogue and return a structured context."""
-        from utils.narrative_context import NarrativeContext, NarrativeContextService
+        from backend.app.core.narrative_context import NarrativeContext, NarrativeContextService
 
         service = NarrativeContextService(client=mock_llm_client)
         

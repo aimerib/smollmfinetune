@@ -9,9 +9,9 @@ import pytest
 from unittest.mock import AsyncMock, Mock
 from datetime import datetime, timedelta
 
-from narrative_engine.agent import BaseAgent, Scheduler, Perception
-from narrative_engine.state_manager import StateManager, EntityState
-from narrative_engine.types import ThinkResult
+from backend.app.narrative_engine.agent import BaseAgent, Scheduler, Perception
+from backend.app.narrative_engine.state_manager import StateManager, EntityState
+from backend.app.narrative_engine.types import ThinkResult
 
 
 class TestAgenticLoopSubtextIntegration:

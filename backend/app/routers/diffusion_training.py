@@ -8,15 +8,15 @@ from datetime import datetime
 import uuid
 import logging
 
-from narrative_engine.diffusion_config import (
+from .narrative_engine.diffusion_config import (
     DiffusionMultimodalConfig, 
     get_small_config, 
     get_medium_config, 
     get_large_config
 )
-from narrative_engine.diffusion_model import DiffusionMultimodalModel
-from narrative_engine.diffusion_trainer import DiffusionTrainingManager
-from narrative_engine.synthetic_multimodal_dataset import SyntheticMultimodalDatasetGenerator
+from .narrative_engine.diffusion_model import DiffusionMultimodalModel
+from .narrative_engine.diffusion_trainer import DiffusionTrainingManager
+from .narrative_engine.synthetic_multimodal_dataset import SyntheticMultimodalDatasetGenerator
 from backend.app.services.character.character import CharacterManager
 from backend.app.services.world.world import WorldManager
 

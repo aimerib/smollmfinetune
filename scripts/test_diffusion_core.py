@@ -12,13 +12,13 @@ from pathlib import Path
 # Add parent directory to path for imports
 sys.path.append(str(Path(__file__).parent.parent))
 
-from narrative_engine.diffusion_config import (
+from backend.app.narrative_engine.diffusion_config import (
     DiffusionMultimodalConfig, 
     get_small_config, 
     get_medium_config, 
     get_large_config
 )
-from narrative_engine.diffusion_model import create_diffusion_model
+from backend.app.narrative_engine.diffusion_model import create_diffusion_model
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')

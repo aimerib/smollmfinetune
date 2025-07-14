@@ -5,7 +5,7 @@ import shutil
 import torch
 from pathlib import Path
 from pydantic import ValidationError
-from narrative_engine.data_schema import Turn, DatasetSample
+from backend.app.narrative_engine.data_schema import Turn, DatasetSample
 
 
 class TestDataSchema:
@@ -281,12 +281,12 @@ class TestDatasetProcessor:
     def test_dataset_processor_import(self):
         """Test that DatasetProcessor can be imported"""
         # This will fail initially because DatasetProcessor doesn't exist
-        from narrative_engine.data_pipeline import DatasetProcessor
+        from backend.app.narrative_engine.data_pipeline import DatasetProcessor
         assert DatasetProcessor is not None
     
     def test_dataset_processor_instantiation(self):
         """Test DatasetProcessor can be instantiated with a tokenizer"""
-        from narrative_engine.data_pipeline import DatasetProcessor
+        from backend.app.narrative_engine.data_pipeline import DatasetProcessor
         from transformers import AutoTokenizer
         
         # Use a small tokenizer for testing
@@ -298,7 +298,7 @@ class TestDatasetProcessor:
     
     def test_dataset_processor_output(self):
         """Test DatasetProcessor produces correctly shaped tensors with loss masks"""
-        from narrative_engine.data_pipeline import DatasetProcessor
+        from backend.app.narrative_engine.data_pipeline import DatasetProcessor
         from transformers import AutoTokenizer
         
         # Initialize processor
@@ -338,7 +338,7 @@ class TestDatasetProcessor:
     
     def test_dataset_processor_loss_mask_channels(self):
         """Test that loss_mask correctly identifies text vs action channels"""
-        from narrative_engine.data_pipeline import DatasetProcessor
+        from backend.app.narrative_engine.data_pipeline import DatasetProcessor
         from transformers import AutoTokenizer
         
         # Initialize processor
@@ -366,7 +366,7 @@ class TestDatasetProcessor:
     
     def test_dataset_processor_batch_processing(self):
         """Test DatasetProcessor can handle multiple samples"""
-        from narrative_engine.data_pipeline import DatasetProcessor
+        from backend.app.narrative_engine.data_pipeline import DatasetProcessor
         from transformers import AutoTokenizer
         
         # Initialize processor

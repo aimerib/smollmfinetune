@@ -15,11 +15,11 @@ from enum import Enum
 
 from pydantic import BaseModel, Field
 
-from utils.narrative_context import (
+from .narrative_context import (
     NarrativeContext, NarrativeContextService, EmotionBlendingService,
     TemporalConsistencyTracker, EmotionalState, EmotionBlend, ProsodyControl
 )
-from utils.openai_client import get_client, OpenAIClient
+from .openai_client import get_client, OpenAIClient
 
 logger = logging.getLogger(__name__)
 

@@ -10,7 +10,7 @@ import numpy as np
 from unittest.mock import Mock, patch, AsyncMock
 from typing import Dict, List, Any
 
-from narrative_engine.tts_integration import (
+from backend.app.narrative_engine.tts_integration import (
     TTSOrchestrator, 
     KokoroTTS, 
     OrpheusTTS,

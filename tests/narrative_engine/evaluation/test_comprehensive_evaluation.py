@@ -23,7 +23,7 @@ class TestCharacterVoiceConsistencyEvaluator:
     
     def test_voice_consistency_initialization(self):
         """Test voice consistency evaluator initialization"""
-        from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
         
         evaluator = CharacterVoiceConsistencyEvaluator()
         assert evaluator is not None
@@ -37,7 +37,7 @@ class TestCharacterVoiceConsistencyEvaluator:
     @pytest.mark.evaluation
     async def test_voice_consistency_single_character(self):
         """Test voice consistency scoring for a single character using LLM analysis"""
-        from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
         
         evaluator = CharacterVoiceConsistencyEvaluator()
         
@@ -66,7 +66,7 @@ class TestCharacterVoiceConsistencyEvaluator:
     @pytest.mark.evaluation
     async def test_voice_consistency_inconsistent_character(self):
         """Test detection of inconsistent character voice using LLM analysis"""
-        from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
         
         evaluator = CharacterVoiceConsistencyEvaluator()
         
@@ -94,7 +94,7 @@ class TestCharacterVoiceConsistencyEvaluator:
     @pytest.mark.evaluation
     async def test_voice_consistency_across_conversations(self):
         """Test voice consistency across multiple conversations using LLM analysis"""
-        from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
         
         evaluator = CharacterVoiceConsistencyEvaluator()
         
@@ -132,7 +132,7 @@ class TestCharacterVoiceConsistencyEvaluator:
     @pytest.mark.evaluation
     def test_voice_consistency_sync_wrapper(self):
         """Test synchronous wrapper for backwards compatibility"""
-        from narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
+        from backend.app.narrative_engine.evaluation.eval_character_voice import CharacterVoiceConsistencyEvaluator
         
         evaluator = CharacterVoiceConsistencyEvaluator()
         
@@ -151,7 +151,7 @@ class TestEmotionalArcEvaluator:
     
     def test_emotional_arc_initialization(self):
         """Test emotional arc evaluator initialization"""
-        from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
+        from backend.app.narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
         
         evaluator = EmotionalArcEvaluator()
         assert evaluator is not None
@@ -167,7 +167,7 @@ class TestEmotionalArcEvaluator:
     @pytest.mark.evaluation
     async def test_emotional_arc_tracking(self):
         """Test tracking emotional arc through a conversation using LLM analysis"""
-        from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
+        from backend.app.narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
         
         evaluator = EmotionalArcEvaluator()
         
@@ -195,7 +195,7 @@ class TestEmotionalArcEvaluator:
     @pytest.mark.evaluation
     async def test_emotional_arc_naturalness(self):
         """Test evaluation of emotional arc naturalness using LLM analysis"""
-        from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
+        from backend.app.narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
         
         evaluator = EmotionalArcEvaluator()
         
@@ -229,7 +229,7 @@ class TestEmotionalArcEvaluator:
     @pytest.mark.evaluation
     async def test_emotional_pattern_analysis(self):
         """Test emotional pattern analysis across multiple conversations"""
-        from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
+        from backend.app.narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
         
         evaluator = EmotionalArcEvaluator()
         
@@ -252,7 +252,7 @@ class TestEmotionalArcEvaluator:
     @pytest.mark.evaluation
     def test_emotional_arc_sync_wrapper(self):
         """Test synchronous wrapper for backwards compatibility"""
-        from narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
+        from backend.app.narrative_engine.evaluation.eval_emotional_arc import EmotionalArcEvaluator
         
         evaluator = EmotionalArcEvaluator()
         

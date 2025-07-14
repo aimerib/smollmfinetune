@@ -22,7 +22,7 @@ class TestTripleHeadDPOConfig:
     
     def test_dpo_config_creation(self):
         """Test creating DPO config for triple-head training"""
-        from narrative_engine.dpo_trainer import TripleHeadDPOConfig
+        from backend.app.narrative_engine.dpo_trainer import TripleHeadDPOConfig
         
         config = TripleHeadDPOConfig(
             head_type="generation",
@@ -44,7 +44,7 @@ class TestTripleHeadDPOConfig:
     
     def test_dpo_config_validation(self):
         """Test DPO config validation"""
-        from narrative_engine.dpo_trainer import TripleHeadDPOConfig
+        from backend.app.narrative_engine.dpo_trainer import TripleHeadDPOConfig
         
         # Should raise error for invalid head type
         with pytest.raises(ValueError, match="Invalid head_type"):
@@ -56,10 +56,10 @@ class TestGenerationHeadDPO:
     
     def test_generation_dpo_trainer(self):
         """Test DPO trainer for generation head"""
-        from narrative_engine.dpo_trainer import GenerationDPOTrainer
+        from backend.app.narrative_engine.dpo_trainer import GenerationDPOTrainer
         
         # Mock model and config
-        with patch('narrative_engine.model.NarrativeLLM') as MockModel:
+        with patch('backend.app.narrative_engine.model.NarrativeLLM') as MockModel:
             # Create a mock that inherits from nn.Module
             import torch.nn as nn
             
@@ -102,7 +102,7 @@ class TestGenerationHeadDPO:
     
     def test_generation_dpo_loss(self):
         """Test DPO loss calculation for generation head"""
-        from narrative_engine.dpo_trainer import compute_generation_dpo_loss
+        from backend.app.narrative_engine.dpo_trainer import compute_generation_dpo_loss
         
         batch_size = 2
         seq_len = 10
@@ -134,7 +134,7 @@ class TestControlHeadDPO:
     
     def test_control_dpo_loss(self):
         """Test DPO loss for control token distributions"""
-        from narrative_engine.dpo_trainer import compute_control_dpo_loss
+        from backend.app.narrative_engine.dpo_trainer import compute_control_dpo_loss
         
         batch_size = 2
         num_control_tokens = 64
@@ -170,7 +170,7 @@ class TestMemoryHeadDPO:
     
     def test_memory_dpo_loss(self):
         """Test DPO loss for memory embeddings and metadata"""
-        from narrative_engine.dpo_trainer import compute_memory_dpo_loss
+        from backend.app.narrative_engine.dpo_trainer import compute_memory_dpo_loss
         
         batch_size = 2
         embedding_dim = 768
@@ -211,9 +211,9 @@ class TestCoordinatedDPO:
     
     def test_coordinated_dpo_trainer(self):
         """Test coordinated DPO trainer that optimizes all heads"""
-        from narrative_engine.dpo_trainer import CoordinatedDPOTrainer
+        from backend.app.narrative_engine.dpo_trainer import CoordinatedDPOTrainer
         
-        with patch('narrative_engine.model.NarrativeLLM') as MockModel:
+        with patch('backend.app.narrative_engine.model.NarrativeLLM') as MockModel:
             # Create a mock that inherits from nn.Module
             import torch.nn as nn
             
@@ -259,7 +259,7 @@ class TestCoordinatedDPO:
     
     def test_cross_head_regularization(self):
         """Test cross-head regularization in coordinated DPO"""
-        from narrative_engine.dpo_trainer import compute_cross_head_regularization
+        from backend.app.narrative_engine.dpo_trainer import compute_cross_head_regularization
         
         # Mock head outputs
         generation_loss = torch.tensor(1.0)
@@ -297,7 +297,7 @@ class TestDPODataPreparation:
     
     def test_preference_to_dpo_format(self):
         """Test converting preference data to DPO format"""
-        from narrative_engine.dpo_trainer import prepare_dpo_dataset
+        from backend.app.narrative_engine.dpo_trainer import prepare_dpo_dataset
         
         # Mock preference data
         preferences = [
@@ -321,7 +321,7 @@ class TestDPODataPreparation:
     
     def test_head_specific_preference_loading(self):
         """Test loading head-specific preferences"""
-        from narrative_engine.dpo_trainer import load_head_specific_preferences
+        from backend.app.narrative_engine.dpo_trainer import load_head_specific_preferences
         
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create mock preference files
@@ -363,9 +363,9 @@ class TestDPOIntegration:
     
     def test_dpo_model_loading(self):
         """Test loading triple-head model for DPO"""
-        from narrative_engine.dpo_trainer import load_model_for_dpo
+        from backend.app.narrative_engine.dpo_trainer import load_model_for_dpo
         
-        with patch('narrative_engine.model.NarrativeLLM') as MockModel:
+        with patch('backend.app.narrative_engine.model.NarrativeLLM') as MockModel:
             mock_model = MockModel.return_value
             
             model = load_model_for_dpo(

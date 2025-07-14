@@ -12,7 +12,7 @@ import uuid
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 
-from narrative_engine.data_schema import Turn, DatasetSample
+from backend.app.narrative_engine.data_schema import Turn, DatasetSample
 
 
 def convert_character_to_dataset_sample(char_folder: Path) -> DatasetSample:
