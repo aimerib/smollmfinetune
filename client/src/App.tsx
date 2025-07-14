@@ -7,6 +7,8 @@ import WorldBuilder from './pages/WorldBuilder';
 import DatasetStudio from './pages/DatasetStudio';
 import MultimodalStudio from './pages/MultimodalStudio';
 import DiffusionTraining from './pages/DiffusionTraining';
+import QuadHeadTraining from './pages/QuadHeadTraining';
+import { QuadHeadStreaming } from './pages/QuadHeadStreaming';
 import HomePage from './pages/HomePage';
 import ChatPage from './pages/ChatPage';
 import DirectorsView from './pages/DirectorsView';
@@ -34,6 +36,8 @@ function App() {
           <Route path="world-builder" element={<WorldBuilder />} />
                       <Route path="dataset-studio" element={<DatasetStudio />} />
           <Route path="multimodal-studio" element={<MultimodalStudio />} />
+          <Route path="quad-head-training" element={<QuadHeadTraining />} />
+          <Route path="quad-head-streaming" element={<QuadHeadStreaming />} />
           <Route path="training" element={<div>Training Dashboard (TODO)</div>} />
           <Route path="diffusion-training" element={<DiffusionTraining />} />
           <Route path="projects" element={<div>All Projects (TODO)</div>} />

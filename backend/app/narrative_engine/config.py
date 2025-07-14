@@ -39,12 +39,24 @@ class NarrativeLLMConfig:
     num_memory_attention_heads: int = 8 # Number of heads for cross-attention
     
     # --- C.L.A.R.A. Loop Features ---
-    # Dual-head architecture and emotional recirculation
+    # Triple-head architecture and emotional recirculation
     control_head_dim: int = 256  # Dimensionality of control token head
     control_vocab_size: int = 64  # Max control tokens
     recirculation_layers: int = 2  # Layers for emotional context injection
     surprise_threshold: float = 0.7  # Threshold for surprise detection
     decay_steps: int = 4  # How many turns to track emotional momentum
+    
+    # --- Speech Head (Fourth Head) ---
+    # Configuration for native speech synthesis capabilities
+    enable_speech_head: bool = False  # Enable/disable speech head
+    speech_mel_bins: int = 80  # Number of mel-frequency bins
+    speech_quantization_bits: int = 4  # Quantization bits (4-bit = 16 levels)
+    speech_hop_length: int = 256  # Hop length for mel-spectrogram (25ms at 22050Hz)
+    speech_sample_rate: int = 22050  # Target sample rate for speech synthesis
+    speech_frame_context: int = 1000  # Context window for temporal modeling
+    num_character_embeddings: int = 1000  # Max characters for voice conditioning
+    enable_cross_attention: bool = True  # Text-speech cross-modal attention
+    enable_streaming: bool = False  # Streaming speech generation capability
     
     # --- Adapters (LoRA/DoRA) ---
     # Configuration for dynamically loaded persona adapters.

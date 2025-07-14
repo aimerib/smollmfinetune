@@ -5,7 +5,10 @@ from contextlib import asynccontextmanager
 import logging
 from backend.app.config import settings
 from backend.app.database import create_tables
-from backend.app.routers import auth, characters, worlds, datasets, multimodal, inference, evaluation, websocket, voice_streaming
+from backend.app.routers import (
+    characters, worlds, datasets, multimodal, training, inference, 
+    websocket, voice_streaming, quad_head_training, quad_head_streaming
+)
 from backend.app.redis_client import get_redis_pool
 import time
 
@@ -70,18 +73,17 @@ async def add_process_time_header(request: Request, call_next):
     response.headers["X-Process-Time"] = str(process_time)
     return response
 
-# Include routers
-app.include_router(auth.router, prefix="/api/v1")
-app.include_router(characters.router, prefix="/api/v1")
-app.include_router(worlds.router, prefix="/api/v1")
-app.include_router(datasets.router, prefix="/api/v1")
-app.include_router(multimodal.router, prefix="/api/v1")
-
-# Import and include unified inference & evaluation routers
-app.include_router(inference.router, prefix="/api/v1")
-app.include_router(evaluation.router, prefix="/api/v1")
-app.include_router(websocket.router, prefix="/api/v1")
+# Include all routers
+app.include_router(characters.router)
+app.include_router(worlds.router)
+app.include_router(datasets.router)
+app.include_router(multimodal.router)
+app.include_router(training.router)
+app.include_router(inference.router)
+app.include_router(websocket.router)
 app.include_router(voice_streaming.router)
+app.include_router(quad_head_training.router)
+app.include_router(quad_head_streaming.router)
 
 # Root endpoint
 @app.get("/")

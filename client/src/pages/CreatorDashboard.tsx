@@ -84,6 +84,13 @@ const CreatorDashboard: React.FC = () => {
       color: 'var(--orange-500)'
     },
     {
+      icon: '🧠',
+      title: 'Quad-Head Training',
+      description: 'Train advanced multimodal AI with speech synthesis',
+      path: '/creator/quad-head-training',
+      color: 'var(--orange-600)'
+    },
+    {
       icon: '🎬',
       title: "Director's Chair",
       description: 'Fine-tune characters through live conversation',
