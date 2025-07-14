@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import styled from '@emotion/styled';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { FiSend } from 'react-icons/fi';
+import { FiSend, FiVolume2, FiVolumeX } from 'react-icons/fi';
 import ChatMessage from '../components/ChatMessage';
 import CharacterHeader from '../components/CharacterHeader';
+import { StreamingAudioPlayer, StreamingAudioPlayerRef } from '../components/StreamingAudioPlayer';
 import { chatService } from '../utils/chatService';
 
 const Container = styled.div`
@@ -117,6 +118,39 @@ const LoadingMessage = styled.div`
   font-size: 1.1rem;
 `;
 
+const VoiceControlsContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.5rem 1rem;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+`;
+
+const VoiceToggleButton = styled.button<{ enabled: boolean }>`
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  background: ${props => props.enabled ? '#8b45c1' : 'rgba(255, 255, 255, 0.1)'};
+  color: white;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    background: ${props => props.enabled ? '#9b55d1' : 'rgba(255, 255, 255, 0.2)'};
+  }
+`;
+
+const AudioPlayerContainer = styled.div<{ visible: boolean }>`
+  display: ${props => props.visible ? 'block' : 'none'};
+  margin-bottom: 1rem;
+`;
+
 interface Message {
   id: string;
   role: 'user' | 'assistant';
@@ -137,7 +171,13 @@ const ChatPage: React.FC = () => {
   const [sessionId, setSessionId] = useState<string | null>(urlSessionId || null);
   const [isInitializing, setIsInitializing] = useState(true);
   
+  // Voice-related state
+  const [voiceEnabled, setVoiceEnabled] = useState(true);
+  const [audioConnectionStatus, setAudioConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
+  const [, setLastCharacterMessage] = useState<string | null>(null);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const audioPlayerRef = useRef<StreamingAudioPlayerRef | null>(null);
 
   const characterNames = {
     alice: 'Alice',
@@ -167,6 +207,37 @@ const ChatPage: React.FC = () => {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const handleVoiceToggle = () => {
+    setVoiceEnabled(!voiceEnabled);
+  };
+
+  const handleAudioConnectionChange = (status: 'connecting' | 'connected' | 'disconnected' | 'error') => {
+    setAudioConnectionStatus(status);
+  };
+
+  const handleAudioError = (error: Error) => {
+    console.error('Audio error:', error);
+    setAudioConnectionStatus('error');
+  };
+
+  const playCharacterVoice = async (text: string, emotion: string = 'neutral') => {
+    if (!voiceEnabled || !audioPlayerRef.current) {
+      return;
+    }
+
+    try {
+      // Use the ref to trigger voice generation
+      const emotionContext = { emotion };
+      audioPlayerRef.current.generateVoice(text, emotionContext);
+      
+      // Set the last character message for UI state
+      setLastCharacterMessage(text);
+    } catch (error) {
+      console.error('Failed to play character voice:', error);
+      handleAudioError(error as Error);
+    }
   };
 
   const sendMessage = async () => {
@@ -208,6 +279,11 @@ const ChatPage: React.FC = () => {
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      
+      // Trigger voice generation for character response
+      if (voiceEnabled && response.generation_text) {
+        await playCharacterVoice(response.generation_text, emotion);
+      }
     } catch (error) {
       console.error('Failed to send message:', error);
       const errorMessage: Message = {
@@ -246,6 +322,31 @@ const ChatPage: React.FC = () => {
     <Container>
       <ChatContainer>
         <CharacterHeader characterId={characterId} emotion={currentEmotion} />
+        
+        {/* Voice Controls */}
+        <VoiceControlsContainer>
+          <VoiceToggleButton enabled={voiceEnabled} onClick={handleVoiceToggle}>
+            {voiceEnabled ? <FiVolume2 size={16} /> : <FiVolumeX size={16} />}
+            {voiceEnabled ? 'Voice On' : 'Voice Off'}
+          </VoiceToggleButton>
+          
+          {voiceEnabled && (
+            <div style={{ fontSize: '0.8rem', color: 'rgba(255, 255, 255, 0.6)' }}>
+              Audio: {audioConnectionStatus}
+            </div>
+          )}
+        </VoiceControlsContainer>
+
+        {/* Audio Player */}
+        <AudioPlayerContainer visible={voiceEnabled}>
+          <StreamingAudioPlayer
+            ref={audioPlayerRef}
+            characterId={characterId}
+            wsUrl="ws://localhost:8000/api/v1/voice/stream"
+            onConnectionChange={handleAudioConnectionChange}
+            onError={handleAudioError}
+          />
+        </AudioPlayerContainer>
         
         <MessagesArea>
           <AnimatePresence mode="popLayout">

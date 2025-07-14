@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 import logging
 from backend.app.config import settings
 from backend.app.database import create_tables
-from backend.app.routers import auth, characters, worlds, datasets, multimodal, inference, evaluation, websocket
+from backend.app.routers import auth, characters, worlds, datasets, multimodal, inference, evaluation, websocket, voice_streaming
 from backend.app.redis_client import get_redis_pool
 import time
 
@@ -81,6 +81,7 @@ app.include_router(multimodal.router, prefix="/api/v1")
 app.include_router(inference.router, prefix="/api/v1")
 app.include_router(evaluation.router, prefix="/api/v1")
 app.include_router(websocket.router, prefix="/api/v1")
+app.include_router(voice_streaming.router)
 
 # Root endpoint
 @app.get("/")

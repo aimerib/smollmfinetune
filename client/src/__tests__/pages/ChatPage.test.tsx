@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { BrowserRouter } from 'react-router-dom';
 import ChatPage from '../../pages/ChatPage';
 import { chatService } from '../../utils/chatService';
@@ -37,21 +37,18 @@ describe('ChatPage Component', () => {
   });
 
   const renderChatPage = async () => {
-    let result: any;
-    await act(async () => {
-      result = render(
-        <BrowserRouter>
-          <ChatPage />
-        </BrowserRouter>
-      );
-    });
+    const view = render(
+      <BrowserRouter>
+        <ChatPage />
+      </BrowserRouter>
+    );
     
     // Wait for initialization to complete
     await waitFor(() => {
       expect(screen.queryByText(/Connecting with/i)).not.toBeInTheDocument();
     });
     
-    return result;
+    return view;
   };
 
   test('renders chat page with character header', async () => {
@@ -146,10 +143,7 @@ describe('ChatPage Component', () => {
     const sendButton = buttons[buttons.length - 1];
 
     fireEvent.change(input, { target: { value: 'Error test' } });
-    
-    await act(async () => {
-      fireEvent.click(sendButton);
-    });
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(screen.getByText(/Sorry, I encountered an error/i)).toBeInTheDocument();
@@ -161,13 +155,11 @@ describe('ChatPage Component', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     mockChatService.startSession.mockRejectedValueOnce(new Error('Failed to start session'));
 
-    await act(async () => {
-      render(
-        <BrowserRouter>
-          <ChatPage />
-        </BrowserRouter>
-      );
-    });
+    render(
+      <BrowserRouter>
+        <ChatPage />
+      </BrowserRouter>
+    );
 
     // Since we're testing the actual component, it will log the error
     await waitFor(() => {
@@ -187,10 +179,7 @@ describe('ChatPage Component', () => {
     const sendButton = buttons[buttons.length - 1];
 
     fireEvent.change(input, { target: { value: 'Scroll test' } });
-    
-    await act(async () => {
-      fireEvent.click(sendButton);
-    });
+    fireEvent.click(sendButton);
 
     await waitFor(() => {
       expect(scrollIntoViewMock).toHaveBeenCalled();
@@ -200,10 +189,16 @@ describe('ChatPage Component', () => {
   test('displays character emotions in messages', async () => {
     mockChatService.sendMessage.mockResolvedValueOnce({
       generation_text: 'I\'m feeling happy!',
-      control_tokens: [{ token: '<emotion_happy>' }],
+      control_tokens: [{ token: '<emotion_happy>', confidence: 0.9 }],
       memory_vector: [],
-      memory_metadata: {},
+      memory_metadata: {
+        importance: 0.7,
+        emotional_valence: 0.8,
+        context_relevance: 0.9,
+        decay_rate: 0.1
+      },
       session_id: 'test-session-123',
+      latency_ms: 150,
     });
 
     await renderChatPage();
@@ -233,23 +228,24 @@ describe('ChatPage Component', () => {
     const sendButton = buttons[buttons.length - 1];
 
     fireEvent.change(input, { target: { value: 'Test typing' } });
-    
-    await act(async () => {
-      fireEvent.click(sendButton);
-    });
+    fireEvent.click(sendButton);
 
     // Should show typing indicator
     expect(screen.getByText(/Alice is typing/i)).toBeInTheDocument();
 
     // Resolve the promise
-    await act(async () => {
-      resolveMessage!({
-        generation_text: 'Response!',
-        control_tokens: [],
-        memory_vector: [],
-        memory_metadata: {},
-        session_id: 'test-session-123',
-      });
+    resolveMessage!({
+      generation_text: 'Response!',
+      control_tokens: [],
+      memory_vector: [],
+      memory_metadata: {
+        importance: 0.5,
+        emotional_valence: 0.5,
+        context_relevance: 0.5,
+        decay_rate: 0.1
+      },
+      session_id: 'test-session-123',
+      latency_ms: 100,
     });
 
     // Wait for response to complete
