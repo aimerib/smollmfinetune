@@ -51,6 +51,7 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+.*_cache/
 
 # Streamlit
 .streamlit/
@@ -61,8 +62,22 @@ checkpoints/
 adapters/
 
 # Character cards (might contain sensitive data)
-*.json
 character_cards/
+content/
 
 # Jupyter notebooks (if any)
 .ipynb_checkpoints/ 
+wandb/
+profiles/
+datasets/
+
+.pytest_cache/
+*.db
+*.db-*
+.coverage
+
+htmlcov/
+
+telemetry*
+*results.json
+spot_costs.json

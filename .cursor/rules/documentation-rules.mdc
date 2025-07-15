@@ -1,0 +1,12 @@
+---
+alwaysApply: true
+---
+At the end of each task, you should update the `overview.mdc` file to reflect the progress of the project.
+Always update the `README.md` file to reflect the new features and changes.
+Always update the documentation in `character-docs/docs/` to reflect the new features and changes. This is the documentation that is used by the end users to understand the project and are technical. The creators and other developers use this documentation to understand the project and how to contribute.
+Always create a new blog post in `character-docs/blog/` to reflect the new features and changes and explain either how this feature works or how it is used for end users who aren't technical, but have interest in the project.
+In the `examples/` directory you should create:
+- a simple python script so I can run it and see the new features in action if no UI is available
+- a markdown file with detailed instructions on how to use the new features, like how do I get there from not even having the server running, if there is a UI.
+- if neither of the above are possible, use your imagination to best describe the new features and how to use them. That will be just for me, not the end user or other developers.
+No task is ever complete until all (for all tasks, quality is everyone's responsibility) tests are green and the code is fully documented.

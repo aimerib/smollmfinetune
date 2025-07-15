@@ -1,0 +1,282 @@
+name: 🚀 Spot Instance Monitor
+
+on:
+  schedule:
+    # Run every 15 minutes to check heartbeats
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: 'Run ID to monitor'
+        required: false
+        type: string
+      action:
+        description: 'Action to perform'
+        required: false
+        default: 'check'
+        type: choice
+        options:
+          - check
+          - resume
+          - terminate
+
+env:
+  AWS_REGION: us-east-1
+  HEARTBEAT_THRESHOLD_MINUTES: 10
+  S3_CHECKPOINT_BUCKET: ${{ secrets.S3_CHECKPOINT_BUCKET || 'training-checkpoints' }}
+
+jobs:
+  monitor-training:
+    name: Monitor Training Instances
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    
+    permissions:
+      id-token: write  # For OIDC authentication with AWS
+      contents: read
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        cache: 'pip'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        pip install boto3 click httpx rich
+    
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+      if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'terminate')
+    
+    - name: 🔍 Check Training Heartbeats
+      id: check_heartbeats
+      run: |
+        python -c "
+        import boto3
+        import json
+        from datetime import datetime, timezone, timedelta
+        import os
+        import sys
+        
+        s3 = boto3.client('s3')
+        bucket = os.environ['S3_CHECKPOINT_BUCKET']
+        threshold_minutes = int(os.environ['HEARTBEAT_THRESHOLD_MINUTES'])
+        
+        # List all heartbeat files
+        try:
+            response = s3.list_objects_v2(
+                Bucket=bucket,
+                Prefix='heartbeats/'
+            )
+            
+            if 'Contents' not in response:
+                print('No heartbeats found')
+                sys.exit(0)
+            
+            stale_runs = []
+            
+            for obj in response['Contents']:
+                key = obj['Key']
+                if key == 'heartbeats/':  # Skip directory marker
+                    continue
+                
+                run_id = key.split('/')[-1]
+                
+                # Get heartbeat content
+                try:
+                    heartbeat_obj = s3.get_object(Bucket=bucket, Key=key)
+                    heartbeat = json.loads(heartbeat_obj['Body'].read())
+                    
+                    # Check age
+                    last_heartbeat = datetime.fromisoformat(heartbeat['timestamp'])
+                    if last_heartbeat.tzinfo is None:
+                        last_heartbeat = last_heartbeat.replace(tzinfo=timezone.utc)
+                    
+                    age = datetime.now(timezone.utc) - last_heartbeat
+                    age_minutes = age.total_seconds() / 60
+                    
+                    if age_minutes > threshold_minutes:
+                        stale_runs.append({
+                            'run_id': run_id,
+                            'age_minutes': age_minutes,
+                            'instance_id': heartbeat.get('instance_id', 'unknown')
+                        })
+                        print(f'⚠️  Stale: {run_id} - last heartbeat {age_minutes:.1f} minutes ago')
+                    else:
+                        print(f'✅ Healthy: {run_id} - last heartbeat {age_minutes:.1f} minutes ago')
+                        
+                except Exception as e:
+                    print(f'❌ Error reading heartbeat for {run_id}: {e}')
+            
+            # Output for next steps
+            if stale_runs:
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f'stale_runs={json.dumps(stale_runs)}\n')
+                    f.write(f'has_stale=true\n')
+            else:
+                with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+                    f.write(f'has_stale=false\n')
+                    
+        except Exception as e:
+            print(f'Error listing heartbeats: {e}')
+            sys.exit(1)
+        "
+      env:
+        GITHUB_OUTPUT: ${{ github.output }}
+    
+    - name: 🔄 Resume Stale Training Runs
+      if: steps.check_heartbeats.outputs.has_stale == 'true' && (github.event_name == 'schedule' || github.event.inputs.action == 'resume')
+      run: |
+        echo "Resuming stale training runs..."
+        
+        STALE_RUNS='${{ steps.check_heartbeats.outputs.stale_runs }}'
+        
+        python -c "
+        import json
+        import subprocess
+        import os
+        
+        stale_runs = json.loads(os.environ['STALE_RUNS'])
+        
+        for run in stale_runs:
+            run_id = run['run_id']
+            print(f'Resuming {run_id}...')
+            
+            # Get latest checkpoint for this run
+            cmd = [
+                'aws', 's3', 'ls',
+                f's3://{os.environ[\"S3_CHECKPOINT_BUCKET\"]}/runs/{run_id}/',
+                '--recursive'
+            ]
+            
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            # Find latest checkpoint manifest
+            checkpoints = []
+            for line in result.stdout.splitlines():
+                if 'checkpoint.json' in line:
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        key = parts[3]
+                        # Extract checkpoint number
+                        if '/checkpoint-' in key:
+                            checkpoint_num = int(key.split('/checkpoint-')[1].split('/')[0])
+                            checkpoints.append((checkpoint_num, key))
+            
+            if checkpoints:
+                checkpoints.sort(reverse=True)
+                latest_checkpoint = checkpoints[0][1]
+                checkpoint_url = f's3://{os.environ[\"S3_CHECKPOINT_BUCKET\"]}/{latest_checkpoint}'
+                
+                print(f'Latest checkpoint: {checkpoint_url}')
+                
+                # Deploy new instance with resume
+                cmd = [
+                    'python', 'scripts/spotctl.py', 'deploy',
+                    '--resume',
+                    '--checkpoint', checkpoint_url,
+                    '--instance-type', 'p4d.24xlarge',
+                    '--max-price', '10.0'
+                ]
+                
+                subprocess.run(cmd)
+            else:
+                print(f'No checkpoints found for {run_id}, cannot resume')
+        "
+      env:
+        STALE_RUNS: ${{ steps.check_heartbeats.outputs.stale_runs }}
+    
+    - name: 📊 Generate Status Report
+      if: always()
+      run: |
+        echo "## 📊 Spot Instance Monitoring Report" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Run Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ "${{ steps.check_heartbeats.outputs.has_stale }}" == "true" ]; then
+          echo "### ⚠️  Stale Training Runs Detected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The following runs have not reported heartbeats recently:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          python -c "
+          import json
+          import os
+          
+          if 'STALE_RUNS' in os.environ and os.environ['STALE_RUNS']:
+              stale_runs = json.loads(os.environ['STALE_RUNS'])
+              print('| Run ID | Last Heartbeat | Instance ID |')
+              print('|--------|----------------|-------------|')
+              for run in stale_runs:
+                  print(f\"| {run['run_id']} | {run['age_minutes']:.0f} minutes ago | {run['instance_id']} |\")
+          "
+          echo "" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "### ✅ All Training Runs Healthy" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "No stale heartbeats detected." >> $GITHUB_STEP_SUMMARY
+        fi
+      env:
+        STALE_RUNS: ${{ steps.check_heartbeats.outputs.stale_runs }}
+    
+    - name: 🚨 Send Alerts (Optional)
+      if: steps.check_heartbeats.outputs.has_stale == 'true'
+      run: |
+        # This is where you could send Slack/Discord/email alerts
+        echo "Alert: Stale training runs detected!"
+        
+        # Example: Send to Discord webhook
+        if [ -n "${{ secrets.DISCORD_WEBHOOK }}" ]; then
+          curl -X POST "${{ secrets.DISCORD_WEBHOOK }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "content": "⚠️  **Spot Instance Alert**\nStale training runs detected. Auto-resume initiated.",
+              "embeds": [{
+                "title": "Stale Training Runs",
+                "color": 16744192,
+                "fields": [{
+                  "name": "Action Taken",
+                  "value": "Attempting to resume training on new instances"
+                }]
+              }]
+            }'
+        fi
+
+  manual-control:
+    name: Manual Spot Control
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'terminate'
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        pip install boto3 click httpx rich
+    
+    - name: 🔐 Configure AWS Credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ env.AWS_REGION }}
+    
+    - name: 🛑 Terminate Instance
+      run: |
+        python scripts/spotctl.py terminate --provider aws 

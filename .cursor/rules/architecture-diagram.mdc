@@ -1,0 +1,39 @@
+---
+description: This file is a living document that gives the **big-picture context** needed by both humans and AIs.
+globs:
+alwaysApply: true
+---
+# Architecture Diagram Maintenance
+
+## Before Every Task
+- **ALWAYS** read the current architecture diagram in `overview.mdc` to understand the platform state
+- **Identify** which components your task will affect
+- **Plan** your implementation with the current architecture in mind
+- **Consider** how your changes will impact the migration from hybrid to unified architecture
+
+## After Every Task  
+- **UPDATE** the architecture diagram in `overview.mdc` to reflect any changes
+- **Add** new components, services, or connections you've created
+- **Remove** deprecated components you've eliminated
+- **Adjust** the color coding to reflect status changes:
+  - 🔴 Legacy (red): `fill:#ffcccc,stroke:#ff6666` 
+  - 🟢 New (green): `fill:#ccffcc,stroke:#66ff66`
+  - 🟡 WIP (yellow): `fill:#fff2cc,stroke:#ffcc00`
+  - 🔵 Stable (blue): `fill:#cce5ff,stroke:#0066cc`
+
+## Diagram Guidelines
+- **Keep it current**: The diagram should always reflect the actual platform state
+- **Use clear labels**: Component names should match actual directory/service names
+- **Show relationships**: Arrows indicate data flow and dependencies
+- **Color consistently**: Use the established color scheme for component status
+- **Update descriptions**: Keep the migration priorities and challenges current
+
+## When to Update
+- Adding new React components or pages
+- Creating new FastAPI endpoints or services
+- Migrating Streamlit features to React
+- Changing service dependencies or data flow
+- Completing migration milestones
+- Deprecating or removing legacy components
+
+The architecture diagram is our **living blueprint** - it should always answer "what does the platform look like right now?" at a glance.

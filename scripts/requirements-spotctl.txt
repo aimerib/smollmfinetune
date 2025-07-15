@@ -1,0 +1,26 @@
+# Requirements for Spot Instance Orchestrator (spotctl)
+
+# AWS SDK for Python
+boto3>=1.28.0
+botocore>=1.31.0
+
+# CLI framework
+click>=8.0.0
+
+# HTTP client for RunPod API
+httpx>=0.24.0
+
+# Rich terminal output
+rich>=13.0.0
+
+# Enhanced features dependencies
+streamlit>=1.28.0
+plotly>=5.15.0
+pandas>=2.0.0
+
+# Metrics and visualization
+numpy>=1.24.0
+
+# Additional utilities
+python-dateutil>=2.8.0
+pytz>=2023.3 

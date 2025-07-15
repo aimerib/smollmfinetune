@@ -1,0 +1,258 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# A Guide to the Task-Based TDD Project
+
+Welcome to the Character Creation Devkit project! This document outlines the development process we follow. Our methodology is designed for clarity, predictability, and quality, ensuring we build a robust and maintainable AI character creation platform.
+
+## The Concentric Ring Model
+
+The project is divided into "Concentric Rings," moving from the most critical core functionality outwards to advanced features and polish.
+
+### Ring Overview
+
+*   **Ring 0: Green Baseline** - End-to-end functionality: upload character card → generate dataset → train model → test character. Basic but complete pipeline.
+*   **Ring 1: Devkit 1.0** - Structured world and character authoring with Big Five personality traits, world integration, and comprehensive UI tools.
+*   **Ring 2: Runtime Packet** - Export trained characters as self-contained "cartridges" with prompt factory for external deployment.
+*   **Ring 3: Multi-User Platform** - Database backend, async training jobs, user management, and production infrastructure.
+*   **Ring 4: Narrative Engine** - Custom model architecture with triple-head outputs (Generation + Control + Memory), external memory, and advanced training techniques.
+*   **Ring 5: Advanced Features** - Director's Chair real-time training, proactive agents, living interfaces, and digital ecology systems.
+
+You should complete tasks sequentially within each ring. This ensures dependencies are met before beginning new work. At the end of every task, before marking it as completed, ensure that the feature is fully integrated with the wider platform. At this point perform a full code search to ensure you know how to fully integrate the feature. After integration, run the **fast test suite** `./scripts/run_tests.sh fast` and verify all tests pass. If any tests fail, they must be fixed before completing the task - NO exceptions. If a test cannot be reasonably fixed, request permission to delete it. Only mark tasks as completed when all fast tests pass, then move to the completed folder and make a commit with all files added.
+
+## The TDD Workflow (Red-Green-Refactor)
+
+Every task in this project follows Test-Driven Development (TDD). For each feature, you will:
+
+1.  **RED:** Read the "TDD Instructions" for the current task. Write failing tests in the appropriate test files that precisely verify the acceptance criteria. For Streamlit UI components, use `streamlit.testing.v1.AppTest`; for business logic, use `pytest` unit tests. The test should fail because the implementation doesn't exist yet.
+
+2.  **GREEN:** Write the **absolute minimum** amount of code required to make the failing test pass. Don't add extra features or refactor yet. Focus solely on achieving a green test result.
+
+3.  **REFACTOR:** With passing tests as a safety net, clean up your implementation. Improve structure, remove duplication, and enhance readability without changing external behavior. Rerun tests to ensure they still pass.
+
+## Technology Stack & Testing
+
+### Core Technologies
+- **Backend**: Python with Streamlit for UI
+- **AI/ML**: Transformers, PEFT (LoRA/DoRA), TRL for RLHF
+- **Data**: Pandas, HuggingFace Datasets, SQLite/PostgreSQL
+- **Testing**: pytest for unit tests, streamlit.testing for UI tests
+
+### Testing Patterns & Markers
+- **Unit Tests**: `tests/test_*.py` for business logic in `app/utils/`
+- **UI Tests**: `tests/ui/test_*.py` for Streamlit pages using `AppTest`
+- **Integration Tests**: `tests/integration/test_*.py` for end-to-end workflows
+- **Test Structure**: Mirror the app structure (e.g., `tests/test_character_manager.py` for `app/utils/character/character.py`)
+- **React Tests**: `client/src/__tests__/` for React components and services
+  - Component tests: `__tests__/components/<ComponentName>.test.tsx`
+  - Page tests: `__tests__/pages/<PageName>.test.tsx`
+  - Service tests: `__tests__/services/<ServiceName>.test.ts`
+  - Hook tests: `__tests__/hooks/<HookName>.test.ts`
+
+#### Pytest Markers for Test Classification
+All tests that require LLM calls or model inference MUST be marked with these decorators:```python
+@pytest.mark.slow      # Tests that take >5 seconds to run
+@pytest.mark.llm       # Tests that call LLMs (OpenAI, local models, etc.)
+@pytest.mark.evaluation # Tests that validate model output quality```
+
+**When to use each marker:**
+- `@pytest.mark.slow` - Any test that takes longer than 5 seconds (file I/O, model loading, etc.)
+- `@pytest.mark.llm` - Tests that make actual LLM API calls or run inference
+- `@pytest.mark.evaluation` - Tests that evaluate model output quality, character consistency, etc.
+
+**Example:**```python
+@pytest.mark.slow
+@pytest.mark.llm
+@pytest.mark.evaluation
+def test_character_voice_consistency():
+    # Test that requires model inference and quality evaluation
+    pass
+```
+
+### Multi-Layer TDD Approach
+We follow a **three-circle TDD methodology**:
+
+- **🔴 Inner Circle (Core Logic)**: Pure business logic, data models, algorithms
+  - Write unit tests for `utils/` modules first
+  - Focus on core functionality without UI dependencies  
+  - Fast feedback loop (~seconds)
+
+- **🟡 Middle Circle (Integration)**: Component integration, workflows, data flow
+  - Integration tests for manager classes working together
+  - Test complete workflows (e.g., character creation → training → testing)
+  - Medium feedback loop (~10-30 seconds)
+
+- **🟢 Outer Circle (UI)**: Streamlit interface, user interactions, visual components
+  - Use `streamlit.testing.v1.AppTest` for UI tests
+  - Test user workflows: button clicks, form submissions, page navigation
+  - Simulate complete user journeys end-to-end
+  - Slower feedback loop (~30-60 seconds)
+
+- **🔵 Client Circle (React UI)**: React components, hooks, and services
+  - Use React Testing Library for component testing
+  - Test user interactions, state changes, and API calls
+  - Mock external dependencies (WebSocket, API services)
+  - Medium feedback loop (~10-20 seconds)
+
+### React Testing Guidelines
+
+#### Component Testing
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import MyComponent from '../MyComponent';
+
+test('renders and handles click', () => {
+  render(<MyComponent />);
+  const button = screen.getByRole('button');
+  fireEvent.click(button);
+  expect(screen.getByText(/clicked/i)).toBeInTheDocument();
+});
+```
+
+#### Service Testing
+```typescript
+import { myService } from '../myService';
+
+jest.mock('../api'); // Mock API calls
+
+test('fetches data successfully', async () => {
+  const data = await myService.getData();
+  expect(data).toEqual(expectedData);
+});
+```
+#### Best Practices
+- **Mock External Dependencies**: WebSocket connections, API calls, timers
+- **Test User Behavior**: Focus on what users see and do, not implementation details
+- **Use Semantic Queries**: `getByRole`, `getByLabelText`, `getByText`
+- **Async Testing**: Use `waitFor` and `findBy` queries for async operations
+- **Coverage Goals**: Aim for 80%+ coverage on critical paths
+
+## Task File Structure
+
+Each task is defined in its own markdown file (e.g., `R1-5_personality_radar_chart.md`). The structure includes:
+
+*   **Goal:** High-level description of what this task achieves.
+*   **Acceptance Criteria:** Clear, verifiable checklist. The task is "done" only when all criteria are met.
+*   **Implementation Notes:** Technical guidance and architectural decisions.
+*   **TDD Instructions:** Specific guidance on what tests to write for the RED phase.
+
+## Character Creation Devkit Specifics
+
+### Project Vision
+Transform AI character creation from simple chatbots into believable, persistent digital actors using the "Devkit + Cartridge" approach:
+- **Devkit**: This creative suite where writers define character psychology and world lore
+- **Cartridge**: Self-contained runtime packets ready for deployment
+
+### Key Quality Standards
+- **Comprehensive Test Coverage**: All new components require tests
+- **TDD Mandatory**: Write tests first for all new features
+- **Separation of Concerns**: Clear boundaries between UI, business logic, and data layers
+- **Character Psychology Focus**: Everything serves creating psychologically consistent characters
+
+### Development Principles
+
+#### LLM-First Data Extraction
+- **NEVER use hardcoded parsing** or templated extraction for analyzing text, extracting information, or processing unstructured data
+- **Always use LLMs with structured output** via Pydantic models and JSON schemas
+- **Follow the established pattern**: Define Pydantic models → Create LLM request with schema → Validate response
+- **Use LMStudio's structured output API** with `response_format.type = "json_schema"` for reliable extraction
+- **Mark extraction functions** with `@pytest.mark.llm` for proper test classification
+- **Benefits**: More flexible than regex/templates, handles edge cases gracefully, provides reasoning, adapts to input variations
+
+This aligns with our LLM-first philosophy and ensures consistent, intelligent data processing throughout the platform.
+
+### Example TDD Cycle
+
+For a character personality feature:
+
+1. **RED**: Write test expecting `PersonalityEditor` component to render Big Five sliders
+2. **GREEN**: Create minimal component that renders 5 sliders (no logic yet)
+3. **REFACTOR**: Add proper trait names, validation, and radar chart visualization
+
+## How to Proceed
+
+1.  **FIRST**: Run fast test suite to ensure clean baseline: `./scripts/run_tests.sh fast`
+2.  **For React changes**: Run React tests: `./scripts/run_react_tests.sh ci`
+2.  Start with the task provided in context
+3.  Follow the TDD cycle for each acceptance criterion
+4.  Run tests frequently using the test runner script (see Testing Workflow below)
+5.  Integrate the feature with the rest of the codebase
+7.  **FINAL**: Run both test suites again:
+    - Python: `./scripts/run_tests.sh fast` - ALL must pass
+    - React: `./scripts/run_react_tests.sh ci` - ALL must pass
+7.  Once complete and all criteria met (and tests pass), mark the task as done
+8.  Move the task file to `ai_coder_tasks/tasks/completed/` with a completion summary
+
+### Development Testing (Use These Regularly)
+- `./scripts/run_tests.sh fast` - **PRIMARY**: Fast tests only (no LLM calls) - use before/after every task
+- `./scripts/run_react_tests.sh watch` - **REACT DEV**: Run React tests in watch mode during development
+- `./scripts/run_tests.sh dev` - Development mode (fast tests, fail on first error)
+- `./scripts/run_react_tests.sh ci` - **REACT CI**: Run React tests once with coverage
+- `./scripts/run_tests.sh pre-commit` - Before git commit (fast + sample slow tests)
+
+### Critical Testing Rules
+1. **ALWAYS** run `./scripts/run_tests.sh fast` before starting any task
+2. **ALWAYS** run `./scripts/run_react_tests.sh ci` before completing React-related tasks
+3. **ALWAYS** run both test suites before marking any task complete
+4. **NEVER** mark a task complete with failing tests
+5. **NEVER** run slow/LLM tests during platform development unless explicitly testing model features
+6. If a test fails and cannot be reasonably fixed, request permission to delete it
+
+
+## Testing Workflow & Script Usage
+
+Use `./scripts/run_tests.sh` for all testing. Available modes:
+
+### Development Testing (Use These Regularly)
+- `./scripts/run_tests.sh fast` - **PRIMARY**: Fast tests only (no LLM calls) - use before/after every task
+- `./scripts/run_tests.sh dev` - Development mode (fast tests, fail on first error)
+- `./scripts/run_tests.sh pre-commit` - Before git commit (fast + sample slow tests)
+
+### Specialized Testing (Use As Needed)
+- `./scripts/run_tests.sh ui` - UI tests only
+- `./scripts/run_tests.sh integration` - Integration tests only
+- `./scripts/run_tests.sh evaluation-fast` - Fast evaluation tests only
+
+### Model Validation Testing (Manual/CI Only)
+- `./scripts/run_tests.sh evaluation-slow` - Slow evaluation tests (LLM-dependent)
+- `./scripts/run_tests.sh slow` - All slow/LLM tests
+- `./scripts/run_tests.sh all` - Everything (expensive, rarely needed)
+
+### Critical Testing Rules
+1. **ALWAYS** run `./scripts/run_tests.sh fast` before starting any task
+2. **ALWAYS** run `./scripts/run_tests.sh fast` before marking any task complete
+3. **NEVER** mark a task complete with failing tests
+4. **NEVER** run slow/LLM tests during platform development unless explicitly testing model features
+5. If a test fails and cannot be reasonably fixed, request permission to delete it
+
+## File Organization
+
+```
+app/
+├── utils/           # Business logic (unit tested)
+├── pages/           # Streamlit pages (UI tested)  
+├── components/      # Reusable UI components
+└── requirements.txt (and requirements-runpod.txt) - opportunity to reduce duplication by splitting the runpod deps into its own file. Best practices?
+
+tests/
+├── test_*.py        # Unit tests for utils/
+├── ui/             # UI tests for pages/
+└── integration/    # End-to-end workflow tests
+
+client/
+├── src/
+│   ├── __tests__/  # React tests
+│   │   ├── components/
+│   │   ├── pages/
+│   │   ├── services/
+│   │   └── hooks/
+│   ├── components/
+│   ├── pages/
+│   ├── services/
+│   └── hooks/
+└── package.json
+```
+
+By following this structured, test-driven process, we build the Character Creation Devkit methodically with high quality and confidence in our code.

@@ -1,0 +1,99 @@
+facebook:
+  label: Facebook
+  permalink: /facebook
+  description: Facebook tag description
+
+hello:
+  label: Hello
+  permalink: /hello
+  description: Hello tag description
+
+docusaurus:
+  label: Docusaurus
+  permalink: /docusaurus
+  description: Docusaurus tag description
+
+vision:
+  label: Vision
+  permalink: /vision
+  description: Posts about our platform vision and future
+
+ai:
+  label: AI
+  permalink: /ai
+  description: Artificial intelligence and machine learning topics
+
+characters:
+  label: Characters
+  permalink: /characters  
+  description: Character creation and development
+
+storytelling:
+  label: Storytelling
+  permalink: /storytelling
+  description: Narrative design and interactive stories
+
+psychology:
+  label: Psychology
+  permalink: /psychology
+  description: Character psychology and personality modeling
+
+personality:
+  label: Personality
+  permalink: /personality
+  description: Personality systems and traits
+
+character-design:
+  label: Character Design
+  permalink: /character-design
+  description: Character creation methodologies
+
+features:
+  label: Features
+  permalink: /features
+  description: Platform features and capabilities
+
+visualization:
+  label: Visualization
+  permalink: /visualization
+  description: Data visualization and monitoring
+
+monitoring:
+  label: Monitoring
+  permalink: /monitoring
+  description: System monitoring and observability
+
+directors-view:
+  label: Director's View
+  permalink: /directors-view
+  description: Director's View feature and insights
+
+announcement:
+  label: Announcement
+  permalink: /announcement
+  description: Platform announcements and updates
+
+architecture:
+  label: Architecture
+  permalink: /architecture
+  description: Technical architecture and design
+
+react:
+  label: React
+  permalink: /react
+  description: React framework and components
+
+fastapi:
+  label: FastAPI
+  permalink: /fastapi
+  description: FastAPI backend framework
+
+platform:
+  label: Platform
+  permalink: /platform
+  description: Platform updates and news
+
+hola:
+  label: Hola
+  permalink: /hola
+  description: Hola tag description

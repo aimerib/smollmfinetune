@@ -1,0 +1,535 @@
+version: '3.8'
+
+services:
+  # React Frontend - Primary UI
+  platform-client:
+    image: dreamcast-platform-client:${IMAGE_TAG:-latest}
+    build:
+      context: ./client
+      dockerfile: Dockerfile.prod
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_API_URL=https://api.dreamcast.dev
+      - REACT_APP_WS_URL=wss://api.dreamcast.dev/ws
+      - REACT_APP_MONITORING_URL=wss://api.dreamcast.dev/monitoring
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - dreamcast-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.client.rule=Host(`dreamcast.dev`)"
+      - "traefik.http.services.client.loadbalancer.server.port=3000"
+
+  # FastAPI Backend - Unified API
+  platform-api:
+    image: dreamcast-platform-api:${IMAGE_TAG:-latest}
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    deploy:
+      replicas: 4
+      update_config:
+        parallelism: 2
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db-primary:5432/${DB_NAME}
+      - DATABASE_READ_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db-replica:5432/${DB_NAME}
+      - REDIS_URL=redis://redis-cluster:6379
+      - WEBSOCKET_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis-cluster:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis-cluster:6379/0
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - MONITORING_ENABLED=true
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    networks:
+      - dreamcast-network
+    depends_on:
+      - db-primary
+      - redis-cluster
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.api.rule=Host(`api.dreamcast.dev`)"
+      - "traefik.http.services.api.loadbalancer.server.port=8000"
+
+  # Inference Engine - Specialized AI Service
+  inference-engine:
+    image: dreamcast-inference-engine:${IMAGE_TAG:-latest}
+    build:
+      context: ./app/inference_engine
+      dockerfile: Dockerfile.prod
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 15s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '2.0'
+          memory: 4G
+    environment:
+      - ENVIRONMENT=production
+      - MODEL_CACHE_SIZE=4G
+      - INFERENCE_TIMEOUT=30
+      - BATCH_SIZE=8
+      - GPU_ENABLED=${GPU_ENABLED:-false}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 60s
+      timeout: 30s
+      retries: 2
+      start_period: 120s
+    networks:
+      - dreamcast-network
+    volumes:
+      - model-cache:/app/models
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.inference.rule=Host(`inference.dreamcast.dev`)"
+      - "traefik.http.services.inference.loadbalancer.server.port=8001"
+
+  # Celery Workers - Async Processing
+  celery-worker:
+    image: dreamcast-platform-api:${IMAGE_TAG:-latest}
+    command: celery -A backend.app.celery_app worker --loglevel=info --concurrency=4
+    deploy:
+      replicas: 3
+      update_config:
+        parallelism: 1
+        delay: 30s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '3.0'
+          memory: 6G
+        reservations:
+          cpus: '1.5'
+          memory: 3G
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db-primary:5432/${DB_NAME}
+      - REDIS_URL=redis://redis-cluster:6379
+      - CELERY_BROKER_URL=redis://redis-cluster:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis-cluster:6379/0
+      - WORKER_TYPE=training
+    networks:
+      - dreamcast-network
+    depends_on:
+      - db-primary
+      - redis-cluster
+    volumes:
+      - training-data:/app/training_output
+      - model-storage:/app/models
+
+  # Celery Beat - Scheduled Tasks
+  celery-beat:
+    image: dreamcast-platform-api:${IMAGE_TAG:-latest}
+    command: celery -A backend.app.celery_app beat --loglevel=info
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://${DB_USER}:${DB_PASSWORD}@db-primary:5432/${DB_NAME}
+      - REDIS_URL=redis://redis-cluster:6379
+      - CELERY_BROKER_URL=redis://redis-cluster:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis-cluster:6379/0
+    networks:
+      - dreamcast-network
+    depends_on:
+      - db-primary
+      - redis-cluster
+
+  # PostgreSQL Primary Database
+  db-primary:
+    image: postgres:15-alpine
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--auth-host=scram-sha-256
+      - POSTGRES_HOST_AUTH_METHOD=scram-sha-256
+    volumes:
+      - postgres-primary-data:/var/lib/postgresql/data
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d
+      - ./infra/postgres/postgres.conf:/etc/postgresql/postgresql.conf
+    networks:
+      - dreamcast-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    command: ["postgres", "-c", "config_file=/etc/postgresql/postgresql.conf"]
+
+  # PostgreSQL Read Replica
+  db-replica:
+    image: postgres:15-alpine
+    deploy:
+      replicas: 2
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 3G
+        reservations:
+          cpus: '0.75'
+          memory: 1.5G
+    environment:
+      - POSTGRES_DB=${DB_NAME}
+      - POSTGRES_USER=${DB_USER}
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_MASTER_HOST=db-primary
+      - POSTGRES_MASTER_PORT=5432
+      - POSTGRES_REPLICA_MODE=true
+    volumes:
+      - postgres-replica-data:/var/lib/postgresql/data
+      - ./infra/postgres/replica-init:/docker-entrypoint-initdb.d
+    networks:
+      - dreamcast-network
+    depends_on:
+      - db-primary
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Redis Cluster for Caching and Queues
+  redis-cluster:
+    image: redis:7-alpine
+    deploy:
+      replicas: 3
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    environment:
+      - REDIS_CLUSTER_ENABLED=yes
+      - REDIS_CLUSTER_CONFIG_FILE=/etc/redis/redis.conf
+    volumes:
+      - redis-data:/data
+      - ./infra/redis/redis.conf:/etc/redis/redis.conf
+    networks:
+      - dreamcast-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    command: ["redis-server", "/etc/redis/redis.conf"]
+
+  # Nginx Load Balancer with SSL
+  nginx-lb:
+    image: nginx:alpine
+    deploy:
+      replicas: 2
+      update_config:
+        parallelism: 1
+        delay: 10s
+        failure_action: rollback
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./infra/nginx/conf.d:/etc/nginx/conf.d
+      - ssl-certificates:/etc/nginx/ssl
+      - nginx-cache:/var/cache/nginx
+    networks:
+      - dreamcast-network
+    depends_on:
+      - platform-api
+      - platform-client
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # Traefik - Modern Load Balancer and SSL
+  traefik:
+    image: traefik:v3.0
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./infra/traefik/traefik.yml:/etc/traefik/traefik.yml
+      - ./infra/traefik/dynamic:/etc/traefik/dynamic
+      - traefik-ssl:/etc/traefik/ssl
+    networks:
+      - dreamcast-network
+    environment:
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL=${ACME_EMAIL}
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.dashboard.rule=Host(`traefik.dreamcast.dev`)"
+      - "traefik.http.services.dashboard.loadbalancer.server.port=8080"
+
+  # Prometheus - Metrics Collection
+  prometheus:
+    image: prom/prometheus:latest
+    deploy:
+      replicas: 1
+      placement:
+        constraints: [node.role == manager]
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-data:/prometheus
+    networks:
+      - dreamcast-network
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=15d'
+      - '--web.enable-lifecycle'
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.dreamcast.dev`)"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  # Grafana - Metrics Visualization
+  grafana:
+    image: grafana/grafana:latest
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    environment:
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_INSTALL_PLUGINS=grafana-piechart-panel
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - dreamcast-network
+    depends_on:
+      - prometheus
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.dreamcast.dev`)"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # ElasticSearch - Log Storage
+  elasticsearch:
+    image: elasticsearch:8.11.0
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 15s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms2g -Xmx2g
+      - xpack.security.enabled=false
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    networks:
+      - dreamcast-network
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:9200/_cluster/health | grep -vq '\"status\":\"red\"'"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 90s
+
+  # Kibana - Log Visualization
+  kibana:
+    image: kibana:8.11.0
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 3
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+    networks:
+      - dreamcast-network
+    depends_on:
+      - elasticsearch
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.kibana.rule=Host(`kibana.dreamcast.dev`)"
+      - "traefik.http.services.kibana.loadbalancer.server.port=5601"
+
+networks:
+  dreamcast-network:
+    driver: overlay
+    external: true
+
+volumes:
+  postgres-primary-data:
+    driver: local
+  postgres-replica-data:
+    driver: local
+  redis-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  grafana-data:
+    driver: local
+  elasticsearch-data:
+    driver: local
+  ssl-certificates:
+    driver: local
+  traefik-ssl:
+    driver: local
+  nginx-cache:
+    driver: local
+  model-cache:
+    driver: local
+  model-storage:
+    driver: local
+  training-data:
+    driver: local 

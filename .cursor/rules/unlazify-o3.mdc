@@ -1,0 +1,7 @@
+---
+alwaysApply: true
+---
+When you have a task to complete, you should always complete it.
+Only ask questions if you are stuck or if I direct you to do so.
+If you already formulated a plan, you should follow it, don't ask permission.
+Absolutely no TODOs in the code. Always complete the task.

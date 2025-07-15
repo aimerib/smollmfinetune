@@ -1,0 +1,246 @@
+name: Evaluation CI Harness
+
+on:
+  pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'character-docs/**'
+      - '**.txt'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  eval-ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15  # Ensure job doesn't run too long
+    
+    env:
+      # Cache keys for deterministic caching
+      CACHE_VERSION: "v1"
+      PIP_CACHE_DIR: ~/.cache/pip
+      HF_HOME: ~/.cache/huggingface
+      HF_DATASETS_CACHE: ~/.cache/huggingface/datasets
+    
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+        cache-dependency-path: |
+          app/requirements.txt
+          app/requirements-runpod.txt
+          app/requirements-prod.txt
+    
+    - name: Create HuggingFace cache directories
+      run: |
+        mkdir -p ~/.cache/huggingface/transformers
+        mkdir -p ~/.cache/huggingface/datasets
+        mkdir -p ~/.cache/huggingface/hub
+        chmod -R 755 ~/.cache/huggingface
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-${{ hashFiles('app/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-${{ env.CACHE_VERSION }}-
+          ${{ runner.os }}-pip-
+    
+    - name: Cache HuggingFace models and datasets
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/huggingface/transformers
+          ~/.cache/huggingface/datasets
+          ~/.cache/huggingface/hub
+        key: ${{ runner.os }}-hf-${{ env.CACHE_VERSION }}-${{ hashFiles('scripts/run_sft_ci.py', 'scripts/run_basic_evaluation.py') }}
+        restore-keys: |
+          ${{ runner.os }}-hf-${{ env.CACHE_VERSION }}-
+          ${{ runner.os }}-hf-
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install torch --index-url https://download.pytorch.org/whl/cpu
+        pip install -r app/requirements.txt
+        pip install pytest  # Ensure pytest is available
+    
+    - name: Verify CI training script
+      run: |
+        python -c "import scripts.run_sft_ci; print('✅ CI training script importable')"
+        python -c "import scripts.run_basic_evaluation; print('✅ Evaluation script importable')"
+    
+    - name: Pre-download model files
+      run: |
+        echo "📥 Pre-downloading model files to avoid cache issues..."
+        python -c "
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+        import os
+        
+        model_name = 'HuggingFaceTB/SmolLM2-135M-Instruct'
+        cache_dir = os.path.expanduser('~/.cache/huggingface')
+        
+        print(f'Downloading tokenizer for {model_name}...')
+        tokenizer = AutoTokenizer.from_pretrained(model_name, cache_dir=cache_dir)
+        
+        print(f'Downloading model for {model_name}...')
+        model = AutoModelForCausalLM.from_pretrained(model_name, cache_dir=cache_dir)
+        
+        print('✅ Model files downloaded successfully')
+        "
+    
+    - name: Run lightweight training
+      run: |
+        echo "🚀 Starting lightweight CI training..."
+        python scripts/run_sft_ci.py \
+          --output-dir ci_training_output \
+          --max-steps 50 \
+          --dataset-size 100 \
+          --batch-size 1 \
+          --quick-mode
+        echo "✅ Training completed"
+    
+    - name: Verify checkpoint creation
+      run: |
+        if [ ! -d "ci_training_output" ]; then
+          echo "❌ Training output directory not created"
+          exit 1
+        fi
+        
+        checkpoint_files=$(find ci_training_output -name "*.safetensors" | wc -l)
+        if [ "$checkpoint_files" -eq 0 ]; then
+          echo "❌ No checkpoint files found"
+          ls -la ci_training_output/
+          exit 1
+        fi
+        
+        echo "✅ Found $checkpoint_files checkpoint files"
+    
+    - name: Run evaluation harness
+      run: |
+        echo "🧠 Running evaluation harness..."
+        python scripts/run_basic_evaluation.py \
+          --checkpoint-path ci_training_output \
+          --output-json ci_evaluation_results.json
+        echo "✅ Evaluation completed"
+    
+    - name: Parse evaluation results
+      run: |
+        echo "📊 Parsing evaluation results..."
+        
+        if [ ! -f "ci_evaluation_results.json" ]; then
+          echo "❌ Evaluation results file not found"
+          exit 1
+        fi
+        
+        # Parse JSON correctness and personality alignment
+        json_correctness=$(python -c "import json; data=json.load(open('ci_evaluation_results.json')); print(data['json_correctness'])")
+        personality_alignment=$(python -c "import json; data=json.load(open('ci_evaluation_results.json')); print(data['personality_alignment'])")
+        
+        echo "📈 JSON Correctness: $json_correctness"
+        echo "🧠 Personality Alignment: $personality_alignment"
+        
+        # Check thresholds (fail if below requirements)
+        python -c "
+        import json
+        import sys
+        
+        with open('ci_evaluation_results.json') as f:
+            results = json.load(f)
+        
+        json_correctness = results['json_correctness']
+        personality_alignment = results['personality_alignment']
+        
+        json_threshold = 0.7  # 70%
+        personality_threshold = 0.5  # 0.5
+        
+        success = True
+        
+        if json_correctness < json_threshold:
+            print(f'❌ JSON correctness ({json_correctness:.1%}) below threshold ({json_threshold:.1%})')
+            success = False
+        else:
+            print(f'✅ JSON correctness ({json_correctness:.1%}) passes threshold ({json_threshold:.1%})')
+        
+        if personality_alignment < personality_threshold:
+            print(f'❌ Personality alignment ({personality_alignment:.3f}) below threshold ({personality_threshold})')
+            success = False
+        else:
+            print(f'✅ Personality alignment ({personality_alignment:.3f}) passes threshold ({personality_threshold})')
+        
+        if not success:
+            print('💥 Quality metrics below acceptable thresholds - blocking merge')
+            sys.exit(1)
+        else:
+            print('🎉 All quality metrics pass - ready to merge!')
+        "
+    
+    - name: Run unit tests for CI scripts
+      run: |
+        echo "🧪 Running unit tests for CI scripts..."
+        python -m pytest tests/scripts/test_run_sft_ci.py -v --tb=short
+        echo "✅ Unit tests passed"
+    
+    - name: Upload artifacts
+      if: always()  # Upload even if previous steps failed
+      uses: actions/upload-artifact@v4
+      with:
+        name: ci-evaluation-results
+        path: |
+          ci_evaluation_results.json
+          ci_training_output/
+          telemetry_*.csv
+        retention-days: 7
+    
+    - name: Comment on PR (if available)
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          
+          try {
+            // Read evaluation results
+            const results = JSON.parse(fs.readFileSync('ci_evaluation_results.json', 'utf8'));
+            
+            const jsonCorrectness = (results.json_correctness * 100).toFixed(1);
+            const personalityAlignment = results.personality_alignment.toFixed(3);
+            const evaluationDuration = results.evaluation_duration.toFixed(1);
+            
+            // Create comment body
+            const comment = `## 🤖 Evaluation CI Results
+            
+            | Metric | Score | Threshold | Status |
+            |--------|-------|-----------|--------|
+            | JSON Correctness | ${jsonCorrectness}% | 70% | ${results.json_correctness >= 0.7 ? '✅' : '❌'} |
+            | Personality Alignment | ${personalityAlignment} | 0.5 | ${results.personality_alignment >= 0.5 ? '✅' : '❌'} |
+            
+            **Evaluation Duration:** ${evaluationDuration}s  
+            **Prompts Evaluated:** ${results.num_prompts_evaluated}
+            
+            ${results.json_correctness >= 0.7 && results.personality_alignment >= 0.5 
+              ? '🎉 **All quality metrics pass! Ready to merge.**' 
+              : '⚠️ **Quality metrics below threshold - please review before merging.**'}
+            `;
+            
+            // Post comment
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: comment
+            });
+            
+          } catch (error) {
+            console.log('Could not post PR comment:', error.message);
+          } 

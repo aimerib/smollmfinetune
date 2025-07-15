@@ -1,0 +1,197 @@
+name: Dataset Consistency Check
+
+on:
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'datasets/**'
+      - 'data/**'
+      - '*.json'
+      - '*.jsonl'
+      - '*.csv'
+      - '*.parquet'
+      - '*.arrow'
+  
+  # Allow manual triggering
+  workflow_dispatch:
+    inputs:
+      check_all:
+        description: 'Check all datasets (not just changed ones)'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  dataset-consistency:
+    name: Check Dataset Consistency
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        # Fetch full history for git diff operations
+        fetch-depth: 0
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+        
+        # Install additional dependencies for dataset processing
+        pip install datasets pandas numpy
+    
+    - name: 🔍 Check Dataset Lock Consistency
+      run: |
+        echo "🔍 Running dataset consistency checks..."
+        
+        if [[ "${{ github.event.inputs.check_all }}" == "true" ]]; then
+          echo "📊 Checking ALL datasets (manual trigger)"
+          python scripts/check_dataset_lock.py --verbose
+        else
+          echo "📊 Checking only datasets with changes (PR trigger)"
+          python scripts/check_dataset_lock.py --changed-only --verbose
+        fi
+      env:
+        # Set environment variables for better git operations
+        GIT_TERMINAL_PROMPT: 0
+    
+    - name: 📋 List All Registered Datasets
+      if: always()
+      run: |
+        echo "📋 Currently registered datasets:"
+        python scripts/dataset_register.py --list || echo "No registered datasets found"
+    
+    - name: 💡 Suggest Fix Commands
+      if: failure()
+      run: |
+        echo "❌ Dataset consistency check failed!"
+        echo ""
+        echo "🔧 To fix dataset consistency issues:"
+        echo "1. Register new/changed datasets:"
+        echo "   python scripts/dataset_register.py path/to/dataset --name 'Dataset Name'"
+        echo ""
+        echo "2. Or bulk register all datasets:"
+        echo "   python scripts/dataset_register.py \"datasets/*/\" --name-from-path"
+        echo ""
+        echo "3. Then commit the updated dataset.lock files:"
+        echo "   git add datasets/**/dataset.lock"
+        echo "   git commit -m 'Update dataset locks'"
+        echo ""
+        echo "📚 See docs for more info: ai_coder_tasks/tasks/R4-1.1_dataset_versioning.md"
+
+  # Optional job to create dataset summary comment on PR
+  dataset-summary:
+    name: Dataset Summary
+    runs-on: ubuntu-latest
+    needs: dataset-consistency
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: 🛎️ Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: 🐍 Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+        cache: 'pip'
+    
+    - name: 📦 Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r app/requirements.txt
+    
+    - name: 📊 Generate Dataset Summary
+      id: summary
+      run: |
+        echo "Generating dataset summary for PR..."
+        
+        # Get changed files
+        CHANGED_FILES=$(git diff --name-only origin/main...HEAD | grep -E '\.(json|jsonl|csv|parquet|arrow)$' | head -10 || echo "")
+        
+        # Create summary
+        {
+          echo "## 📊 Dataset Changes Summary"
+          echo ""
+          
+          if [[ -n "$CHANGED_FILES" ]]; then
+            echo "### Changed Dataset Files:"
+            echo "\`\`\`"
+            echo "$CHANGED_FILES"
+            echo "\`\`\`"
+            echo ""
+            
+            # Check for lock files
+            LOCK_FILES=$(git diff --name-only origin/main...HEAD | grep 'dataset\.lock$' || echo "")
+            if [[ -n "$LOCK_FILES" ]]; then
+              echo "### ✅ Updated Lock Files:"
+              echo "\`\`\`"
+              echo "$LOCK_FILES"
+              echo "\`\`\`"
+            else
+              echo "### ⚠️ No Lock Files Updated"
+              echo "Consider running: \`python scripts/dataset_register.py --changed-only\`"
+            fi
+          else
+            echo "No dataset files changed in this PR."
+          fi
+          
+          echo ""
+          echo "### 📋 All Registered Datasets:"
+          python scripts/dataset_register.py --list | tail -n +2
+          
+        } > dataset_summary.md
+        
+        # Set output for comment
+        echo "summary_file=dataset_summary.md" >> $GITHUB_OUTPUT
+    
+    - name: 💬 Comment Dataset Summary on PR
+      uses: actions/github-script@v7
+      if: steps.summary.outputs.summary_file
+      with:
+        script: |
+          const fs = require('fs');
+          const summaryFile = '${{ steps.summary.outputs.summary_file }}';
+          
+          if (fs.existsSync(summaryFile)) {
+            const summary = fs.readFileSync(summaryFile, 'utf8');
+            
+            // Find existing comment
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            
+            const existingComment = comments.data.find(comment => 
+              comment.user.login === 'github-actions[bot]' && 
+              comment.body.includes('📊 Dataset Changes Summary')
+            );
+            
+            if (existingComment) {
+              // Update existing comment
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existingComment.id,
+                body: summary
+              });
+            } else {
+              // Create new comment
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: summary
+              });
+            }
+          } 

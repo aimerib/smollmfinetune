@@ -1,0 +1,354 @@
+version: '3.8'
+
+# Production-like Development Environment
+# Mirrors production architecture but optimized for local development
+# For Mac with 32GB RAM - scales down replicas but maintains multi-service architecture
+
+services:
+  # Nginx Load Balancer (simplified for dev)
+  nginx-lb:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infra/nginx/nginx.dev.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/ssl:/etc/ssl/certs:ro
+    depends_on:
+      - platform-client-1
+      - platform-client-2
+      - platform-api-1
+      - platform-api-2
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # React Frontend - 2 replicas for load balancing testing
+  platform-client-1:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3001:3000"
+    volumes:
+      - ./client/src:/app/src:ro
+      - ./client/public:/app/public:ro
+      - client_node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost/api
+      - REACT_APP_WS_URL=ws://localhost/ws
+      - REACT_APP_MONITORING_URL=ws://localhost/monitoring
+      - FAST_REFRESH=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  platform-client-2:
+    build:
+      context: ./client
+      dockerfile: Dockerfile.dev
+    ports:
+      - "3002:3000"
+    volumes:
+      - ./client/src:/app/src:ro
+      - ./client/public:/app/public:ro
+      - client_node_modules:/app/node_modules
+    environment:
+      - NODE_ENV=development
+      - REACT_APP_API_URL=http://localhost/api
+      - REACT_APP_WS_URL=ws://localhost/ws
+      - REACT_APP_MONITORING_URL=ws://localhost/monitoring
+      - FAST_REFRESH=true
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # FastAPI Backend - 2 replicas for load balancing testing
+  platform-api-1:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8001:8000"
+      - "5678:5678"  # Debug port
+    volumes:
+      - ./backend:/app:cached
+      - ./app:/legacy_app:ro  # Access to original app utils
+    environment:
+      - DATABASE_URL=postgresql://dreamcast:dreamcast123@db-primary:5432/dreamcast_dev
+      - REDIS_URL=redis://redis-cluster:6379
+      - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app:/legacy_app
+    depends_on:
+      - db-primary
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  platform-api-2:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8002:8000"
+      - "5679:5678"  # Debug port
+    volumes:
+      - ./backend:/app:cached
+      - ./app:/legacy_app:ro
+    environment:
+      - DATABASE_URL=postgresql://dreamcast:dreamcast123@db-primary:5432/dreamcast_dev
+      - REDIS_URL=redis://redis-cluster:6379
+      - JWT_SECRET_KEY=dev-secret-key-change-in-production
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app:/legacy_app
+    depends_on:
+      - db-primary
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Inference Engine - 1 replica for dev
+  inference-engine:
+    build:
+      context: ./app/inference_engine
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8100:8000"
+      - "5680:5678"  # Debug port
+    volumes:
+      - ./app:/app:cached
+      - model_cache:/app/models
+    environment:
+      - MODEL_CACHE_DIR=/app/models
+      - REDIS_URL=redis://redis-cluster:6379
+      - ENVIRONMENT=development
+      - DEBUG=true
+    depends_on:
+      - redis-cluster
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # PostgreSQL Primary
+  db-primary:
+    image: postgres:15-alpine
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    environment:
+      - POSTGRES_DB=dreamcast_dev
+      - POSTGRES_USER=dreamcast
+      - POSTGRES_PASSWORD=dreamcast123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dreamcast -d dreamcast_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # PostgreSQL Read Replica (for testing HA)
+  db-replica:
+    image: postgres:15-alpine
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=dreamcast_dev
+      - POSTGRES_USER=dreamcast
+      - POSTGRES_PASSWORD=dreamcast123
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
+    depends_on:
+      - db-primary
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dreamcast -d dreamcast_dev"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Redis Cluster
+  redis-cluster:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./backend:/app:cached
+      - ./app:/legacy_app:ro
+      - model_cache:/app/models
+    environment:
+      - DATABASE_URL=postgresql://dreamcast:dreamcast123@db-primary:5432/dreamcast_dev
+      - REDIS_URL=redis://redis-cluster:6379
+      - CELERY_BROKER_URL=redis://redis-cluster:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis-cluster:6379/1
+      - ENVIRONMENT=development
+      - DEBUG=true
+      - PYTHONPATH=/app:/legacy_app
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=2
+    depends_on:
+      - db-primary
+      - redis-cluster
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Celery Flower (monitoring)
+  flower:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5555:5555"
+    volumes:
+      - ./backend:/app:cached
+    environment:
+      - CELERY_BROKER_URL=redis://redis-cluster:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis-cluster:6379/1
+    command: celery -A app.celery_app flower --port=5555
+    depends_on:
+      - redis-cluster
+      - celery-worker
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Prometheus (monitoring)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/monitoring/prometheus.dev.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=7d'
+      - '--web.enable-lifecycle'
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Grafana (dashboards)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infra/monitoring/grafana-datasources.yml:/etc/grafana/provisioning/datasources/datasources.yml:ro
+      - ./infra/monitoring/grafana-dashboards.yml:/etc/grafana/provisioning/dashboards/dashboards.yml:ro
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+    depends_on:
+      - prometheus
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # ElasticSearch (logging)
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch_data:/usr/share/elasticsearch/data
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+  # Kibana (log visualization)
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.11.0
+    ports:
+      - "5601:5601"
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false
+    depends_on:
+      - elasticsearch
+    networks:
+      - dreamcast-network
+    restart: unless-stopped
+
+networks:
+  dreamcast-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  postgres_replica_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  elasticsearch_data:
+  model_cache:
+  client_node_modules: 
