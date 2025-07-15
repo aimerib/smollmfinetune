@@ -1,0 +1,75 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Platform API instances
+  - job_name: 'platform-api'
+    static_configs:
+      - targets: ['platform-api-1:8000', 'platform-api-2:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # React Client instances
+  - job_name: 'platform-client'
+    static_configs:
+      - targets: ['platform-client-1:3000', 'platform-client-2:3000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Inference Engine
+  - job_name: 'inference-engine'
+    static_configs:
+      - targets: ['inference-engine:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+
+  # PostgreSQL
+  - job_name: 'postgresql'
+    static_configs:
+      - targets: ['db-primary:5432', 'db-replica:5432']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Redis
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-cluster:6379']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Nginx Load Balancer
+  - job_name: 'nginx'
+    static_configs:
+      - targets: ['nginx-lb:80']
+    metrics_path: '/nginx_status'
+    scrape_interval: 30s
+
+  # Celery Worker
+  - job_name: 'celery'
+    static_configs:
+      - targets: ['celery-worker:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Elasticsearch
+  - job_name: 'elasticsearch'
+    static_configs:
+      - targets: ['elasticsearch:9200']
+    metrics_path: '/_prometheus/metrics'
+    scrape_interval: 30s
+
+  # Node Exporter (if available)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['host.docker.internal:9100']
+    scrape_interval: 30s 
