@@ -14,6 +14,8 @@ While creators can craft individual characters masterfully, they lack tools for 
 
 **Platform Integration**: Full React UI with real-time breeding visualization, FastAPI backend for genetic algorithms, and potential cartridge export for family lineages.
 
+**Technical Guidance**: Realistically speaking, this is an interface to merge LoRAs/DoRAs into a character.
+
 ## Acceptance Criteria
 
 ### Core Breeding Mechanics (React + FastAPI)

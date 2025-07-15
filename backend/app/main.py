@@ -8,7 +8,7 @@ from backend.app.database import create_tables
 from backend.app.routers import (
     characters, worlds, datasets, multimodal, training, inference, 
     websocket, voice_streaming, quad_head_training, quad_head_streaming,
-    flow_matching
+    flow_matching, multimodal_studio
 )
 from backend.app.redis_client import get_redis_pool
 import time
@@ -79,6 +79,7 @@ app.include_router(characters.router)
 app.include_router(worlds.router)
 app.include_router(datasets.router)
 app.include_router(multimodal.router)
+app.include_router(multimodal_studio.router)
 app.include_router(training.router)
 app.include_router(inference.router)
 app.include_router(websocket.router)
